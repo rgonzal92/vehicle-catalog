@@ -1,0 +1,5 @@
+/* PrimeNG styles sit between Tailwind's base and utilities, so utilities can adjust components. */
+@layer theme, base, primeng, components, utilities;
+
+@import "tailwindcss";
+@import "tailwindcss-primeui";
