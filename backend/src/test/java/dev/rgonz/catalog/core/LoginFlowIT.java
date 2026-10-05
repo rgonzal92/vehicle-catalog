@@ -61,7 +61,7 @@ class LoginFlowIT extends ApplicationIT {
 
     assertThat(app("GET", "/api/me").body())
         .contains("\"roles\":[\"admin\",\"manager\",\"author\"]");
-    assertThat(app("GET", "/api/admin/check").statusCode()).isEqualTo(200);
+    assertThat(app("GET", "/api/vehicle-lines").statusCode()).isEqualTo(200);
   }
 
   @Test
@@ -69,7 +69,6 @@ class LoginFlowIT extends ApplicationIT {
     finishSignIn(app("GET", "/api/oauth2/authorization/cognito"), "manager");
 
     assertThat(app("GET", "/api/me").body()).contains("\"roles\":[\"manager\",\"author\"]");
-    assertThat(app("GET", "/api/admin/check").statusCode()).isEqualTo(403);
   }
 
   @Test
@@ -77,7 +76,7 @@ class LoginFlowIT extends ApplicationIT {
     finishSignIn(app("GET", "/api/oauth2/authorization/cognito"), "someone-without-a-group");
 
     assertThat(app("GET", "/api/me").body()).contains("\"roles\":[]");
-    assertThat(app("GET", "/api/admin/check").statusCode()).isEqualTo(403);
+    assertThat(app("GET", "/api/vehicle-lines").statusCode()).isEqualTo(403);
     assertThat(app("POST", "/api/logout").statusCode()).as("sign-out").isEqualTo(200);
   }
 

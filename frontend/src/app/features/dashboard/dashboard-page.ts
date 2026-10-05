@@ -1,11 +1,12 @@
 import { Component, inject } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { Button } from 'primeng/button';
 import { Tag } from 'primeng/tag';
 import { Session } from '../../core/session';
 
 /** The first page a signed-in person sees, with a section for each thing their role can do. */
 @Component({
-  imports: [Button, Tag],
+  imports: [RouterLink, Button, Tag],
   selector: 'app-dashboard-page',
   template: `
     <main class="mx-auto max-w-5xl px-6 py-10">
@@ -38,7 +39,11 @@ import { Session } from '../../core/session';
       @if (session.holds('admin')) {
         <section class="mt-10" aria-labelledby="admin-links">
           <h2 id="admin-links" class="text-xl font-semibold">Admin links</h2>
-          <p class="mt-2 text-muted-color">There are no admin screens.</p>
+          <ul class="mt-2">
+            <li>
+              <a class="text-primary underline" routerLink="/admin/vehicle-lines">Vehicle lines</a>
+            </li>
+          </ul>
         </section>
       }
     </main>

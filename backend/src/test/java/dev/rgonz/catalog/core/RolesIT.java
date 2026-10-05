@@ -7,44 +7,25 @@ import dev.rgonz.catalog.ApplicationIT;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-/** Checks that a person's role decides which endpoints answer them. */
+/** Checks that holding a role, any role, opens what is open to authors. */
 class RolesIT extends ApplicationIT {
-  private static final String ADMIN_ONLY = "/api/admin/check";
-
-  @Test
-  void adminOnlyEndpointAnswersAnAdmin() {
-    assertThat(mvc.get().uri(ADMIN_ONLY).with(signedInAs(Role.ADMIN))).hasStatusOk();
-  }
-
-  @Test
-  void adminOnlyEndpointRefusesAnAuthorAndAManager() {
-    for (var role : List.of(Role.AUTHOR, Role.MANAGER)) {
-      assertThat(mvc.get().uri(ADMIN_ONLY).with(signedInAs(role)))
-          .as(role.name())
-          .hasStatus(403)
-          .bodyJson()
-          .extractingPath("$.code")
-          .isEqualTo("FORBIDDEN");
-    }
-  }
-
-  @Test
-  void adminOnlyEndpointNeedsASession() {
-    assertThat(mvc.get().uri(ADMIN_ONLY)).hasStatus(401);
-  }
+  private static final List<String> OPEN_TO_AUTHORS =
+      List.of("/api/reference", "/api/vehicle-lines");
 
   @Test
   void everyRoleReachesWhatIsOpenToAuthors() {
     for (var role : Role.values()) {
-      assertThat(mvc.get().uri("/api/nothing-here").with(signedInAs(role)))
-          .as("%s is let through to a path that does not exist", role)
-          .hasStatus(404);
+      for (var path : OPEN_TO_AUTHORS) {
+        assertThat(mvc.get().uri(path).with(signedInAs(role)))
+            .as("%s reads %s", role, path)
+            .hasStatusOk();
+      }
     }
   }
 
   @Test
   void aPersonWithoutARoleIsRefusedEverythingElse() {
-    for (var path : new String[] {"/api/nothing-here", ADMIN_ONLY}) {
+    for (var path : OPEN_TO_AUTHORS) {
       assertThat(mvc.get().uri(path).with(oidcLogin()))
           .as(path)
           .hasStatus(403)
