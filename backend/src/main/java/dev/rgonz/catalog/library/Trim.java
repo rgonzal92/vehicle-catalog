@@ -7,7 +7,7 @@ import jakarta.persistence.Id;
 
 /** An equipment level defined once in the library, such as Base or Sport. */
 @Entity
-class Trim implements Positioned {
+class Trim implements Sortable {
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
   private Long id;

@@ -3,10 +3,8 @@ package dev.rgonz.catalog.library;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 
-import com.jayway.jsonpath.JsonPath;
 import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.core.Role;
-import java.io.UnsupportedEncodingException;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -54,6 +52,24 @@ class RegionsIT extends ApplicationIT {
   }
 
   @Test
+  void aChangeCannotGiveARegionAnotherCode() {
+    add(Role.ADMIN, "EU", "Europe");
+
+    var changed =
+        mvc.put()
+            .uri("/api/regions/EU")
+            .with(signedInAs(Role.ADMIN))
+            .with(csrf())
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"code\": \"XX\", \"name\": \"Europe\", \"sortOrder\": 1, \"active\": true}")
+            .exchange();
+
+    assertThat(changed.getResponse().getStatus()).isIn(200, 400);
+    assertThat(ApplicationIT.<List<String>>read(list(Role.AUTHOR), "$[*].code"))
+        .containsExactly("EU");
+  }
+
+  @Test
   void aCodeOrNameAlreadyInUseIsRefused() {
     add(Role.ADMIN, "NA", "North America");
     add(Role.ADMIN, "EU", "Europe");
@@ -95,7 +111,12 @@ class RegionsIT extends ApplicationIT {
     add(Role.ADMIN, "NA", "North America");
 
     for (var role : List.of(Role.AUTHOR, Role.MANAGER)) {
-      assertThat(add(role, "EU", "Europe")).as(role.name()).hasStatus(403);
+      assertThat(add(role, "EU", "Europe"))
+          .as(role.name())
+          .hasStatus(403)
+          .bodyJson()
+          .extractingPath("$.code")
+          .isEqualTo("FORBIDDEN");
       assertThat(change(role, "NA", "America", 1, true)).as(role.name()).hasStatus(403);
     }
     assertThat(names(Role.AUTHOR)).containsExactly("North America");
@@ -138,10 +159,6 @@ class RegionsIT extends ApplicationIT {
   }
 
   private List<String> names(Role as) {
-    try {
-      return JsonPath.parse(list(as).getResponse().getContentAsString()).read("$[*].name");
-    } catch (UnsupportedEncodingException e) {
-      throw new IllegalStateException(e);
-    }
+    return read(list(as), "$[*].name");
   }
 }

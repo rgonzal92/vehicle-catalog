@@ -14,6 +14,8 @@ export interface LibraryList {
   path: string;
   /** Whether an entry is identified by a code the admin enters once, when adding it. */
   hasCode: boolean;
+  /** What identifies an entry in its address. */
+  keyOf: (entry: LibraryEntry) => string | number | undefined;
 }
 
 export const TRIMS: LibraryList = {
@@ -21,6 +23,7 @@ export const TRIMS: LibraryList = {
   singular: 'trim',
   path: '/api/trims',
   hasCode: false,
+  keyOf: (trim) => trim.id,
 };
 
 export const REGIONS: LibraryList = {
@@ -28,4 +31,5 @@ export const REGIONS: LibraryList = {
   singular: 'region',
   path: '/api/regions',
   hasCode: true,
+  keyOf: (region) => region.code,
 };

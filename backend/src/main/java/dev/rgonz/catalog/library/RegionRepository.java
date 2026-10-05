@@ -5,5 +5,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 /** Stores regions. */
 interface RegionRepository extends JpaRepository<Region, String> {
-  List<Region> findAllByOrderBySortOrder();
+  /** In sort order. Entries left with the same sort order by a race keep a steady order. */
+  List<Region> findAllByOrderBySortOrderAscCodeAsc();
 }

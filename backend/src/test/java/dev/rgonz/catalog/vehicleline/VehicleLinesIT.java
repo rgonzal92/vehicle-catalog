@@ -2,7 +2,6 @@ package dev.rgonz.catalog.vehicleline;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jayway.jsonpath.JsonPath;
 import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.core.Role;
 import java.util.List;
@@ -195,15 +194,7 @@ class VehicleLinesIT extends ApplicationIT {
   }
 
   private static long idOf(MvcTestResult added) {
-    return JsonPath.parse(contentOf(added)).read("$.id", Long.class);
-  }
-
-  private static String contentOf(MvcTestResult result) {
-    try {
-      return result.getResponse().getContentAsString();
-    } catch (java.io.UnsupportedEncodingException e) {
-      throw new IllegalStateException(e);
-    }
+    return ApplicationIT.<Number>read(added, "$.id").longValue();
   }
 
   private MvcTestResult add(Role as, String code, String name, String vehicleTypeCode) {

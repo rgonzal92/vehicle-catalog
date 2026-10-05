@@ -3,10 +3,8 @@ package dev.rgonz.catalog.library;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 
-import com.jayway.jsonpath.JsonPath;
 import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.core.Role;
-import java.io.UnsupportedEncodingException;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -102,7 +100,9 @@ class TrimsIT extends ApplicationIT {
           .extractingPath("$.code")
           .isEqualTo("VALIDATION");
     }
-    assertThat(add(Role.ADMIN, "T".repeat(40))).hasStatus(201);
+    assertThat(add(Role.ADMIN, " " + "T".repeat(40) + " "))
+        .as("a name of 40 characters, judged without the spaces around it")
+        .hasStatus(201);
   }
 
   @Test
@@ -110,7 +110,12 @@ class TrimsIT extends ApplicationIT {
     var id = idOf(add(Role.ADMIN, "Base"));
 
     for (var role : List.of(Role.AUTHOR, Role.MANAGER)) {
-      assertThat(add(role, "Sport")).as(role.name()).hasStatus(403);
+      assertThat(add(role, "Sport"))
+          .as(role.name())
+          .hasStatus(403)
+          .bodyJson()
+          .extractingPath("$.code")
+          .isEqualTo("FORBIDDEN");
       assertThat(change(role, id, "Basic", 1, true)).as(role.name()).hasStatus(403);
     }
     assertThat(names(Role.AUTHOR)).containsExactly("Base");
@@ -153,18 +158,10 @@ class TrimsIT extends ApplicationIT {
   }
 
   private List<String> names(Role as) {
-    return JsonPath.parse(contentOf(list(as))).read("$[*].name");
+    return read(list(as), "$[*].name");
   }
 
   private static long idOf(MvcTestResult added) {
-    return JsonPath.parse(contentOf(added)).read("$.id", Long.class);
-  }
-
-  private static String contentOf(MvcTestResult result) {
-    try {
-      return result.getResponse().getContentAsString();
-    } catch (UnsupportedEncodingException e) {
-      throw new IllegalStateException(e);
-    }
+    return ApplicationIT.<Number>read(added, "$.id").longValue();
   }
 }

@@ -8,32 +8,33 @@ export type EntryChange = Pick<LibraryEntry, 'name' | 'sortOrder' | 'active'>;
 
 /**
  * The entries of one of the library's ordered lists, in the backend's order. The list is read again
- * after every change, since moving one entry renumbers the others.
+ * after every change, since moving one entry renumbers the others. A refused request leaves it as
+ * it was.
  */
 @Injectable()
 export class LibraryEntries {
   private readonly http = inject(HttpClient);
   private readonly loaded = signal<LibraryEntry[]>([]);
-  private path = '';
+  private list!: LibraryList;
 
   readonly entries = this.loaded.asReadonly();
 
   async load(list: LibraryList): Promise<void> {
-    this.path = list.path;
+    this.list = list;
     await this.read();
   }
 
   async add(entry: Pick<LibraryEntry, 'code' | 'name'>): Promise<void> {
-    await firstValueFrom(this.http.post(this.path, entry));
+    await firstValueFrom(this.http.post(this.list.path, entry));
     await this.read();
   }
 
   async change(entry: LibraryEntry, change: EntryChange): Promise<void> {
-    await firstValueFrom(this.http.put(`${this.path}/${entry.code ?? entry.id}`, change));
+    await firstValueFrom(this.http.put(`${this.list.path}/${this.list.keyOf(entry)}`, change));
     await this.read();
   }
 
   private async read(): Promise<void> {
-    this.loaded.set(await firstValueFrom(this.http.get<LibraryEntry[]>(this.path)));
+    this.loaded.set(await firstValueFrom(this.http.get<LibraryEntry[]>(this.list.path)));
   }
 }

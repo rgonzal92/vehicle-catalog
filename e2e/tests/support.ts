@@ -28,8 +28,14 @@ export async function choose(scope: Locator, label: string, option: string): Pro
 /** Fails when axe finds an accessibility violation on the settled page, naming each one. */
 export async function expectAccessible(page: Page): Promise<void> {
   // A control that is still fading in or out would be judged on a color it only has for a moment.
+  // One that never ends, such as a spinner, is not waited for.
   await page.evaluate(() =>
-    Promise.allSettled(document.getAnimations().map((animation) => animation.finished)),
+    Promise.allSettled(
+      document
+        .getAnimations()
+        .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity)
+        .map((animation) => animation.finished),
+    ),
   );
   const { violations } = await new AxeBuilder({ page }).analyze();
 

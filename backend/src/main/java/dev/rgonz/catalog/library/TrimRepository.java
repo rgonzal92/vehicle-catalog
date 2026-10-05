@@ -5,5 +5,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 /** Stores trims. */
 interface TrimRepository extends JpaRepository<Trim, Long> {
-  List<Trim> findAllByOrderBySortOrder();
+  /** In sort order. Entries left with the same sort order by a race keep a steady order. */
+  List<Trim> findAllByOrderBySortOrderAscIdAsc();
 }

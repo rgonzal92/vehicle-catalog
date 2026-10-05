@@ -25,29 +25,29 @@ class Regions {
 
   @Transactional(readOnly = true)
   List<Region> list() {
-    return repository.findAllByOrderBySortOrder();
+    return repository.findAllByOrderBySortOrderAscCodeAsc();
   }
 
   /** A new region goes to the end of the list. */
   @Transactional
   Region add(NewRegion given) {
-    var regions = repository.findAllByOrderBySortOrder();
-    var region = new Region(given.code(), given.name().strip());
-    Positions.move(regions, region, regions.size() + 1);
+    var regions = repository.findAllByOrderBySortOrderAscCodeAsc();
+    var region = new Region(given.code(), given.name());
+    SortOrders.move(regions, region, regions.size() + 1);
 
     return save(region);
   }
 
   @Transactional
   Region change(String code, RegionChange given) {
-    var regions = repository.findAllByOrderBySortOrder();
+    var regions = repository.findAllByOrderBySortOrderAscCodeAsc();
     var region =
         regions.stream()
             .filter(candidate -> candidate.getCode().equals(code))
             .findFirst()
             .orElseThrow(ApiException::notFound);
-    region.change(given.name().strip(), given.active());
-    Positions.move(regions, region, given.sortOrder());
+    region.change(given.name(), given.active());
+    SortOrders.move(regions, region, given.sortOrder());
 
     return save(region);
   }
@@ -72,15 +72,23 @@ class Regions {
           String code,
       @NotBlank(message = "Enter a name.")
           @Size(max = 80, message = "Keep the name to 80 characters or fewer.")
-          String name) {}
+          String name) {
+    NewRegion {
+      name = Trims.stripped(name);
+    }
+  }
 
   /** What an admin gives to rename, move, activate, or deactivate a region. */
   record RegionChange(
       @NotBlank(message = "Enter a name.")
           @Size(max = 80, message = "Keep the name to 80 characters or fewer.")
           String name,
-      @NotNull(message = "Give the region's place in the list.")
-          @Min(value = 1, message = "The first place in the list is 1.")
+      @NotNull(message = "Give the region's sort order.")
+          @Min(value = 1, message = "The first sort order is 1.")
           Integer sortOrder,
-      @NotNull(message = "Say whether the region is active.") Boolean active) {}
+      @NotNull(message = "Say whether the region is active.") Boolean active) {
+    RegionChange {
+      name = Trims.stripped(name);
+    }
+  }
 }

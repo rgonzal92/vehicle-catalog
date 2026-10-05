@@ -9,7 +9,7 @@ import org.springframework.data.domain.Persistable;
 
 /** A market defined once in the library, such as Europe. Its code is its identity. */
 @Entity
-class Region implements Positioned, Persistable<String> {
+class Region implements Sortable, Persistable<String> {
   @Id private String code;
 
   private String name;
