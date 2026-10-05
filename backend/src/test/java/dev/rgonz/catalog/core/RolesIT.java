@@ -4,9 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
 
 import dev.rgonz.catalog.ApplicationIT;
+import java.util.List;
 import org.junit.jupiter.api.Test;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /** Checks that a person's role decides which endpoints answer them. */
 class RolesIT extends ApplicationIT {
@@ -14,14 +13,14 @@ class RolesIT extends ApplicationIT {
 
   @Test
   void adminOnlyEndpointAnswersAnAdmin() {
-    assertThat(mvc.get().uri(ADMIN_ONLY).with(signedInAs("ADMIN"))).hasStatus2xxSuccessful();
+    assertThat(mvc.get().uri(ADMIN_ONLY).with(signedInAs(Role.ADMIN))).hasStatusOk();
   }
 
   @Test
   void adminOnlyEndpointRefusesAnAuthorAndAManager() {
-    for (var role : new String[] {"AUTHOR", "MANAGER"}) {
+    for (var role : List.of(Role.AUTHOR, Role.MANAGER)) {
       assertThat(mvc.get().uri(ADMIN_ONLY).with(signedInAs(role)))
-          .as(role)
+          .as(role.name())
           .hasStatus(403)
           .bodyJson()
           .extractingPath("$.code")
@@ -36,7 +35,7 @@ class RolesIT extends ApplicationIT {
 
   @Test
   void everyRoleReachesWhatIsOpenToAuthors() {
-    for (var role : new String[] {"AUTHOR", "MANAGER", "ADMIN"}) {
+    for (var role : Role.values()) {
       assertThat(mvc.get().uri("/api/nothing-here").with(signedInAs(role)))
           .as("%s is let through to a path that does not exist", role)
           .hasStatus(404);
@@ -53,9 +52,5 @@ class RolesIT extends ApplicationIT {
           .extractingPath("$.code")
           .isEqualTo("FORBIDDEN");
     }
-  }
-
-  private static RequestPostProcessor signedInAs(String role) {
-    return oidcLogin().authorities(new SimpleGrantedAuthority("ROLE_" + role));
   }
 }

@@ -129,7 +129,7 @@ class SecurityConfig {
         if (authority instanceof OidcUserAuthority login) {
           var groups = login.getIdToken().getClaimAsStringList("cognito:groups");
           for (var role : Role.values()) {
-            if (groups != null && groups.contains(role.label())) {
+            if (groups != null && groups.contains(role.key())) {
               mapped.add(new SimpleGrantedAuthority(role.authority()));
             }
           }

@@ -13,7 +13,7 @@ import { Session } from '../../core/session';
         <h1 class="text-2xl font-semibold">Dashboard</h1>
         <div class="flex items-center gap-4">
           <span>{{ session.person()?.name }}</span>
-          <p-tag data-role severity="secondary" [value]="session.person()?.roles?.[0]" />
+          <p-tag data-role severity="secondary" [value]="session.role() ?? undefined" />
           <p-button label="Sign out" severity="secondary" (onClick)="session.signOut()" />
         </div>
       </header>
@@ -36,8 +36,8 @@ import { Session } from '../../core/session';
       }
 
       @if (session.holds('admin')) {
-        <section class="mt-10" aria-labelledby="admin">
-          <h2 id="admin" class="text-xl font-semibold">Admin</h2>
+        <section class="mt-10" aria-labelledby="admin-links">
+          <h2 id="admin-links" class="text-xl font-semibold">Admin links</h2>
           <p class="mt-2 text-muted-color">There are no admin screens.</p>
         </section>
       }

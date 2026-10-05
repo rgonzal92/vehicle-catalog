@@ -36,6 +36,11 @@ class LoginFlowIT extends ApplicationIT {
     assertThat(me.statusCode()).isEqualTo(200);
     assertThat(me.body()).contains("\"name\":\"Demo Author\"", "\"email\":\"author@example.test\"");
     assertThat(me.body()).contains("\"roles\":[\"author\"]");
+    assertThat(
+            jdbc.sql("SELECT username FROM app_user WHERE cognito_sub = 'author'")
+                .query(String.class)
+                .single())
+        .isEqualTo("demo-author");
     assertThat(storedSessions()).as("no token is kept in the session").doesNotContain("eyJ");
     assertThat(
             jdbc.sql("SELECT max_inactive_interval FROM spring_session")
@@ -56,7 +61,15 @@ class LoginFlowIT extends ApplicationIT {
 
     assertThat(app("GET", "/api/me").body())
         .contains("\"roles\":[\"admin\",\"manager\",\"author\"]");
-    assertThat(app("GET", "/api/admin/check").statusCode()).isEqualTo(204);
+    assertThat(app("GET", "/api/admin/check").statusCode()).isEqualTo(200);
+  }
+
+  @Test
+  void aPersonInTheManagerGroupIsAlsoAnAuthor() throws Exception {
+    finishSignIn(app("GET", "/api/oauth2/authorization/cognito"), "manager");
+
+    assertThat(app("GET", "/api/me").body()).contains("\"roles\":[\"manager\",\"author\"]");
+    assertThat(app("GET", "/api/admin/check").statusCode()).isEqualTo(403);
   }
 
   @Test
@@ -65,6 +78,7 @@ class LoginFlowIT extends ApplicationIT {
 
     assertThat(app("GET", "/api/me").body()).contains("\"roles\":[]");
     assertThat(app("GET", "/api/admin/check").statusCode()).isEqualTo(403);
+    assertThat(app("POST", "/api/logout").statusCode()).as("sign-out").isEqualTo(200);
   }
 
   /** Signs in at the login server under the given username and returns to the app with the code. */

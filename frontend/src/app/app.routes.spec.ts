@@ -48,6 +48,24 @@ describe('routes', () => {
     expect(TestBed.inject(Router).url).toBe('/');
   });
 
+  it('shows a person without a role the no-role page in place of the landing page', async () => {
+    const harness = await RouterTestingHarness.create();
+    const navigation = harness.navigateByUrl('/');
+    (await sessionRequest()).flush({ id: 7, name: 'Maya', email: null, roles: [] });
+    await navigation;
+
+    expect(TestBed.inject(Router).url).toBe('/no-role');
+  });
+
+  it('leads an address that does not exist to where the person belongs', async () => {
+    const harness = await RouterTestingHarness.create();
+    const navigation = harness.navigateByUrl('/no-such-page');
+    (await sessionRequest()).flush({ id: 7, name: 'Maya', email: null, roles: [] });
+    await navigation;
+
+    expect(TestBed.inject(Router).url).toBe('/no-role');
+  });
+
   it('shows a signed-in person without a role the no-role page', async () => {
     const harness = await RouterTestingHarness.create();
     const navigation = harness.navigateByUrl('/dashboard');

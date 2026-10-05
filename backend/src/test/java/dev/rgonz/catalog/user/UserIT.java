@@ -4,9 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
 
 import dev.rgonz.catalog.ApplicationIT;
+import dev.rgonz.catalog.core.Role;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
 /** Checks the local record of people who signed in and what the app says about them. */
 class UserIT extends ApplicationIT {
@@ -51,17 +51,11 @@ class UserIT extends ApplicationIT {
     var admin =
         mvc.get()
             .uri("/api/me")
-            .with(
-                oidcLogin()
-                    .idToken(token -> token.subject("sub-admin"))
-                    .authorities(new SimpleGrantedAuthority("ROLE_ADMIN")));
+            .with(signedInAs(Role.ADMIN).idToken(token -> token.subject("sub-admin")));
     var author =
         mvc.get()
             .uri("/api/me")
-            .with(
-                oidcLogin()
-                    .idToken(token -> token.subject("sub-author"))
-                    .authorities(new SimpleGrantedAuthority("ROLE_AUTHOR")));
+            .with(signedInAs(Role.AUTHOR).idToken(token -> token.subject("sub-author")));
 
     assertThat(admin)
         .bodyJson()

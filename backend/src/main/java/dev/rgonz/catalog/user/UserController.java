@@ -2,13 +2,10 @@ package dev.rgonz.catalog.user;
 
 import dev.rgonz.catalog.core.Role;
 import dev.rgonz.catalog.user.DemoAccounts.DemoAccount;
-import java.util.Arrays;
 import java.util.List;
-import java.util.stream.Collectors;
 import org.springframework.security.access.hierarchicalroles.RoleHierarchy;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -32,17 +29,11 @@ class UserController {
             .findBySubject(authentication.getName())
             .orElseThrow(
                 () -> new AuthenticationCredentialsNotFoundException("No record of this person"));
-    var held =
-        roles.getReachableGrantedAuthorities(authentication.getAuthorities()).stream()
-            .map(GrantedAuthority::getAuthority)
-            .collect(Collectors.toSet());
-    var labels =
-        Arrays.stream(Role.values())
-            .filter(role -> held.contains(role.authority()))
-            .map(Role::label)
-            .toList();
-
-    return new Me(person.id(), person.displayName(), person.email(), labels);
+    return new Me(
+        person.id(),
+        person.displayName(),
+        person.email(),
+        Role.heldBy(authentication.getAuthorities(), roles));
   }
 
   @GetMapping("/api/demo-accounts")
@@ -51,5 +42,5 @@ class UserController {
   }
 
   /** The signed-in person as the frontend sees them, with every role they hold, highest first. */
-  record Me(long id, String name, String email, List<String> roles) {}
+  record Me(long id, String name, String email, List<Role> roles) {}
 }

@@ -1,12 +1,16 @@
 package dev.rgonz.catalog;
 
-import jakarta.servlet.http.Cookie;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
+
+import dev.rgonz.catalog.core.Role;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.OidcLoginRequestPostProcessor;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
@@ -41,8 +45,8 @@ public abstract class ApplicationIT {
   static final PostgreSQLContainer DATABASE = new PostgreSQLContainer("postgres:18.6");
 
   /**
-   * Signing in as "author" or "admin" yields the claims Amazon Cognito would send for that demo
-   * account. Any other username signs in as a person who is in no group.
+   * Signing in as "author", "manager", or "admin" yields the claims Amazon Cognito would send for
+   * that demo account. Any other username signs in as a person who is in no group.
    */
   static final GenericContainer<?> LOGIN_SERVER =
       new GenericContainer<>("ghcr.io/navikt/mock-oauth2-server:6.0.4")
@@ -64,6 +68,16 @@ public abstract class ApplicationIT {
                           "email": "author@example.test",
                           "name": "Demo Author",
                           "cognito:groups": ["author"]
+                        }
+                      },
+                      {
+                        "requestParam": "subject",
+                        "match": "manager",
+                        "claims": {
+                          "cognito:username": "demo-manager",
+                          "email": "manager@example.test",
+                          "name": "Demo Manager",
+                          "cognito:groups": ["manager"]
                         }
                       },
                       {
@@ -97,6 +111,11 @@ public abstract class ApplicationIT {
 
   protected static String loginServerUrl() {
     return "http://127.0.0.1:" + LOGIN_SERVER.getMappedPort(8080) + "/default";
+  }
+
+  /** A signed-in person holding the role. Without a role, use {@code oidcLogin()} itself. */
+  protected static OidcLoginRequestPostProcessor signedInAs(Role role) {
+    return oidcLogin().authorities(new SimpleGrantedAuthority(role.authority()));
   }
 
   @LocalServerPort protected int port;

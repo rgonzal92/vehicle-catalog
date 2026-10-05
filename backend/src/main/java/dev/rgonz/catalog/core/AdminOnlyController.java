@@ -5,12 +5,12 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Proves that role checks on endpoints are enforced, until the first admin endpoint exists. */
+/** An endpoint only an admin may call, which proves that role checks on endpoints are enforced. */
 @RestController
 class AdminOnlyController {
   @GetMapping("/api/admin/check")
   @PreAuthorize("hasRole('ADMIN')")
   ResponseEntity<Void> check() {
-    return ResponseEntity.noContent().build();
+    return ResponseEntity.ok().build();
   }
 }

@@ -8,8 +8,6 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /** Checks what the API answers to visitors with and without a session. */
 class SecurityIT extends ApplicationIT {
@@ -34,7 +32,7 @@ class SecurityIT extends ApplicationIT {
 
   @Test
   void unknownPathIsAProblemWithACode() {
-    assertThat(mvc.get().uri("/api/no-such-thing").with(author()))
+    assertThat(mvc.get().uri("/api/no-such-thing").with(signedInAs(Role.AUTHOR)))
         .hasStatus(404)
         .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
         .bodyJson()
@@ -79,9 +77,5 @@ class SecurityIT extends ApplicationIT {
                 + "&logout_uri="
                 + PUBLIC_URL
                 + "/");
-  }
-
-  private static RequestPostProcessor author() {
-    return oidcLogin().authorities(new SimpleGrantedAuthority("ROLE_AUTHOR"));
   }
 }

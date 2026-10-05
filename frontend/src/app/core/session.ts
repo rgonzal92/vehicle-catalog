@@ -31,6 +31,9 @@ export class Session {
   /** The signed-in person, or null without a session. */
   readonly person = computed(() => this.loaded() ?? null);
 
+  /** The signed-in person's highest role, or null without one. */
+  readonly role = computed(() => this.person()?.roles[0] ?? null);
+
   /** Whether the signed-in person holds the role, directly or through a higher one. */
   holds(role: Role): boolean {
     return this.person()?.roles.includes(role) ?? false;

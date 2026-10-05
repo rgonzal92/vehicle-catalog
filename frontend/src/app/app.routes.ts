@@ -1,12 +1,12 @@
 import { Routes } from '@angular/router';
-import { anyone, holding, withoutRole } from './core/session-guard';
+import { holding, noRolePage, publicPage } from './core/session-guard';
 
 // Each page loads on first visit.
 export const routes: Routes = [
   {
     path: '',
     title: 'Vehicle Catalog',
-    canActivate: [anyone],
+    canActivate: [publicPage],
     loadComponent: () => import('./features/landing/landing-page').then((page) => page.LandingPage),
   },
   {
@@ -19,7 +19,9 @@ export const routes: Routes = [
   {
     path: 'no-role',
     title: 'No role assigned · Vehicle Catalog',
-    canActivate: [withoutRole],
+    canActivate: [noRolePage],
     loadComponent: () => import('./features/no-role/no-role-page').then((page) => page.NoRolePage),
   },
+  // Any other address leads to the landing page, whose guard sends each person where they belong.
+  { path: '**', redirectTo: '' },
 ];

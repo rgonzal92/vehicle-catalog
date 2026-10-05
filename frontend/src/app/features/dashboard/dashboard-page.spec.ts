@@ -48,7 +48,7 @@ describe('DashboardPage', () => {
       'My catalogs',
       'Approved catalogs',
       'Review queue',
-      'Admin',
+      'Admin links',
     ]);
   });
 });

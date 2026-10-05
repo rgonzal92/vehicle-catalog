@@ -1,48 +1,31 @@
 import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
-import { Role, Session } from './session';
+import { Person, Role, Session } from './session';
 
-const LANDING = '/';
-const DASHBOARD = '/dashboard';
-const NO_ROLE = '/no-role';
+/** Where a person belongs when a route is not theirs to open. */
+function home(person: Person | null): string {
+  if (!person) {
+    return '/';
+  }
+  return person.roles.length === 0 ? '/no-role' : '/dashboard';
+}
 
-/** Open to everyone, except that a signed-in person without a role sees only the no-role page. */
-export const anyone: CanActivateFn = async () => {
-  const session = inject(Session);
-  const router = inject(Router);
-  const person = await session.load();
-
-  return person && person.roles.length === 0 ? router.parseUrl(NO_ROLE) : true;
-};
-
-/**
- * Open to people who hold the role. A visitor goes to the landing page, a person without any role
- * to the no-role page, and a person with a lower role to the dashboard.
- */
-export function holding(role: Role): CanActivateFn {
+/** Opens the route to the people `allowed` accepts and sends everyone else where they belong. */
+function openTo(allowed: (person: Person | null) => boolean): CanActivateFn {
   return async () => {
     const session = inject(Session);
     const router = inject(Router);
     const person = await session.load();
 
-    if (!person) {
-      return router.parseUrl(LANDING);
-    }
-    if (person.roles.length === 0) {
-      return router.parseUrl(NO_ROLE);
-    }
-    return person.roles.includes(role) ? true : router.parseUrl(DASHBOARD);
+    return allowed(person) ? true : router.parseUrl(home(person));
   };
 }
 
-/** Open only to a signed-in person without a role. */
-export const withoutRole: CanActivateFn = async () => {
-  const session = inject(Session);
-  const router = inject(Router);
-  const person = await session.load();
+/** A page for visitors and for people with a role. A person without a role sees only their page. */
+export const publicPage = openTo((person) => !person || person.roles.length > 0);
 
-  if (!person) {
-    return router.parseUrl(LANDING);
-  }
-  return person.roles.length === 0 ? true : router.parseUrl(DASHBOARD);
-};
+/** A page for people who hold the role, directly or through a higher one. */
+export const holding = (role: Role) => openTo((person) => person?.roles.includes(role) ?? false);
+
+/** The one page for a signed-in person without a role. */
+export const noRolePage = openTo((person) => !!person && person.roles.length === 0);

@@ -4,7 +4,7 @@ import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { anyone, holding, withoutRole } from './session-guard';
+import { holding, noRolePage, publicPage } from './session-guard';
 
 @Component({ template: '' })
 class Page {}
@@ -16,10 +16,10 @@ describe('session guards', () => {
     TestBed.configureTestingModule({
       providers: [
         provideRouter([
-          { path: '', canActivate: [anyone], component: Page },
+          { path: '', canActivate: [publicPage], component: Page },
           { path: 'dashboard', canActivate: [holding('author')], component: Page },
           { path: 'admin-only', canActivate: [holding('admin')], component: Page },
-          { path: 'no-role', canActivate: [withoutRole], component: Page },
+          { path: 'no-role', canActivate: [noRolePage], component: Page },
         ]),
         provideHttpClient(),
         provideHttpClientTesting(),
