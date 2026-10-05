@@ -1,7 +1,6 @@
 package dev.rgonz.catalog.vehicleline;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 
 import com.jayway.jsonpath.JsonPath;
 import dev.rgonz.catalog.ApplicationIT;
@@ -61,7 +60,7 @@ class VehicleLinesIT extends ApplicationIT {
     var added =
         mvc.post()
             .uri("/api/vehicle-lines")
-            .with(csrf())
+            .with(csrfToken())
             .contentType(MediaType.APPLICATION_JSON)
             .content("{\"code\": \"SEDAN\", \"name\": \"Sedan\", \"vehicleTypeCode\": \"CAR\"}");
 
@@ -102,7 +101,7 @@ class VehicleLinesIT extends ApplicationIT {
         mvc.post()
             .uri("/api/vehicle-lines")
             .with(signedInAs(Role.MANAGER))
-            .with(csrf())
+            .with(csrfToken())
             .contentType(MediaType.APPLICATION_JSON)
             .content("{ this is not JSON");
 
@@ -167,7 +166,10 @@ class VehicleLinesIT extends ApplicationIT {
     var id = idOf(add(Role.ADMIN, "SEDAN", "Sedan", "CAR"));
 
     var deleted =
-        mvc.delete().uri("/api/vehicle-lines/{id}", id).with(signedInAs(Role.ADMIN)).with(csrf());
+        mvc.delete()
+            .uri("/api/vehicle-lines/{id}", id)
+            .with(signedInAs(Role.ADMIN))
+            .with(csrfToken());
 
     assertThat(deleted).hasStatus(405);
     assertThat(mvc.get().uri("/api/vehicle-lines").with(signedInAs(Role.ADMIN)))
@@ -182,7 +184,7 @@ class VehicleLinesIT extends ApplicationIT {
     return mvc.put()
         .uri("/api/vehicle-lines/{id}", id)
         .with(signedInAs(as))
-        .with(csrf())
+        .with(csrfToken())
         .contentType(MediaType.APPLICATION_JSON)
         .content(
             """
@@ -208,7 +210,7 @@ class VehicleLinesIT extends ApplicationIT {
     return mvc.post()
         .uri("/api/vehicle-lines")
         .with(signedInAs(as))
-        .with(csrf())
+        .with(csrfToken())
         .contentType(MediaType.APPLICATION_JSON)
         .content(
             """
