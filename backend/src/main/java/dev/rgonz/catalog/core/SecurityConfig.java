@@ -50,6 +50,8 @@ class SecurityConfig {
       JsonMapper json,
       @Value("${app.public-url}") URI publicUrl,
       @Value("${app.logout-url}") String logoutUrl) {
+    var landing = publicUrl + "/";
+
     http.authorizeHttpRequests(
         requests ->
             requests
@@ -68,14 +70,14 @@ class SecurityConfig {
                 .redirectionEndpoint(endpoint -> endpoint.baseUri("/api/login/oauth2/code/*"))
                 .authorizedClientRepository(new DiscardedTokens())
                 .successHandler(signedIn)
-                .failureHandler(new SimpleUrlAuthenticationFailureHandler(publicUrl + "/")));
+                .failureHandler(new SimpleUrlAuthenticationFailureHandler(landing)));
 
     // Angular reads the token cookie and echoes it in the X-XSRF-TOKEN header on writes.
     var csrfTokens = CookieCsrfTokenRepository.withHttpOnlyFalse();
     csrfTokens.setCookieCustomizer(cookie -> cookie.secure(true).sameSite("Lax"));
     http.csrf(csrf -> csrf.spa().csrfTokenRepository(csrfTokens));
 
-    var providerLogout = providerLogout(registrations, publicUrl, logoutUrl);
+    var providerLogout = providerLogoutAddress(registrations, logoutUrl, landing);
     http.logout(
         logout ->
             logout.logoutUrl("/api/logout").logoutSuccessHandler(signedOut(json, providerLogout)));
@@ -98,16 +100,10 @@ class SecurityConfig {
 
   /**
    * Where the browser goes after sign-out: the provider's logout address with the two parameters
-   * Amazon Cognito requires, which then returns to the landing page. Without a provider logout
-   * address it is the landing page itself.
+   * Amazon Cognito requires, which then returns to the landing page.
    */
-  private static String providerLogout(
-      ClientRegistrationRepository registrations, URI publicUrl, String logoutUrl) {
-    var landing = publicUrl + "/";
-    if (logoutUrl.isBlank()) {
-      return landing;
-    }
-
+  private static String providerLogoutAddress(
+      ClientRegistrationRepository registrations, String logoutUrl, String landing) {
     return UriComponentsBuilder.fromUriString(logoutUrl)
         .queryParam("client_id", registrations.findByRegistrationId(PROVIDER).getClientId())
         .queryParam("logout_uri", landing)

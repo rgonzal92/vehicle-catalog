@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { signedIn } from './core/session.guard';
+import { signedIn } from './core/session-guard';
 
 // Each page loads on first visit.
 export const routes: Routes = [

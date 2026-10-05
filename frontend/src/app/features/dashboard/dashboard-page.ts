@@ -1,6 +1,6 @@
 import { Component, inject } from '@angular/core';
 import { Button } from 'primeng/button';
-import { SessionService } from '../../core/session.service';
+import { Session } from '../../core/session';
 
 /** The first page a signed-in person sees. */
 @Component({
@@ -19,5 +19,5 @@ import { SessionService } from '../../core/session.service';
   `,
 })
 export class DashboardPage {
-  protected readonly session = inject(SessionService);
+  protected readonly session = inject(Session);
 }

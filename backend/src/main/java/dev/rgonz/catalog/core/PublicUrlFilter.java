@@ -25,11 +25,15 @@ class PublicUrlFilter extends OncePerRequestFilter {
   private final String scheme;
   private final String host;
   private final int port;
+  private final boolean secure;
+  private final boolean defaultPort;
 
   PublicUrlFilter(@Value("${app.public-url}") URI publicUrl) {
     scheme = publicUrl.getScheme();
     host = publicUrl.getHost();
-    port = publicUrl.getPort() != -1 ? publicUrl.getPort() : "https".equals(scheme) ? 443 : 80;
+    secure = "https".equals(scheme);
+    defaultPort = publicUrl.getPort() == -1;
+    port = defaultPort ? (secure ? 443 : 80) : publicUrl.getPort();
   }
 
   @Override
@@ -39,6 +43,7 @@ class PublicUrlFilter extends OncePerRequestFilter {
     chain.doFilter(new AtPublicUrl(request), response);
   }
 
+  /** A request whose scheme, host, and port are the public URL's. */
   private final class AtPublicUrl extends HttpServletRequestWrapper {
     AtPublicUrl(HttpServletRequest request) {
       super(request);
@@ -61,13 +66,13 @@ class PublicUrlFilter extends OncePerRequestFilter {
 
     @Override
     public boolean isSecure() {
-      return "https".equals(scheme);
+      return secure;
     }
 
     @Override
     public StringBuffer getRequestURL() {
       var url = new StringBuffer(scheme).append("://").append(host);
-      if (port != ("https".equals(scheme) ? 443 : 80)) {
+      if (!defaultPort) {
         url.append(':').append(port);
       }
       return url.append(getRequestURI());

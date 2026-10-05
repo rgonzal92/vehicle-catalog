@@ -17,44 +17,54 @@ export const NAVIGATE = new InjectionToken<(url: string) => void>('navigate', {
 
 /** Knows who is signed in, and signs them out. */
 @Injectable({ providedIn: 'root' })
-export class SessionService {
+export class Session {
   private readonly http = inject(HttpClient);
   private readonly navigate = inject(NAVIGATE);
 
-  /** Undefined until the backend has been asked. */
-  private readonly asked = signal<Person | null | undefined>(undefined);
+  /** Undefined until the backend has answered who is signed in. */
+  private readonly loaded = signal<Person | null | undefined>(undefined);
 
   /** The signed-in person, or null without a session. */
-  readonly person = computed(() => this.asked() ?? null);
+  readonly person = computed(() => this.loaded() ?? null);
 
-  /** Asks the backend who is signed in. It is asked once; later calls answer from memory. */
+  /**
+   * Asks the backend who is signed in. Its answer is remembered; when it fails to answer, nobody
+   * counts as signed in and the next call asks again.
+   */
   async load(): Promise<Person | null> {
-    const known = this.asked();
+    const known = this.loaded();
     if (known !== undefined) {
       return known;
     }
 
     try {
-      this.asked.set(await firstValueFrom(this.http.get<Person>('/api/me')));
+      this.loaded.set(await firstValueFrom(this.http.get<Person>('/api/me')));
     } catch (error) {
-      if (!(error instanceof HttpErrorResponse) || error.status !== 401) {
-        throw error;
+      if (error instanceof HttpErrorResponse && error.status === 401) {
+        this.loaded.set(null);
       }
-      this.asked.set(null);
     }
 
     return this.person();
   }
 
+  /** Forgets the person once the backend says their session has ended. */
+  expire(): void {
+    this.loaded.set(null);
+  }
+
   /**
    * Ends the session, then leaves for the address the backend names: the login provider's logout,
-   * which returns to the landing page.
+   * which returns to the landing page. A failed request changes nothing; the person stays put.
    */
   async signOut(): Promise<void> {
-    const { logoutUrl } = await firstValueFrom(
-      this.http.post<{ logoutUrl: string }>('/api/logout', null),
-    );
-
-    this.navigate(logoutUrl);
+    try {
+      const { logoutUrl } = await firstValueFrom(
+        this.http.post<{ logoutUrl: string }>('/api/logout', null),
+      );
+      this.navigate(logoutUrl);
+    } catch {
+      // The failure has already been shown as a message.
+    }
   }
 }
