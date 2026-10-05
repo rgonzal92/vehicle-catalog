@@ -21,8 +21,8 @@ services:
       timeout: 3s
       retries: 12
 
-  # Asks for a username only. These three sign in as the demo accounts; any other name signs in
-  # as a person without a role.
+  # Asks for a username only. "author", "manager", and "admin" sign in as the demo accounts, and
+  # "norole" as a person without a role, as does any other name.
   login:
     image: ghcr.io/navikt/mock-oauth2-server:6.0.4
     environment:
@@ -61,6 +61,15 @@ services:
                     "email": "admin@example.test",
                     "name": "Demo Admin",
                     "cognito:groups": ["admin"]
+                  }
+                },
+                {
+                  "requestParam": "subject",
+                  "match": "norole",
+                  "claims": {
+                    "cognito:username": "norole",
+                    "email": "norole@example.test",
+                    "name": "No Role"
                   }
                 }
               ]

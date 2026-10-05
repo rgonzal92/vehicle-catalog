@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
 
 import dev.rgonz.catalog.ApplicationIT;
+import dev.rgonz.catalog.core.Role;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -40,6 +41,28 @@ class UserIT extends ApplicationIT {
     assertThat(result).bodyJson().extractingPath("$.name").isEqualTo("Maya");
     assertThat(result).bodyJson().extractingPath("$.email").isEqualTo("maya@example.test");
     assertThat(result).bodyJson().extractingPath("$.roles").asArray().isEmpty();
+  }
+
+  @Test
+  void meListsEveryRoleThePersonHoldsHighestFirst() {
+    users.recordLogin("sub-admin", "ada", "ada@example.test", "Ada");
+    users.recordLogin("sub-author", "ari", "ari@example.test", "Ari");
+
+    var admin =
+        mvc.get()
+            .uri("/api/me")
+            .with(signedInAs(Role.ADMIN).idToken(token -> token.subject("sub-admin")));
+    var author =
+        mvc.get()
+            .uri("/api/me")
+            .with(signedInAs(Role.AUTHOR).idToken(token -> token.subject("sub-author")));
+
+    assertThat(admin)
+        .bodyJson()
+        .extractingPath("$.roles")
+        .asArray()
+        .containsExactly("admin", "manager", "author");
+    assertThat(author).bodyJson().extractingPath("$.roles").asArray().containsExactly("author");
   }
 
   @Test

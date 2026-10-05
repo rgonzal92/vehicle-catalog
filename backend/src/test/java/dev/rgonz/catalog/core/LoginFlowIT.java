@@ -28,23 +28,14 @@ class LoginFlowIT extends ApplicationIT {
     assertThat(sessionCookie).contains("Secure").contains("HttpOnly").contains("SameSite=Lax");
     assertThat(sessionCookie).contains("Path=/").doesNotContain("Domain");
 
-    var providerLogin =
-        http.send(
-            HttpRequest.newBuilder(URI.create(location(start)))
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .POST(HttpRequest.BodyPublishers.ofString("username=author"))
-                .build(),
-            HttpResponse.BodyHandlers.ofString());
-    var callback = URI.create(location(providerLogin));
-    assertThat(callback.toString()).startsWith(PUBLIC_URL + "/api/login/oauth2/code/cognito?");
-
-    var signedIn = app("GET", callback.getRawPath() + "?" + callback.getRawQuery());
+    var signedIn = finishSignIn(start, "author");
     assertThat(signedIn.statusCode()).isEqualTo(302);
     assertThat(location(signedIn)).isEqualTo(PUBLIC_URL + "/dashboard");
 
     var me = app("GET", "/api/me");
     assertThat(me.statusCode()).isEqualTo(200);
     assertThat(me.body()).contains("\"name\":\"Demo Author\"", "\"email\":\"author@example.test\"");
+    assertThat(me.body()).contains("\"roles\":[\"author\"]");
     assertThat(
             jdbc.sql("SELECT username FROM app_user WHERE cognito_sub = 'author'")
                 .query(String.class)
@@ -62,6 +53,48 @@ class LoginFlowIT extends ApplicationIT {
     assertThat(signedOut.statusCode()).isEqualTo(200);
     assertThat(signedOut.body()).contains("logoutUrl");
     assertThat(app("GET", "/api/me").statusCode()).isEqualTo(401);
+  }
+
+  @Test
+  void aPersonInTheAdminGroupHoldsEveryRole() throws Exception {
+    finishSignIn(app("GET", "/api/oauth2/authorization/cognito"), "admin");
+
+    assertThat(app("GET", "/api/me").body())
+        .contains("\"roles\":[\"admin\",\"manager\",\"author\"]");
+    assertThat(app("GET", "/api/admin/check").statusCode()).isEqualTo(200);
+  }
+
+  @Test
+  void aPersonInTheManagerGroupIsAlsoAnAuthor() throws Exception {
+    finishSignIn(app("GET", "/api/oauth2/authorization/cognito"), "manager");
+
+    assertThat(app("GET", "/api/me").body()).contains("\"roles\":[\"manager\",\"author\"]");
+    assertThat(app("GET", "/api/admin/check").statusCode()).isEqualTo(403);
+  }
+
+  @Test
+  void aPersonInNoGroupHoldsNoRole() throws Exception {
+    finishSignIn(app("GET", "/api/oauth2/authorization/cognito"), "someone-without-a-group");
+
+    assertThat(app("GET", "/api/me").body()).contains("\"roles\":[]");
+    assertThat(app("GET", "/api/admin/check").statusCode()).isEqualTo(403);
+    assertThat(app("POST", "/api/logout").statusCode()).as("sign-out").isEqualTo(200);
+  }
+
+  /** Signs in at the login server under the given username and returns to the app with the code. */
+  private HttpResponse<String> finishSignIn(HttpResponse<String> start, String username)
+      throws Exception {
+    var providerLogin =
+        http.send(
+            HttpRequest.newBuilder(URI.create(location(start)))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString("username=" + username))
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+    var callback = URI.create(location(providerLogin));
+    assertThat(callback.toString()).startsWith(PUBLIC_URL + "/api/login/oauth2/code/cognito?");
+
+    return app("GET", callback.getRawPath() + "?" + callback.getRawQuery());
   }
 
   /** Calls the app on its local address, sending and keeping cookies as a browser would. */

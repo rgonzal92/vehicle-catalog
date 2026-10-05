@@ -32,7 +32,7 @@ class SecurityIT extends ApplicationIT {
 
   @Test
   void unknownPathIsAProblemWithACode() {
-    assertThat(mvc.get().uri("/api/no-such-thing").with(oidcLogin()))
+    assertThat(mvc.get().uri("/api/no-such-thing").with(signedInAs(Role.AUTHOR)))
         .hasStatus(404)
         .hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
         .bodyJson()

@@ -1,5 +1,6 @@
 package dev.rgonz.catalog.user;
 
+import dev.rgonz.catalog.core.Role;
 import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -14,5 +15,5 @@ record DemoAccounts(List<DemoAccount> demoAccounts) {
   }
 
   /** What a visitor needs to sign in with one demo account. */
-  record DemoAccount(String role, String username, String password) {}
+  record DemoAccount(Role role, String username, String password) {}
 }

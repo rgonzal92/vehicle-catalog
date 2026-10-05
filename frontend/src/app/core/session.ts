@@ -2,12 +2,16 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { computed, inject, Injectable, InjectionToken, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
+/** What a person may do. Each role includes the ones below it. */
+export type Role = 'admin' | 'manager' | 'author';
+
 /** The signed-in person, as the backend describes them. */
 export interface Person {
   id: number;
   name: string;
   email: string | null;
-  roles: string[];
+  /** Every role the person holds, highest first; empty when no role is assigned. */
+  roles: Role[];
 }
 
 /** Sends the browser to another address. Tests replace it, since a test page cannot navigate. */
@@ -26,6 +30,14 @@ export class Session {
 
   /** The signed-in person, or null without a session. */
   readonly person = computed(() => this.loaded() ?? null);
+
+  /** The signed-in person's highest role, or null without one. */
+  readonly role = computed(() => this.person()?.roles[0] ?? null);
+
+  /** Whether the signed-in person holds the role, directly or through a higher one. */
+  holds(role: Role): boolean {
+    return this.person()?.roles.includes(role) ?? false;
+  }
 
   /**
    * Asks the backend who is signed in. Its answer is remembered; when it fails to answer, nobody
