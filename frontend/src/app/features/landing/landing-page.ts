@@ -28,23 +28,25 @@ interface DemoAccount {
         <span pButtonLabel>Sign in</span>
       </a>
 
-      <h2 id="demo-accounts" class="mt-12 text-xl font-semibold">Demo accounts</h2>
-      <p-table class="mt-4 block" [value]="accounts()" aria-labelledby="demo-accounts">
-        <ng-template #header>
-          <tr>
-            <th scope="col">Role</th>
-            <th scope="col">Username</th>
-            <th scope="col">Password</th>
-          </tr>
-        </ng-template>
-        <ng-template #body let-account>
-          <tr>
-            <td>{{ account.role }}</td>
-            <td>{{ account.username }}</td>
-            <td>{{ account.password || 'No password' }}</td>
-          </tr>
-        </ng-template>
-      </p-table>
+      <section class="mt-12" aria-labelledby="demo-accounts">
+        <h2 id="demo-accounts" class="text-xl font-semibold">Demo accounts</h2>
+        <p-table class="mt-4 block" [value]="accounts()">
+          <ng-template #header>
+            <tr>
+              <th scope="col">Role</th>
+              <th scope="col">Username</th>
+              <th scope="col">Password</th>
+            </tr>
+          </ng-template>
+          <ng-template #body let-account>
+            <tr>
+              <td>{{ account.role }}</td>
+              <td>{{ account.username }}</td>
+              <td>{{ account.password || 'No password' }}</td>
+            </tr>
+          </ng-template>
+        </p-table>
+      </section>
     </main>
   `,
 })
