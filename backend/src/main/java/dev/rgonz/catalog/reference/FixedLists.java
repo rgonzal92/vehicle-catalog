@@ -6,10 +6,10 @@ import org.springframework.stereotype.Repository;
 
 /** Reads the fixed lists: vehicle types and categories. */
 @Repository
-public class ReferenceData {
+public class FixedLists {
   private final JdbcClient jdbc;
 
-  ReferenceData(JdbcClient jdbc) {
+  FixedLists(JdbcClient jdbc) {
     this.jdbc = jdbc;
   }
 

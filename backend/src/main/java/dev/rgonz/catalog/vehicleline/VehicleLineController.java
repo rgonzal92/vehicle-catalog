@@ -1,13 +1,12 @@
 package dev.rgonz.catalog.vehicleline;
 
+import dev.rgonz.catalog.core.RequiresRole;
+import dev.rgonz.catalog.core.Role;
+import dev.rgonz.catalog.vehicleline.VehicleLines.NewVehicleLine;
+import dev.rgonz.catalog.vehicleline.VehicleLines.VehicleLineChange;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Pattern;
-import jakarta.validation.constraints.Size;
 import java.util.List;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,18 +32,16 @@ class VehicleLineController {
   }
 
   @PostMapping
-  @PreAuthorize("hasRole('ADMIN')")
+  @RequiresRole(Role.ADMIN)
   @ResponseStatus(HttpStatus.CREATED)
-  VehicleLineView add(@Valid @RequestBody NewVehicleLine request) {
-    return VehicleLineView.of(
-        vehicleLines.add(request.code(), request.name(), request.vehicleTypeCode()));
+  VehicleLineView add(@Valid @RequestBody NewVehicleLine given) {
+    return VehicleLineView.of(vehicleLines.add(given));
   }
 
   @PutMapping("/{id}")
-  @PreAuthorize("hasRole('ADMIN')")
-  VehicleLineView change(@PathVariable long id, @Valid @RequestBody VehicleLineChange request) {
-    return VehicleLineView.of(
-        vehicleLines.change(id, request.name(), request.vehicleTypeCode(), request.active()));
+  @RequiresRole(Role.ADMIN)
+  VehicleLineView change(@PathVariable long id, @Valid @RequestBody VehicleLineChange given) {
+    return VehicleLineView.of(vehicleLines.change(id, given));
   }
 
   /** A vehicle line as the API shows it. */
@@ -55,22 +52,4 @@ class VehicleLineController {
           line.getId(), line.getCode(), line.getName(), line.getVehicleTypeCode(), line.isActive());
     }
   }
-
-  /** What an admin gives to add a vehicle line. Its code cannot change afterwards. */
-  record NewVehicleLine(
-      @NotNull
-          @Pattern(
-              regexp = "[A-Z][A-Z0-9_]{1,39}",
-              message =
-                  "must be 2 to 40 capital letters, digits, or underscores, starting with a"
-                      + " letter")
-          String code,
-      @NotBlank @Size(max = 80) String name,
-      @NotBlank String vehicleTypeCode) {}
-
-  /** What an admin gives to rename, retype, activate, or deactivate a vehicle line. */
-  record VehicleLineChange(
-      @NotBlank @Size(max = 80) String name,
-      @NotBlank String vehicleTypeCode,
-      @NotNull Boolean active) {}
 }

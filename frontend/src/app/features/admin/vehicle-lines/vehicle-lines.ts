@@ -17,7 +17,10 @@ export type NewVehicleLine = Pick<VehicleLine, 'code' | 'name' | 'vehicleTypeCod
 /** What an admin gives to rename, retype, activate, or deactivate a vehicle line. */
 export type VehicleLineChange = Pick<VehicleLine, 'name' | 'vehicleTypeCode' | 'active'>;
 
-/** The library's vehicle lines, kept in name order. A refused request leaves the list as it was. */
+/**
+ * The library's vehicle lines, in the backend's order. The list is read again after every change, and
+ * a refused request leaves it as it was.
+ */
 @Injectable({ providedIn: 'root' })
 export class VehicleLines {
   private readonly http = inject(HttpClient);
@@ -30,22 +33,12 @@ export class VehicleLines {
   }
 
   async add(line: NewVehicleLine): Promise<void> {
-    const added = await firstValueFrom(this.http.post<VehicleLine>('/api/vehicle-lines', line));
-
-    this.loaded.update((lines) => inNameOrder([...lines, added]));
+    await firstValueFrom(this.http.post<VehicleLine>('/api/vehicle-lines', line));
+    await this.load();
   }
 
   async change(id: number, change: VehicleLineChange): Promise<void> {
-    const changed = await firstValueFrom(
-      this.http.put<VehicleLine>(`/api/vehicle-lines/${id}`, change),
-    );
-
-    this.loaded.update((lines) =>
-      inNameOrder(lines.map((line) => (line.id === id ? changed : line))),
-    );
+    await firstValueFrom(this.http.put<VehicleLine>(`/api/vehicle-lines/${id}`, change));
+    await this.load();
   }
-}
-
-function inNameOrder(lines: VehicleLine[]): VehicleLine[] {
-  return [...lines].sort((a, b) => a.name.localeCompare(b.name));
 }

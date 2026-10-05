@@ -25,13 +25,17 @@ describe('VehicleLines', () => {
     await loading;
   }
 
+  /** The list is read again a moment after a change is accepted. */
+  const listRequest = () =>
+    vi.waitFor(() => backend.expectOne({ method: 'GET', url: '/api/vehicle-lines' }));
+
   it('lists the vehicle lines the backend has', async () => {
     await loaded();
 
     expect(vehicleLines.lines()).toEqual([sedan]);
   });
 
-  it('adds a vehicle line and keeps the list in name order', async () => {
+  it('adds a vehicle line, then shows the list as the backend has it', async () => {
     await loaded();
     const compact = {
       id: 2,
@@ -53,13 +57,15 @@ describe('VehicleLines', () => {
       vehicleTypeCode: 'SUV',
     });
     request.flush(compact);
+    (await listRequest()).flush([compact, sedan]);
     await adding;
 
-    expect(vehicleLines.lines().map((line) => line.name)).toEqual(['Compact SUV', 'Sedan']);
+    expect(vehicleLines.lines()).toEqual([compact, sedan]);
   });
 
-  it('changes a vehicle line in place', async () => {
+  it('changes a vehicle line, then shows the list as the backend has it', async () => {
     await loaded();
+    const saloon = { ...sedan, name: 'Saloon', active: false };
 
     const changing = vehicleLines.change(1, {
       name: 'Saloon',
@@ -68,10 +74,11 @@ describe('VehicleLines', () => {
     });
     const request = backend.expectOne({ method: 'PUT', url: '/api/vehicle-lines/1' });
     expect(request.request.body).toEqual({ name: 'Saloon', vehicleTypeCode: 'CAR', active: false });
-    request.flush({ ...sedan, name: 'Saloon', active: false });
+    request.flush(saloon);
+    (await listRequest()).flush([saloon]);
     await changing;
 
-    expect(vehicleLines.lines()).toEqual([{ ...sedan, name: 'Saloon', active: false }]);
+    expect(vehicleLines.lines()).toEqual([saloon]);
   });
 
   it('leaves the list alone when the backend refuses a change', async () => {

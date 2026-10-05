@@ -68,6 +68,10 @@ describe('VehicleLinesPage', () => {
       active: false,
     });
     request.flush({ ...lines[0], active: false });
+    const reread = await vi.waitFor(() =>
+      backend.expectOne({ method: 'GET', url: '/api/vehicle-lines' }),
+    );
+    reread.flush([{ ...lines[0], active: false }, lines[1]]);
 
     await vi.waitFor(() => expect(rows(element)[0]).toContain('Inactive'));
   });

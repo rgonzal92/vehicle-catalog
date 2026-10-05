@@ -9,8 +9,8 @@ import { Message } from 'primeng/message';
 import { Select } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { Tag } from 'primeng/tag';
-import { reasonOf } from '../../../core/problem';
-import { Reference } from '../../../core/reference';
+import { reasonOf } from '../../../shared/reason-of';
+import { FixedLists } from '../../../core/fixed-lists';
 import { VehicleLine, VehicleLines } from './vehicle-lines';
 
 /** Where an admin adds, renames, retypes, activates, and deactivates vehicle lines. */
@@ -41,7 +41,7 @@ import { VehicleLine, VehicleLines } from './vehicle-lines';
             <th scope="col">Code</th>
             <th scope="col">Name</th>
             <th scope="col">Vehicle type</th>
-            <th scope="col">Status</th>
+            <th scope="col">State</th>
             <th scope="col"><span class="sr-only">Actions</span></th>
           </tr>
         </ng-template>
@@ -49,7 +49,7 @@ import { VehicleLine, VehicleLines } from './vehicle-lines';
           <tr>
             <td>{{ line.code }}</td>
             <td>{{ line.name }}</td>
-            <td>{{ reference.vehicleTypeName(line.vehicleTypeCode) }}</td>
+            <td>{{ fixedLists.vehicleTypeName(line.vehicleTypeCode) }}</td>
             <td>
               <p-tag
                 [value]="line.active ? 'Active' : 'Inactive'"
@@ -111,7 +111,7 @@ import { VehicleLine, VehicleLines } from './vehicle-lines';
               optionLabel="name"
               optionValue="code"
               appendTo="body"
-              [options]="reference.vehicleTypes()"
+              [options]="fixedLists.vehicleTypes()"
             />
           </div>
           <div class="flex justify-end gap-2">
@@ -125,7 +125,7 @@ import { VehicleLine, VehicleLines } from './vehicle-lines';
 })
 export class VehicleLinesPage {
   protected readonly vehicleLines = inject(VehicleLines);
-  protected readonly reference = inject(Reference);
+  protected readonly fixedLists = inject(FixedLists);
   private readonly messages = inject(MessageService);
 
   protected readonly dialogOpen = signal(false);
@@ -144,7 +144,7 @@ export class VehicleLinesPage {
 
   constructor() {
     void this.vehicleLines.load();
-    void this.reference.load();
+    void this.fixedLists.load();
   }
 
   protected startAdding(): void {

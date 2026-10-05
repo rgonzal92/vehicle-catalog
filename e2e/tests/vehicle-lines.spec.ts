@@ -26,9 +26,13 @@ test('an admin adds, changes, deactivates, and reactivates a vehicle line', asyn
   await expect(row).toContainText('Active');
 
   await page.getByRole('button', { name: 'Add vehicle line' }).click();
-  await adding.getByLabel('Code').fill(code);
+  await adding.getByLabel('Code').fill('not a code');
   await adding.getByLabel('Name').fill(`Another ${name}`);
   await choose(adding, 'Vehicle type', 'Car');
+  await adding.getByRole('button', { name: 'Save' }).click();
+  await expect(adding.getByRole('alert')).toContainText('Use 2 to 40 capital letters');
+
+  await adding.getByLabel('Code').fill(code);
   await adding.getByRole('button', { name: 'Save' }).click();
   await expect(adding.getByRole('alert')).toContainText('already uses this code or name');
   await adding.getByRole('button', { name: 'Cancel' }).click();
@@ -50,7 +54,9 @@ test('an admin adds, changes, deactivates, and reactivates a vehicle line', asyn
   await expect(row).toContainText('Inactive');
 
   await row.getByRole('button', { name: `Activate ${renamed}` }).click();
-  await expect(row).toContainText('Active');
+  await expect(row.getByText('Active', { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(row.getByText('Active', { exact: true })).toBeVisible();
   await expectAccessible(page);
 });
 

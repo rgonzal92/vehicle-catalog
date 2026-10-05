@@ -69,6 +69,9 @@ class LoginFlowIT extends ApplicationIT {
     finishSignIn(app("GET", "/api/oauth2/authorization/cognito"), "manager");
 
     assertThat(app("GET", "/api/me").body()).contains("\"roles\":[\"manager\",\"author\"]");
+    assertThat(app("POST", "/api/vehicle-lines").statusCode())
+        .as("adding a vehicle line is for admins")
+        .isEqualTo(403);
   }
 
   @Test

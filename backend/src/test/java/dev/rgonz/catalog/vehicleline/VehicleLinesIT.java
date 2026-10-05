@@ -72,7 +72,7 @@ class VehicleLinesIT extends ApplicationIT {
   void anAdminRenamesRetypesDeactivatesAndReactivatesAVehicleLine() {
     var id = idOf(add(Role.ADMIN, "COMPACT_SUV", "Compact SUV", "SUV"));
 
-    assertThat(update(Role.ADMIN, id, "Small SUV", "CAR", false)).hasStatusOk();
+    assertThat(change(Role.ADMIN, id, "Small SUV", "CAR", false)).hasStatusOk();
 
     var listed = mvc.get().uri("/api/vehicle-lines").with(signedInAs(Role.AUTHOR));
     assertThat(listed).bodyJson().extractingPath("$[0].code").isEqualTo("COMPACT_SUV");
@@ -80,7 +80,7 @@ class VehicleLinesIT extends ApplicationIT {
     assertThat(listed).bodyJson().extractingPath("$[0].vehicleTypeCode").isEqualTo("CAR");
     assertThat(listed).bodyJson().extractingPath("$[0].active").isEqualTo(false);
 
-    assertThat(update(Role.ADMIN, id, "Small SUV", "CAR", true))
+    assertThat(change(Role.ADMIN, id, "Small SUV", "CAR", true))
         .bodyJson()
         .extractingPath("$.active")
         .isEqualTo(true);
@@ -91,13 +91,28 @@ class VehicleLinesIT extends ApplicationIT {
     var id = idOf(add(Role.ADMIN, "SEDAN", "Sedan", "CAR"));
 
     for (var role : List.of(Role.AUTHOR, Role.MANAGER)) {
-      assertThat(update(role, id, "Saloon", "CAR", true)).as(role.name()).hasStatus(403);
+      assertThat(change(role, id, "Saloon", "CAR", true)).as(role.name()).hasStatus(403);
     }
   }
 
   @Test
+  void aPersonWhoIsNotAnAdminIsRefusedWhateverTheySend() {
+    var invalid = add(Role.AUTHOR, "not a code", "", "BOAT");
+    var unreadable =
+        mvc.post()
+            .uri("/api/vehicle-lines")
+            .with(signedInAs(Role.MANAGER))
+            .with(csrf())
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{ this is not JSON");
+
+    assertThat(invalid).hasStatus(403);
+    assertThat(unreadable).hasStatus(403);
+  }
+
+  @Test
   void changingAVehicleLineThatDoesNotExistIsNotFound() {
-    assertThat(update(Role.ADMIN, 987654321, "Ghost", "CAR", true))
+    assertThat(change(Role.ADMIN, 987654321, "Ghost", "CAR", true))
         .hasStatus(404)
         .bodyJson()
         .extractingPath("$.code")
@@ -113,7 +128,7 @@ class VehicleLinesIT extends ApplicationIT {
         List.of(
             add(Role.ADMIN, "SEDAN", "Another Sedan", "CAR"),
             add(Role.ADMIN, "SEDAN_2", "Sedan", "CAR"),
-            update(Role.ADMIN, sedan, "Sports Coupe", "CAR", true))) {
+            change(Role.ADMIN, sedan, "Sports Coupe", "CAR", true))) {
       assertThat(refused)
           .hasStatus(409)
           .bodyJson()
@@ -132,8 +147,8 @@ class VehicleLinesIT extends ApplicationIT {
             add(Role.ADMIN, "VAN_1", "", "VAN"),
             add(Role.ADMIN, "VAN_1", "V".repeat(81), "VAN"),
             add(Role.ADMIN, "VAN_1", "Van", "BOAT"),
-            update(Role.ADMIN, id, " ", "CAR", true),
-            update(Role.ADMIN, id, "Sedan", "BOAT", true))) {
+            change(Role.ADMIN, id, " ", "CAR", true),
+            change(Role.ADMIN, id, "Sedan", "BOAT", true))) {
       assertThat(refused)
           .hasStatus(422)
           .bodyJson()
@@ -141,6 +156,10 @@ class VehicleLinesIT extends ApplicationIT {
           .isEqualTo("VALIDATION");
       assertThat(refused).bodyJson().extractingPath("$.detail").asString().isNotBlank();
     }
+    assertThat(add(Role.ADMIN, "VAN_1", "", "VAN"))
+        .bodyJson()
+        .extractingPath("$.detail")
+        .isEqualTo("Enter a name.");
   }
 
   @Test
@@ -158,7 +177,7 @@ class VehicleLinesIT extends ApplicationIT {
         .containsExactly("SEDAN");
   }
 
-  private MvcTestResult update(
+  private MvcTestResult change(
       Role as, long id, String name, String vehicleTypeCode, boolean active) {
     return mvc.put()
         .uri("/api/vehicle-lines/{id}", id)

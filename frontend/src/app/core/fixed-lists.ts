@@ -8,7 +8,7 @@ export interface Named {
   name: string;
 }
 
-interface ReferenceLists {
+interface Lists {
   vehicleTypes: Named[];
   categories: Named[];
   modelYears: number[];
@@ -16,15 +16,15 @@ interface ReferenceLists {
 
 /** The fixed lists the app is built on. They never change, so the backend is asked once. */
 @Injectable({ providedIn: 'root' })
-export class Reference {
+export class FixedLists {
   private readonly http = inject(HttpClient);
-  private readonly lists = signal<ReferenceLists | null>(null);
+  private readonly lists = signal<Lists | null>(null);
 
   readonly vehicleTypes = () => this.lists()?.vehicleTypes ?? [];
 
   async load(): Promise<void> {
     if (!this.lists()) {
-      this.lists.set(await firstValueFrom(this.http.get<ReferenceLists>('/api/reference')));
+      this.lists.set(await firstValueFrom(this.http.get<Lists>('/api/reference')));
     }
   }
 

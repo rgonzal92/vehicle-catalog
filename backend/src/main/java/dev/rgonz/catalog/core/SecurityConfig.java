@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.net.URI;
 import java.util.HashSet;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -12,9 +13,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.hierarchicalroles.RoleHierarchy;
 import org.springframework.security.access.hierarchicalroles.RoleHierarchyImpl;
-import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.annotation.web.configurers.AuthorizeHttpRequestsConfigurer;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -30,6 +31,7 @@ import org.springframework.security.web.authentication.logout.LogoutSuccessHandl
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import org.springframework.web.util.UriComponentsBuilder;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -39,7 +41,6 @@ import tools.jackson.databind.json.JsonMapper;
  * account list, and the sign-in endpoints themselves.
  */
 @Configuration
-@EnableMethodSecurity
 class SecurityConfig {
   /** The name the login provider is registered under; it appears in the sign-in addresses. */
   private static final String PROVIDER = "cognito";
@@ -67,20 +68,22 @@ class SecurityConfig {
       AuthenticationSuccessHandler signedIn,
       ClientRegistrationRepository registrations,
       ProblemWriter problems,
+      @Qualifier("requestMappingHandlerMapping") RequestMappingHandlerMapping handlers,
       JsonMapper json,
       @Value("${app.public-url}") URI publicUrl,
       @Value("${app.logout-url}") String logoutUrl) {
     var landing = publicUrl + "/";
 
     http.authorizeHttpRequests(
-        requests ->
-            requests
-                .requestMatchers("/api/health/**", "/api/demo-accounts")
-                .permitAll()
-                .requestMatchers("/api/me")
-                .authenticated()
-                .anyRequest()
-                .hasRole(Role.AUTHOR.name()));
+        requests -> {
+          requests
+              .requestMatchers("/api/health/**", "/api/demo-accounts")
+              .permitAll()
+              .requestMatchers("/api/me")
+              .authenticated();
+          requireHigherRoles(requests, handlers);
+          requests.anyRequest().hasRole(Role.AUTHOR.name());
+        });
 
     http.securityContext(context -> context.securityContextRepository(contexts));
 
@@ -119,6 +122,31 @@ class SecurityConfig {
     http.requestCache(AbstractHttpConfigurer::disable);
 
     return http.build();
+  }
+
+  /**
+   * Registers every endpoint marked with {@link RequiresRole}. Checking here, before the request is
+   * read, means a person without the role is refused even when what they sent is invalid.
+   */
+  private static void requireHigherRoles(
+      AuthorizeHttpRequestsConfigurer<HttpSecurity>.AuthorizationManagerRequestMatcherRegistry
+          requests,
+      RequestMappingHandlerMapping handlers) {
+    handlers
+        .getHandlerMethods()
+        .forEach(
+            (mapping, handler) -> {
+              var required = handler.getMethodAnnotation(RequiresRole.class);
+              if (required == null) {
+                return;
+              }
+              var paths = mapping.getPathPatternsCondition().getPatternValues();
+              for (var method : mapping.getMethodsCondition().getMethods()) {
+                requests
+                    .requestMatchers(method.asHttpMethod(), paths.toArray(String[]::new))
+                    .hasRole(required.value().name());
+              }
+            });
   }
 
   /** Turns the login provider's groups into roles. A group the app does not know grants nothing. */
