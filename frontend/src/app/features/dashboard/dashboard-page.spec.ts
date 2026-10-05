@@ -1,6 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { Role, Session } from '../../core/session';
 import { DashboardPage } from './dashboard-page';
 
@@ -8,7 +9,7 @@ describe('DashboardPage', () => {
   /** Renders the dashboard for a person holding these roles and returns the page. */
   async function dashboardFor(roles: Role[]): Promise<HTMLElement> {
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
     });
     const loading = TestBed.inject(Session).load();
     TestBed.inject(HttpTestingController)

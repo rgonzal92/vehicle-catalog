@@ -22,6 +22,15 @@ export const routes: Routes = [
     canActivate: [noRolePage],
     loadComponent: () => import('./features/no-role/no-role-page').then((page) => page.NoRolePage),
   },
+  {
+    path: 'admin/vehicle-lines',
+    title: 'Vehicle lines · Vehicle Catalog',
+    canActivate: [holding('admin')],
+    loadComponent: () =>
+      import('./features/admin/vehicle-lines/vehicle-lines-page').then(
+        (page) => page.VehicleLinesPage,
+      ),
+  },
   // Any other address leads to the landing page, whose guard sends each person where they belong.
   { path: '**', redirectTo: '' },
 ];
