@@ -19,9 +19,6 @@ export const appConfig: ApplicationConfig = {
       theme: {
         preset: AppPreset,
         options: {
-          // The pages are styled for a light theme only, so components do not follow a dark system
-          // setting on their own.
-          darkModeSelector: 'none',
           cssLayer: { name: 'primeng', order: 'theme, base, primeng, components, utilities' },
         },
       },

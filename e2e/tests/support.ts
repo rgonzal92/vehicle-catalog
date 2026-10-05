@@ -9,6 +9,13 @@ export async function signIn(page: Page, username: string): Promise<void> {
   await page.locator('input[type="submit"]').click();
 }
 
+/** Signs out and waits for the landing page. */
+export async function signOut(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page).toHaveURL('/');
+  await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+}
+
 /** Fails when axe finds an accessibility violation on the page, naming each one. */
 export async function expectAccessible(page: Page): Promise<void> {
   const { violations } = await new AxeBuilder({ page }).analyze();

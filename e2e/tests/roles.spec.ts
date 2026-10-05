@@ -1,27 +1,35 @@
 import { expect, test } from '@playwright/test';
 import { expectAccessible, signIn } from './support';
 
-const accounts = [
-  { username: 'author', name: 'Demo Author', sections: ['My catalogs', 'Approved catalogs'] },
+/** The login server's demo accounts and the dashboard sections each one's role can use. */
+const demoAccounts = [
+  {
+    username: 'author',
+    role: 'author',
+    name: 'Demo Author',
+    sections: ['My catalogs', 'Approved catalogs'],
+  },
   {
     username: 'manager',
+    role: 'manager',
     name: 'Demo Manager',
     sections: ['My catalogs', 'Approved catalogs', 'Review queue'],
   },
   {
     username: 'admin',
+    role: 'admin',
     name: 'Demo Admin',
     sections: ['My catalogs', 'Approved catalogs', 'Review queue', 'Admin links'],
   },
 ];
 
-for (const { username, name, sections } of accounts) {
-  test(`the ${username} signs in and sees a dashboard for that role`, async ({ page }) => {
+for (const { username, role, name, sections } of demoAccounts) {
+  test(`the ${role} demo account signs in and sees a dashboard for that role`, async ({ page }) => {
     await signIn(page, username);
 
     await expect(page).toHaveURL('/dashboard');
     await expect(page.getByText(name)).toBeVisible();
-    await expect(page.locator('[data-role]')).toHaveText(username);
+    await expect(page.locator('[data-role]')).toHaveText(role);
     await expect(page.getByRole('heading', { level: 2 })).toHaveText(sections);
     await expectAccessible(page);
   });
