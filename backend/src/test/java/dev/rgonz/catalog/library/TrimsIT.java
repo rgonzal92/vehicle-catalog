@@ -1,7 +1,6 @@
 package dev.rgonz.catalog.library;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 
 import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.core.Role;
@@ -125,7 +124,8 @@ class TrimsIT extends ApplicationIT {
   void aTrimCannotBeDeletedAndAnUnknownOneIsNotFound() {
     var id = idOf(add(Role.ADMIN, "Base"));
 
-    assertThat(mvc.delete().uri("/api/trims/{id}", id).with(signedInAs(Role.ADMIN)).with(csrf()))
+    assertThat(
+            mvc.delete().uri("/api/trims/{id}", id).with(signedInAs(Role.ADMIN)).with(csrfToken()))
         .hasStatus(405);
     assertThat(change(Role.ADMIN, 987654321, "Ghost", 1, true)).hasStatus(404);
     assertThat(names(Role.ADMIN)).containsExactly("Base");
@@ -135,7 +135,7 @@ class TrimsIT extends ApplicationIT {
     return mvc.post()
         .uri("/api/trims")
         .with(signedInAs(as))
-        .with(csrf())
+        .with(csrfToken())
         .contentType(MediaType.APPLICATION_JSON)
         .content("{\"name\": \"%s\"}".formatted(name))
         .exchange();
@@ -145,7 +145,7 @@ class TrimsIT extends ApplicationIT {
     return mvc.put()
         .uri("/api/trims/{id}", id)
         .with(signedInAs(as))
-        .with(csrf())
+        .with(csrfToken())
         .contentType(MediaType.APPLICATION_JSON)
         .content(
             "{\"name\": \"%s\", \"sortOrder\": %d, \"active\": %s}"

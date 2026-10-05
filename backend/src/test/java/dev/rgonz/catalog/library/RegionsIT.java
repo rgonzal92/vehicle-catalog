@@ -1,7 +1,6 @@
 package dev.rgonz.catalog.library;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 
 import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.core.Role;
@@ -59,7 +58,7 @@ class RegionsIT extends ApplicationIT {
         mvc.put()
             .uri("/api/regions/EU")
             .with(signedInAs(Role.ADMIN))
-            .with(csrf())
+            .with(csrfToken())
             .contentType(MediaType.APPLICATION_JSON)
             .content("{\"code\": \"XX\", \"name\": \"Europe\", \"sortOrder\": 1, \"active\": true}")
             .exchange();
@@ -126,7 +125,7 @@ class RegionsIT extends ApplicationIT {
   void aRegionCannotBeDeletedAndAnUnknownOneIsNotFound() {
     add(Role.ADMIN, "NA", "North America");
 
-    assertThat(mvc.delete().uri("/api/regions/NA").with(signedInAs(Role.ADMIN)).with(csrf()))
+    assertThat(mvc.delete().uri("/api/regions/NA").with(signedInAs(Role.ADMIN)).with(csrfToken()))
         .hasStatus(405);
     assertThat(change(Role.ADMIN, "XX", "Nowhere", 1, true)).hasStatus(404);
     assertThat(names(Role.ADMIN)).containsExactly("North America");
@@ -136,7 +135,7 @@ class RegionsIT extends ApplicationIT {
     return mvc.post()
         .uri("/api/regions")
         .with(signedInAs(as))
-        .with(csrf())
+        .with(csrfToken())
         .contentType(MediaType.APPLICATION_JSON)
         .content("{\"code\": \"%s\", \"name\": \"%s\"}".formatted(code, name))
         .exchange();
@@ -146,7 +145,7 @@ class RegionsIT extends ApplicationIT {
     return mvc.put()
         .uri("/api/regions/{code}", code)
         .with(signedInAs(as))
-        .with(csrf())
+        .with(csrfToken())
         .contentType(MediaType.APPLICATION_JSON)
         .content(
             "{\"name\": \"%s\", \"sortOrder\": %d, \"active\": %s}"
