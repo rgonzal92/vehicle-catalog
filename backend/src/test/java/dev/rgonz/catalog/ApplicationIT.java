@@ -40,7 +40,10 @@ public abstract class ApplicationIT {
   @ServiceConnection
   static final PostgreSQLContainer DATABASE = new PostgreSQLContainer("postgres:18.6");
 
-  /** Signing in as "author" yields the claims Amazon Cognito would send for a demo author. */
+  /**
+   * Signing in as "author" or "admin" yields the claims Amazon Cognito would send for that demo
+   * account. Any other username signs in as a person who is in no group.
+   */
   static final GenericContainer<?> LOGIN_SERVER =
       new GenericContainer<>("ghcr.io/navikt/mock-oauth2-server:6.0.4")
           .withExposedPorts(8080)
@@ -61,6 +64,16 @@ public abstract class ApplicationIT {
                           "email": "author@example.test",
                           "name": "Demo Author",
                           "cognito:groups": ["author"]
+                        }
+                      },
+                      {
+                        "requestParam": "subject",
+                        "match": "admin",
+                        "claims": {
+                          "cognito:username": "demo-admin",
+                          "email": "admin@example.test",
+                          "name": "Demo Admin",
+                          "cognito:groups": ["admin", "a-group-the-app-does-not-know"]
                         }
                       }
                     ]

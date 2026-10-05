@@ -6,6 +6,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import dev.rgonz.catalog.ApplicationIT;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
 /** Checks the local record of people who signed in and what the app says about them. */
 class UserIT extends ApplicationIT {
@@ -40,6 +41,34 @@ class UserIT extends ApplicationIT {
     assertThat(result).bodyJson().extractingPath("$.name").isEqualTo("Maya");
     assertThat(result).bodyJson().extractingPath("$.email").isEqualTo("maya@example.test");
     assertThat(result).bodyJson().extractingPath("$.roles").asArray().isEmpty();
+  }
+
+  @Test
+  void meListsEveryRoleThePersonHoldsHighestFirst() {
+    users.recordLogin("sub-admin", "ada", "ada@example.test", "Ada");
+    users.recordLogin("sub-author", "ari", "ari@example.test", "Ari");
+
+    var admin =
+        mvc.get()
+            .uri("/api/me")
+            .with(
+                oidcLogin()
+                    .idToken(token -> token.subject("sub-admin"))
+                    .authorities(new SimpleGrantedAuthority("ROLE_ADMIN")));
+    var author =
+        mvc.get()
+            .uri("/api/me")
+            .with(
+                oidcLogin()
+                    .idToken(token -> token.subject("sub-author"))
+                    .authorities(new SimpleGrantedAuthority("ROLE_AUTHOR")));
+
+    assertThat(admin)
+        .bodyJson()
+        .extractingPath("$.roles")
+        .asArray()
+        .containsExactly("admin", "manager", "author");
+    assertThat(author).bodyJson().extractingPath("$.roles").asArray().containsExactly("author");
   }
 
   @Test

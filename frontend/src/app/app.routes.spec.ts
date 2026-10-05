@@ -19,7 +19,10 @@ describe('routes', () => {
   const sessionRequest = () => vi.waitFor(() => backend.expectOne('/api/me'));
 
   it('shows the landing page at /', async () => {
-    const harness = await RouterTestingHarness.create('/');
+    const harness = await RouterTestingHarness.create();
+    const navigation = harness.navigateByUrl('/');
+    (await sessionRequest()).flush(null, { status: 401, statusText: 'Unauthorized' });
+    await navigation;
 
     expect(harness.routeNativeElement?.querySelector('h1')?.textContent).toContain(
       'Vehicle Catalog',
@@ -29,7 +32,7 @@ describe('routes', () => {
   it('shows the dashboard to a signed-in person', async () => {
     const harness = await RouterTestingHarness.create();
     const navigation = harness.navigateByUrl('/dashboard');
-    (await sessionRequest()).flush({ id: 7, name: 'Maya', email: null, roles: [] });
+    (await sessionRequest()).flush({ id: 7, name: 'Maya', email: null, roles: ['author'] });
     await navigation;
 
     expect(TestBed.inject(Router).url).toBe('/dashboard');
@@ -43,5 +46,17 @@ describe('routes', () => {
     await navigation;
 
     expect(TestBed.inject(Router).url).toBe('/');
+  });
+
+  it('shows a signed-in person without a role the no-role page', async () => {
+    const harness = await RouterTestingHarness.create();
+    const navigation = harness.navigateByUrl('/dashboard');
+    (await sessionRequest()).flush({ id: 7, name: 'Maya', email: null, roles: [] });
+    await navigation;
+
+    expect(TestBed.inject(Router).url).toBe('/no-role');
+    expect(harness.routeNativeElement?.querySelector('h1')?.textContent).toContain(
+      'No role assigned',
+    );
   });
 });

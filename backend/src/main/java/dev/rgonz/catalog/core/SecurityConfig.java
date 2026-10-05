@@ -3,18 +3,26 @@ package dev.rgonz.catalog.core;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.net.URI;
+import java.util.HashSet;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.hierarchicalroles.RoleHierarchy;
+import org.springframework.security.access.hierarchicalroles.RoleHierarchyImpl;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.authority.mapping.GrantedAuthoritiesMapper;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRepository;
+import org.springframework.security.oauth2.core.oidc.user.OidcUserAuthority;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.SimpleUrlAuthenticationFailureHandler;
@@ -31,6 +39,7 @@ import tools.jackson.databind.json.JsonMapper;
  * account list, and the sign-in endpoints themselves.
  */
 @Configuration
+@EnableMethodSecurity
 class SecurityConfig {
   /** The name the login provider is registered under; it appears in the sign-in addresses. */
   private static final String PROVIDER = "cognito";
@@ -38,6 +47,17 @@ class SecurityConfig {
   @Bean
   SecurityContextRepository securityContextRepository() {
     return new HttpSessionSecurityContextRepository();
+  }
+
+  /** Admin includes manager, and manager includes author. */
+  @Bean
+  static RoleHierarchy roleHierarchy() {
+    var roles = Role.values();
+    var hierarchy = RoleHierarchyImpl.withDefaultRolePrefix();
+    for (int higher = 0; higher < roles.length - 1; higher++) {
+      hierarchy.role(roles[higher].name()).implies(roles[higher + 1].name());
+    }
+    return hierarchy.build();
   }
 
   @Bean
@@ -57,8 +77,10 @@ class SecurityConfig {
             requests
                 .requestMatchers("/api/health/**", "/api/demo-accounts")
                 .permitAll()
+                .requestMatchers("/api/me")
+                .authenticated()
                 .anyRequest()
-                .authenticated());
+                .hasRole(Role.AUTHOR.name()));
 
     http.securityContext(context -> context.securityContextRepository(contexts));
 
@@ -68,6 +90,7 @@ class SecurityConfig {
             login
                 .authorizationEndpoint(endpoint -> endpoint.baseUri("/api/oauth2/authorization"))
                 .redirectionEndpoint(endpoint -> endpoint.baseUri("/api/login/oauth2/code/*"))
+                .userInfoEndpoint(userInfo -> userInfo.userAuthoritiesMapper(rolesFromGroups()))
                 .authorizedClientRepository(new DiscardedTokens())
                 .successHandler(signedIn)
                 .failureHandler(new SimpleUrlAuthenticationFailureHandler(landing)));
@@ -96,6 +119,24 @@ class SecurityConfig {
     http.requestCache(AbstractHttpConfigurer::disable);
 
     return http.build();
+  }
+
+  /** Turns the login provider's groups into roles. A group the app does not know grants nothing. */
+  private static GrantedAuthoritiesMapper rolesFromGroups() {
+    return authorities -> {
+      var mapped = new HashSet<GrantedAuthority>(authorities);
+      for (var authority : authorities) {
+        if (authority instanceof OidcUserAuthority login) {
+          var groups = login.getIdToken().getClaimAsStringList("cognito:groups");
+          for (var role : Role.values()) {
+            if (groups != null && groups.contains(role.label())) {
+              mapped.add(new SimpleGrantedAuthority(role.authority()));
+            }
+          }
+        }
+      }
+      return mapped;
+    };
   }
 
   /**
