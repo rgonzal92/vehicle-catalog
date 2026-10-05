@@ -25,8 +25,12 @@ export async function choose(scope: Locator, label: string, option: string): Pro
   await expect(page.getByRole('listbox')).toBeHidden();
 }
 
-/** Fails when axe finds an accessibility violation on the page, naming each one. */
+/** Fails when axe finds an accessibility violation on the settled page, naming each one. */
 export async function expectAccessible(page: Page): Promise<void> {
+  // A control that is still fading in or out would be judged on a color it only has for a moment.
+  await page.evaluate(() =>
+    Promise.allSettled(document.getAnimations().map((animation) => animation.finished)),
+  );
   const { violations } = await new AxeBuilder({ page }).analyze();
 
   expect(
