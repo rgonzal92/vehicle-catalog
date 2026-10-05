@@ -1,7 +1,6 @@
 package dev.rgonz.catalog.core;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
 
 import dev.rgonz.catalog.ApplicationIT;
@@ -66,7 +65,7 @@ class SecurityIT extends ApplicationIT {
 
   @Test
   void signOutPointsAtTheProviderLogout() {
-    var result = mvc.post().uri("/api/logout").with(oidcLogin()).with(csrf());
+    var result = mvc.post().uri("/api/logout").with(oidcLogin()).with(csrfToken());
 
     assertThat(result)
         .hasStatusOk()

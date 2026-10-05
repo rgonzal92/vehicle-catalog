@@ -1,5 +1,6 @@
 package dev.rgonz.catalog;
 
+import jakarta.servlet.http.Cookie;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -9,6 +10,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
@@ -87,4 +89,17 @@ public abstract class ApplicationIT {
   @LocalServerPort protected int port;
   @Autowired protected MockMvcTester mvc;
   @Autowired protected JdbcClient jdbc;
+
+  /**
+   * Sends the CSRF token the way the frontend does: the cookie's value echoed in a header. Spring
+   * Security's own {@code csrf()} test helper is not used, because it replaces the application's
+   * token store for every later test that shares this context, including the ones over real HTTP.
+   */
+  protected static RequestPostProcessor csrfToken() {
+    return request -> {
+      request.setCookies(new Cookie("XSRF-TOKEN", "csrf-test-token"));
+      request.addHeader("X-XSRF-TOKEN", "csrf-test-token");
+      return request;
+    };
+  }
 }
