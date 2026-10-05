@@ -1,16 +1,47 @@
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { routes } from './app.routes';
 
 describe('routes', () => {
-  it('shows the landing page at /', async () => {
-    TestBed.configureTestingModule({ providers: [provideRouter(routes)] });
+  let backend: HttpTestingController;
 
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [provideRouter(routes), provideHttpClient(), provideHttpClientTesting()],
+    });
+    backend = TestBed.inject(HttpTestingController);
+  });
+
+  /** The guard asks who is signed in a moment after the navigation starts. */
+  const sessionRequest = () => vi.waitFor(() => backend.expectOne('/api/me'));
+
+  it('shows the landing page at /', async () => {
     const harness = await RouterTestingHarness.create('/');
 
     expect(harness.routeNativeElement?.querySelector('h1')?.textContent).toContain(
       'Vehicle Catalog',
     );
+  });
+
+  it('shows the dashboard to a signed-in person', async () => {
+    const harness = await RouterTestingHarness.create();
+    const navigation = harness.navigateByUrl('/dashboard');
+    (await sessionRequest()).flush({ id: 7, name: 'Maya', email: null, roles: [] });
+    await navigation;
+
+    expect(TestBed.inject(Router).url).toBe('/dashboard');
+    expect(harness.routeNativeElement?.textContent).toContain('Maya');
+  });
+
+  it('leads a visitor without a session from the dashboard to the landing page', async () => {
+    const harness = await RouterTestingHarness.create();
+    const navigation = harness.navigateByUrl('/dashboard');
+    (await sessionRequest()).flush(null, { status: 401, statusText: 'Unauthorized' });
+    await navigation;
+
+    expect(TestBed.inject(Router).url).toBe('/');
   });
 });
