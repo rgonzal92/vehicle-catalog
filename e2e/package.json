@@ -1,0 +1,23 @@
+{
+  "name": "vehicle-catalog-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "e2e": "npm run stack:up && (playwright test; status=$?; npm run stack:down; exit $status)",
+    "stack:up": "npm --prefix ../frontend run build && docker compose -p vehicle-catalog-e2e -f ../compose.yaml -f compose.yaml up -d --build --wait",
+    "stack:down": "docker compose -p vehicle-catalog-e2e -f ../compose.yaml -f compose.yaml down -v",
+    "test": "playwright test",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint --deny-warnings tests playwright.config.ts",
+    "format": "oxfmt --write tests playwright.config.ts package.json tsconfig.json",
+    "format:check": "oxfmt --check tests playwright.config.ts package.json tsconfig.json"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.63.0",
+    "@types/node": "24.19.1",
+    "oxfmt": "0.71.0",
+    "oxlint": "1.86.0",
+    "typescript": "6.0.3"
+  }
+}
