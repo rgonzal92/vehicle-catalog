@@ -43,6 +43,12 @@ import { Session } from '../../core/session';
             <li>
               <a class="text-primary underline" routerLink="/admin/vehicle-lines">Vehicle lines</a>
             </li>
+            <li>
+              <a class="text-primary underline" routerLink="/admin/trims">Trims</a>
+            </li>
+            <li>
+              <a class="text-primary underline" routerLink="/admin/regions">Regions</a>
+            </li>
           </ul>
         </section>
       }

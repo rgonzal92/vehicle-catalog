@@ -34,14 +34,14 @@ class VehicleLines {
   VehicleLine add(NewVehicleLine given) {
     requireVehicleType(given.vehicleTypeCode());
 
-    return save(new VehicleLine(given.code(), given.name().strip(), given.vehicleTypeCode()));
+    return save(new VehicleLine(given.code(), given.name(), given.vehicleTypeCode()));
   }
 
   @Transactional
   VehicleLine change(long id, VehicleLineChange given) {
     requireVehicleType(given.vehicleTypeCode());
     var line = repository.findById(id).orElseThrow(ApiException::notFound);
-    line.change(given.name().strip(), given.vehicleTypeCode(), given.active());
+    line.change(given.name(), given.vehicleTypeCode(), given.active());
 
     return save(line);
   }
@@ -74,7 +74,11 @@ class VehicleLines {
       @NotBlank(message = "Enter a name.")
           @Size(max = 80, message = "Keep the name to 80 characters or fewer.")
           String name,
-      @NotBlank(message = "Choose a vehicle type.") String vehicleTypeCode) {}
+      @NotBlank(message = "Choose a vehicle type.") String vehicleTypeCode) {
+    NewVehicleLine {
+      name = name == null ? null : name.strip();
+    }
+  }
 
   /** What an admin gives to rename, retype, activate, or deactivate a vehicle line. */
   record VehicleLineChange(
@@ -82,5 +86,9 @@ class VehicleLines {
           @Size(max = 80, message = "Keep the name to 80 characters or fewer.")
           String name,
       @NotBlank(message = "Choose a vehicle type.") String vehicleTypeCode,
-      @NotNull(message = "Say whether the vehicle line is active.") Boolean active) {}
+      @NotNull(message = "Say whether the vehicle line is active.") Boolean active) {
+    VehicleLineChange {
+      name = name == null ? null : name.strip();
+    }
+  }
 }

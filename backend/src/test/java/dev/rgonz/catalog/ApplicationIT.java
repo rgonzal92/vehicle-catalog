@@ -2,8 +2,10 @@ package dev.rgonz.catalog;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
 
+import com.jayway.jsonpath.JsonPath;
 import dev.rgonz.catalog.core.Role;
 import jakarta.servlet.http.Cookie;
+import java.io.UnsupportedEncodingException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -15,6 +17,7 @@ import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequ
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
+import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -117,6 +120,15 @@ public abstract class ApplicationIT {
   /** A signed-in person holding the role. Without a role, use {@code oidcLogin()} itself. */
   protected static OidcLoginRequestPostProcessor signedInAs(Role role) {
     return oidcLogin().authorities(new SimpleGrantedAuthority(role.authority()));
+  }
+
+  /** Reads one value out of a JSON response. */
+  protected static <T> T read(MvcTestResult result, String path) {
+    try {
+      return JsonPath.read(result.getResponse().getContentAsString(), path);
+    } catch (UnsupportedEncodingException e) {
+      throw new IllegalStateException(e);
+    }
   }
 
   @LocalServerPort protected int port;

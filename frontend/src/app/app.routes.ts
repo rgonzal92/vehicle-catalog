@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { holding, noRolePage, publicPage } from './core/session-guard';
+import { REGIONS, TRIMS } from './features/admin/library-lists/library-list';
 
 // Each page loads on first visit.
 export const routes: Routes = [
@@ -29,6 +30,26 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/admin/vehicle-lines/vehicle-lines-page').then(
         (page) => page.VehicleLinesPage,
+      ),
+  },
+  {
+    path: 'admin/trims',
+    title: 'Trims · Vehicle Catalog',
+    canActivate: [holding('admin')],
+    data: { list: TRIMS },
+    loadComponent: () =>
+      import('./features/admin/library-lists/library-list-page').then(
+        (page) => page.LibraryListPage,
+      ),
+  },
+  {
+    path: 'admin/regions',
+    title: 'Regions · Vehicle Catalog',
+    canActivate: [holding('admin')],
+    data: { list: REGIONS },
+    loadComponent: () =>
+      import('./features/admin/library-lists/library-list-page').then(
+        (page) => page.LibraryListPage,
       ),
   },
   // Any other address leads to the landing page, whose guard sends each person where they belong.
