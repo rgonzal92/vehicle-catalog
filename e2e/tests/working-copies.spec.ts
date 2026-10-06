@@ -1,24 +1,5 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
-import { choose, expectAccessible, signIn, signOut } from './support';
-
-/** A name no other test and no earlier run uses, since an owner's working copy names are unique. */
-const unique = (name: string) => `${name} ${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-
-/** Opens the new catalog dialog from the dashboard and sets its vehicle line and model year. */
-async function startNewCatalog(
-  page: Page,
-  vehicleType: string,
-  vehicleLine: string,
-  modelYear: string,
-): Promise<Locator> {
-  await page.getByRole('button', { name: 'New catalog' }).click();
-  const dialog = page.getByRole('dialog', { name: 'New catalog' });
-  await choose(dialog, 'Vehicle type', vehicleType);
-  await choose(dialog, 'Vehicle line', vehicleLine);
-  await choose(dialog, 'Model year', modelYear);
-
-  return dialog;
-}
+import { expect, test } from '@playwright/test';
+import { expectAccessible, signIn, signOut, startNewCatalog, unique } from './support';
 
 test('an author creates a working copy that starts from the Approved version', async ({ page }) => {
   const name = unique('Winter update');

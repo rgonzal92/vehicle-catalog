@@ -45,3 +45,42 @@ export async function expectAccessible(page: Page): Promise<void> {
     ),
   ).toEqual([]);
 }
+
+/** A name no other test and no earlier run uses, since an owner's working copy names are unique. */
+export const unique = (name: string) => `${name} ${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+/** Opens the new catalog dialog from the dashboard and sets its vehicle line and model year. */
+export async function startNewCatalog(
+  page: Page,
+  vehicleType: string,
+  vehicleLine: string,
+  modelYear: string,
+): Promise<Locator> {
+  await page.getByRole('button', { name: 'New catalog' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New catalog' });
+  await choose(dialog, 'Vehicle type', vehicleType);
+  await choose(dialog, 'Vehicle line', vehicleLine);
+  await choose(dialog, 'Model year', modelYear);
+
+  return dialog;
+}
+
+/**
+ * Creates a working copy from the dashboard and waits for it to open in the catalog editor. Answers
+ * with its name.
+ */
+export async function createWorkingCopy(
+  page: Page,
+  vehicleType: string,
+  vehicleLine: string,
+  modelYear: string,
+): Promise<string> {
+  const name = unique(`${vehicleLine} ${modelYear}`);
+  const dialog = await startNewCatalog(page, vehicleType, vehicleLine, modelYear);
+  await expect(dialog.getByText(/^Starts /)).toBeVisible();
+  await dialog.getByLabel('Name').fill(name);
+  await dialog.getByRole('button', { name: 'Create' }).click();
+  await expect(page.getByRole('heading', { name })).toBeVisible();
+
+  return name;
+}
