@@ -16,6 +16,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -95,10 +96,70 @@ class CatalogController {
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       @RequestBody List<CellChange> cells,
       Authentication caller) {
-    var revision = edits.setCells(id, people.idOf(caller), ifMatch, cells);
+    return saved(edits.setCells(id, people.idOf(caller), ifMatch, cells));
+  }
 
+  /** Adds library trims to the caller's working copy. */
+  @PostMapping("/api/catalogs/{id}/trims")
+  ResponseEntity<Edited> addTrims(
+      @PathVariable long id,
+      @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+      @RequestBody TrimsToAdd given,
+      Authentication caller) {
+    return saved(edits.addTrims(id, people.idOf(caller), ifMatch, given.trimIds()));
+  }
+
+  /** Removes a trim from the caller's working copy, with its offerings and their cells. */
+  @DeleteMapping("/api/catalogs/{id}/trims/{trimId}")
+  ResponseEntity<Edited> removeTrim(
+      @PathVariable long id,
+      @PathVariable long trimId,
+      @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+      Authentication caller) {
+    return saved(edits.removeTrim(id, people.idOf(caller), ifMatch, trimId));
+  }
+
+  /** Adds library regions to the caller's working copy. */
+  @PostMapping("/api/catalogs/{id}/regions")
+  ResponseEntity<Edited> addRegions(
+      @PathVariable long id,
+      @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+      @RequestBody Regions given,
+      Authentication caller) {
+    return saved(edits.addRegions(id, people.idOf(caller), ifMatch, given.regionCodes()));
+  }
+
+  /** Removes a region from the caller's working copy, with its offerings and their cells. */
+  @DeleteMapping("/api/catalogs/{id}/regions/{regionCode}")
+  ResponseEntity<Edited> removeRegion(
+      @PathVariable long id,
+      @PathVariable String regionCode,
+      @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+      Authentication caller) {
+    return saved(edits.removeRegion(id, people.idOf(caller), ifMatch, regionCode));
+  }
+
+  /** Says in which of the catalog's regions a trim is sold: in exactly the ones given. */
+  @PutMapping("/api/catalogs/{id}/trims/{trimId}/regions")
+  ResponseEntity<Edited> sellIn(
+      @PathVariable long id,
+      @PathVariable long trimId,
+      @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+      @RequestBody Regions given,
+      Authentication caller) {
+    return saved(edits.sellIn(id, people.idOf(caller), ifMatch, trimId, given.regionCodes()));
+  }
+
+  /** A saved edit answers with the catalog's new revision, which is also the entity tag. */
+  private static ResponseEntity<Edited> saved(long revision) {
     return ResponseEntity.ok().eTag(String.valueOf(revision)).body(new Edited(revision));
   }
+
+  /** The library trims to add to a catalog, by their identities and nothing else. */
+  record TrimsToAdd(List<Long> trimIds) {}
+
+  /** Regions of the library, by their codes and nothing else. */
+  record Regions(List<String> regionCodes) {}
 
   /**
    * The catalog's change history, newest first and a page at a time, for anyone who may open the

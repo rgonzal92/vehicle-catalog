@@ -6,20 +6,22 @@ import { Button } from 'primeng/button';
 import { Message } from 'primeng/message';
 import { Tab, TabList, TabPanel, TabPanels, Tabs } from 'primeng/tabs';
 import { Tag } from 'primeng/tag';
-import { Catalog, Catalogs, STATUS_NAMES } from '../../core/catalogs';
+import { Catalog, CatalogEdit, Catalogs, STATUS_NAMES } from '../../core/catalogs';
 import { FixedLists } from '../../core/fixed-lists';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
 import { Cell } from '../../shared/availability-matrix/matrix';
 import { reasonOf } from '../../shared/reason-of';
 import { HistoryTab } from './history-tab';
+import { ManageOfferingsDialog } from './manage-offerings-dialog';
 import { NotSent, SaveQueue, SaveStop } from './save-queue';
 
 /**
  * A catalog as its owner works on it: what describes it, its matrix on the Features tab, and its
  * change history on the History tab. A working copy shows the library's current labels.
  *
- * The owner of a working copy in status Draft sets its cells, and each change is saved at once,
- * with no save button. Anyone else, and any other status, gets the matrix read-only.
+ * The owner of a working copy in status Draft sets its cells and manages its trims, regions, and
+ * offerings, and each change is saved at once, with no save button. Anyone else, and any other
+ * status, gets the matrix read-only. Whole regions can be hidden to keep the matrix narrow.
  *
  * A change that is not saved goes back to what the cell was, marked with the reason. After a
  * revision conflict, or when no answer says whether a change was saved, the editor sends nothing
@@ -39,6 +41,7 @@ import { NotSent, SaveQueue, SaveStop } from './save-queue';
     Tag,
     AvailabilityMatrix,
     HistoryTab,
+    ManageOfferingsDialog,
   ],
   selector: 'app-catalog-editor-page',
   template: `
@@ -87,13 +90,43 @@ import { NotSent, SaveQueue, SaveStop } from './save-queue';
           </p-tablist>
           <p-tabpanels>
             <p-tabpanel value="features">
+              <div class="mb-2 flex flex-wrap items-center justify-between gap-4">
+                <fieldset class="flex flex-wrap items-center gap-4">
+                  <legend class="float-left mr-4 text-sm text-muted-color">Regions shown</legend>
+                  @for (region of catalog.snapshot.regions; track region.code) {
+                    <label class="flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        class="size-4"
+                        [checked]="!hiddenRegions().has(region.code)"
+                        (change)="showRegion(region.code, $any($event.target).checked)"
+                      />
+                      {{ region.name }}
+                    </label>
+                  }
+                </fieldset>
+                @if (editable()) {
+                  <p-button
+                    label="Manage trims and regions"
+                    severity="secondary"
+                    (onClick)="manage(offerings)"
+                  />
+                }
+              </div>
               <app-availability-matrix
                 #matrix
                 class="h-[70vh] min-h-96"
                 [contents]="catalog.snapshot"
                 [categories]="fixedLists.categories()"
                 [editable]="editable()"
+                [hiddenRegions]="hiddenRegions()"
                 (cellChange)="save($event)"
+              />
+              <app-manage-offerings-dialog
+                #offerings
+                [catalog]="catalog"
+                [run]="restructure"
+                [editable]="editable()"
               />
             </p-tabpanel>
             <p-tabpanel value="history">
@@ -133,7 +166,13 @@ export class CatalogEditorPage {
    * Sends this page's edits in the order they were made, one at a time. Each time the catalog is
    * read, it gets a new one that starts from the revision read.
    */
-  private readonly saves = signal<SaveQueue<Cell> | null>(null);
+  private readonly saves = signal<SaveQueue<CatalogEdit> | null>(null);
+
+  /**
+   * The codes of the regions the person has hidden from the matrix. It is a way of looking at the
+   * catalog and changes nothing in it.
+   */
+  protected readonly hiddenRegions = signal<ReadonlySet<string>>(new Set());
 
   /**
    * Whether the person may set cells: the catalog is theirs and in status Draft, and no failed save
@@ -184,7 +223,7 @@ export class CatalogEditorPage {
     }
 
     try {
-      await saves.add(cell);
+      await saves.add((revision) => this.catalogs.setCells(this.id, revision, [cell]));
       this.matrix()?.saved(cell);
     } catch (error) {
       if (error instanceof NotSent) {
@@ -201,10 +240,65 @@ export class CatalogEditorPage {
       if (!stopped) {
         this.messages.add({ severity: 'error', summary: 'Not saved', detail: reason });
       } else if (stopped === 'closed') {
-        this.messages.add({ severity: 'warn', summary: 'Not saved', detail: reason });
-        await this.open();
+        await this.closed(reason);
       }
     }
+  }
+
+  /**
+   * Sends a change of the catalog's trims, regions, or offerings behind the saves on their way, and
+   * reads the catalog again once it is saved, since such a change alters what the matrix is made
+   * of. It fails with the backend's refusal when the change is not saved.
+   */
+  protected readonly restructure = async (edit: CatalogEdit): Promise<void> => {
+    const saves = this.saves();
+    if (!saves) {
+      return;
+    }
+
+    try {
+      await saves.add(edit);
+    } catch (error) {
+      if (saves.stopped() === 'closed') {
+        await this.closed(reasonOf(error));
+      }
+      throw error;
+    }
+    await this.open();
+  };
+
+  /**
+   * Opens the dialog for the catalog's trims, regions, and offerings. It says how many cells go
+   * with a removal, so the catalog is first read again as saved, with the cells set since.
+   */
+  protected async manage(dialog: ManageOfferingsDialog): Promise<void> {
+    try {
+      await this.saves()?.add(async (revision) => revision);
+    } catch {
+      // A failed save has stopped the editor, which the banner says.
+      return;
+    }
+    await this.open();
+    await dialog.open();
+  }
+
+  /** Shows or hides a region's offerings in the matrix. */
+  protected showRegion(code: string, shown: boolean): void {
+    this.hiddenRegions.update((hidden) => {
+      const next = new Set(hidden);
+      if (shown) {
+        next.delete(code);
+      } else {
+        next.add(code);
+      }
+      return next;
+    });
+  }
+
+  /** Says why the catalog can no longer be edited, and reads it again as it is now. */
+  private async closed(reason: string): Promise<void> {
+    this.messages.add({ severity: 'warn', summary: 'Not saved', detail: reason });
+    await this.open();
   }
 
   /** Reads the catalog again, which shows what was saved and lets editing go on. */
@@ -216,10 +310,7 @@ export class CatalogEditorPage {
     try {
       const catalog = await this.catalogs.find(this.id);
       this.saves.set(
-        new SaveQueue(
-          (cell, revision) => this.catalogs.setCells(this.id, revision, [cell]),
-          catalog.snapshot.revision,
-        ),
+        new SaveQueue<CatalogEdit>((edit, revision) => edit(revision), catalog.snapshot.revision),
       );
       this.catalog.set(catalog);
     } catch (error) {

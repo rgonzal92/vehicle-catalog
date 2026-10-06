@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.IntFunction;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -19,14 +20,21 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Edits working copies. Only a catalog in status Draft can be edited, and only by its owner. Every
- * edit names the revision it was made from and runs in one transaction that locks the catalog, so
- * edits of one catalog happen one after another and none overwrites a change it has not seen.
+ * Edits working copies: their cells, the library trims and regions they have added, and where each
+ * trim is sold. Only a catalog in status Draft can be edited, and only by its owner. Every edit
+ * names the revision it was made from and runs in one transaction that locks the catalog, so edits
+ * of one catalog happen one after another and none overwrites a change it has not seen.
  */
 @Service
 class CatalogEdits {
   /** The most cells one save sets. */
   private static final int MOST_CELLS = 500;
+
+  /** The most trims a catalog has. */
+  private static final int MOST_TRIMS = 12;
+
+  /** The most regions a catalog has. */
+  private static final int MOST_REGIONS = 8;
 
   /** What a save may set a cell to: S, A, or N. */
   private static final Set<String> AVAILABILITIES =
@@ -76,6 +84,225 @@ class CatalogEdits {
 
           store(catalogId, actorId, cells.values());
         });
+  }
+
+  /**
+   * Adds library trims to the catalog. Only an active trim that the catalog does not have yet can
+   * be added, and a catalog has at most {@value #MOST_TRIMS}. A new trim is sold nowhere until the
+   * owner says where.
+   */
+  long addTrims(long catalogId, long actorId, String ifMatch, List<Long> trimIds) {
+    return edit(
+        catalogId,
+        actorId,
+        ifMatch,
+        () -> add(catalogId, actorId, Entry.TRIM, trimIds, Long[]::new));
+  }
+
+  /**
+   * Adds library regions to the catalog, under the same rules as trims, up to {@value
+   * #MOST_REGIONS}.
+   */
+  long addRegions(long catalogId, long actorId, String ifMatch, List<String> regionCodes) {
+    return edit(
+        catalogId,
+        actorId,
+        ifMatch,
+        () -> add(catalogId, actorId, Entry.REGION, regionCodes, String[]::new));
+  }
+
+  /** Removes a trim from the catalog, and with it its offerings and their cells. */
+  long removeTrim(long catalogId, long actorId, String ifMatch, long trimId) {
+    return edit(catalogId, actorId, ifMatch, () -> remove(catalogId, actorId, Entry.TRIM, trimId));
+  }
+
+  /** Removes a region from the catalog, and with it its offerings and their cells. */
+  long removeRegion(long catalogId, long actorId, String ifMatch, String regionCode) {
+    return edit(
+        catalogId, actorId, ifMatch, () -> remove(catalogId, actorId, Entry.REGION, regionCode));
+  }
+
+  /**
+   * Says where a trim of the catalog is sold: in exactly the regions given, each of which the
+   * catalog has to have. An offering that is no longer wanted goes with its cells and nothing else;
+   * a new one starts with every cell Not offered.
+   */
+  long sellIn(long catalogId, long actorId, String ifMatch, long trimId, List<String> regionCodes) {
+    return edit(
+        catalogId,
+        actorId,
+        ifMatch,
+        () -> {
+          var codes = eachOnce(regionCodes, String[]::new);
+          if (codes == null) {
+            throw ApiException.invalid("Name each region the trim is sold in once.");
+          }
+          var offering =
+              jdbc.sql(
+                      """
+                      SELECT (SELECT count(*) FROM catalog_trim
+                              WHERE catalog_id = :catalog AND trim_id = :trim) AS trims,
+                             (SELECT count(*) FROM catalog_region
+                              WHERE catalog_id = :catalog AND region_code = ANY (:codes::text[]))
+                                 AS regions
+                      """)
+                  .param("catalog", catalogId)
+                  .param("trim", trimId)
+                  .param("codes", codes)
+                  .query()
+                  .singleRow();
+          if ((long) offering.get("trims") == 0) {
+            throw ApiException.notFound();
+          }
+          if ((long) offering.get("regions") != codes.length) {
+            throw ApiException.invalid(
+                "A trim can be sold only in a region the catalog has added.");
+          }
+
+          // The history is written first, while the offerings to be removed are still there and
+          // the ones to be added are not.
+          jdbc.sql(
+                  """
+                  INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
+                  SELECT :catalog, :actor, 'OFFERING_REMOVED',
+                         jsonb_build_object('trimId', o.trim_id, 'regionCode', o.region_code)
+                  FROM catalog_trim_region o
+                  JOIN region r ON r.code = o.region_code
+                  WHERE o.catalog_id = :catalog AND o.trim_id = :trim
+                    AND o.region_code <> ALL (:codes::text[])
+                  ORDER BY r.sort_order, r.code
+                  """)
+              .param("catalog", catalogId)
+              .param("actor", actorId)
+              .param("trim", trimId)
+              .param("codes", codes)
+              .update();
+          jdbc.sql(
+                  """
+                  INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
+                  SELECT :catalog, :actor, 'OFFERING_ADDED',
+                         jsonb_build_object('trimId', :trim, 'regionCode', code)
+                  FROM unnest(:codes::text[]) WITH ORDINALITY AS wanted (code, place)
+                  WHERE NOT EXISTS (
+                      SELECT 1 FROM catalog_trim_region o
+                      WHERE o.catalog_id = :catalog AND o.trim_id = :trim AND o.region_code = code)
+                  ORDER BY place
+                  """)
+              .param("catalog", catalogId)
+              .param("actor", actorId)
+              .param("trim", trimId)
+              .param("codes", codes)
+              .update();
+          jdbc.sql(
+                  """
+                  DELETE FROM catalog_trim_region
+                  WHERE catalog_id = :catalog AND trim_id = :trim
+                    AND region_code <> ALL (:codes::text[])
+                  """)
+              .param("catalog", catalogId)
+              .param("trim", trimId)
+              .param("codes", codes)
+              .update();
+          jdbc.sql(
+                  """
+                  INSERT INTO catalog_trim_region (catalog_id, trim_id, region_code)
+                  SELECT :catalog, :trim, code FROM unnest(:codes::text[]) AS g (code)
+                  ON CONFLICT DO NOTHING
+                  """)
+              .param("catalog", catalogId)
+              .param("trim", trimId)
+              .param("codes", codes)
+              .update();
+        });
+  }
+
+  /** Adds the library's entries of one kind that the keys name, and records each. */
+  private <K> void add(
+      long catalogId, long actorId, Entry entry, List<K> given, IntFunction<K[]> array) {
+    var keys = eachOnce(given, array);
+    if (keys == null || keys.length == 0) {
+      throw ApiException.invalid("Name at least one %s, each once.".formatted(entry.word));
+    }
+    var counted =
+        jdbc.sql(
+                """
+                SELECT (SELECT count(*) FROM %1$s e
+                        WHERE e.%2$s = ANY (:keys::%3$s[]) AND e.active
+                          AND NOT EXISTS (
+                              SELECT 1 FROM %4$s c
+                              WHERE c.catalog_id = :catalog AND c.%5$s = e.%2$s)) AS addable,
+                       (SELECT count(*) FROM %4$s WHERE catalog_id = :catalog) AS had
+                """
+                    .formatted(
+                        entry.table, entry.key, entry.keyType, entry.catalogTable, entry.column))
+            .param("catalog", catalogId)
+            .param("keys", keys)
+            .query()
+            .singleRow();
+    if ((long) counted.get("addable") != keys.length) {
+      throw ApiException.invalid(
+          "Only an active %s of the library that the catalog does not have yet can be added."
+              .formatted(entry.word));
+    }
+    if ((long) counted.get("had") + keys.length > entry.most) {
+      throw ApiException.limitExceeded(
+          "A catalog has at most %d %ss.".formatted(entry.most, entry.word));
+    }
+
+    jdbc.sql(
+            """
+            WITH added AS (
+                INSERT INTO %1$s (catalog_id, %2$s)
+                SELECT :catalog, key FROM unnest(:keys::%3$s[]) AS g (key)
+            )
+            INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
+            SELECT :catalog, :actor, :kind, jsonb_build_object(:name, key)
+            FROM unnest(:keys::%3$s[]) WITH ORDINALITY AS g (key, place)
+            ORDER BY place
+            """
+                .formatted(entry.catalogTable, entry.column, entry.keyType))
+        .param("catalog", catalogId)
+        .param("actor", actorId)
+        .param("kind", entry.name() + "_ADDED")
+        .param("name", entry.payloadKey)
+        .param("keys", keys)
+        .update();
+  }
+
+  /**
+   * Removes one of the catalog's entries of a kind and records it. Its offerings and their cells go
+   * with it, which the database sees to.
+   */
+  private void remove(long catalogId, long actorId, Entry entry, Object key) {
+    var removed =
+        jdbc.sql(
+                "DELETE FROM %s WHERE catalog_id = :catalog AND %s = :key"
+                    .formatted(entry.catalogTable, entry.column))
+            .param("catalog", catalogId)
+            .param("key", key)
+            .update();
+    if (removed == 0) {
+      throw ApiException.notFound();
+    }
+    jdbc.sql(
+            """
+            INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
+            VALUES (:catalog, :actor, :kind, jsonb_build_object(:name, :key))
+            """)
+        .param("catalog", catalogId)
+        .param("actor", actorId)
+        .param("kind", entry.name() + "_REMOVED")
+        .param("name", entry.payloadKey)
+        .param("key", key)
+        .update();
+  }
+
+  /** The keys as an array, or null when there are none to speak of, a gap, or one named twice. */
+  private static <K> K[] eachOnce(List<K> keys, IntFunction<K[]> array) {
+    if (keys == null || keys.contains(null) || Set.copyOf(keys).size() != keys.size()) {
+      return null;
+    }
+    return keys.toArray(array);
   }
 
   /**
@@ -221,6 +448,51 @@ class CatalogEdits {
           "If-Match takes the catalog's revision in quotes, as in \"42\".");
     }
     return Long.parseLong(revision.group(1));
+  }
+
+  /**
+   * The two kinds of library entry a catalog adds beside features, each with where the library
+   * defines it, where a catalog keeps the ones it has added, and how many a catalog may have.
+   */
+  private enum Entry {
+    TRIM("trim", "trim", "id", "bigint", "catalog_trim", "trim_id", "trimId", MOST_TRIMS),
+    REGION(
+        "region",
+        "region",
+        "code",
+        "text",
+        "catalog_region",
+        "region_code",
+        "regionCode",
+        MOST_REGIONS);
+
+    private final String word;
+    private final String table;
+    private final String key;
+    private final String keyType;
+    private final String catalogTable;
+    private final String column;
+    private final String payloadKey;
+    private final int most;
+
+    Entry(
+        String word,
+        String table,
+        String key,
+        String keyType,
+        String catalogTable,
+        String column,
+        String payloadKey,
+        int most) {
+      this.word = word;
+      this.table = table;
+      this.key = key;
+      this.keyType = keyType;
+      this.catalogTable = catalogTable;
+      this.column = column;
+      this.payloadKey = payloadKey;
+      this.most = most;
+    }
   }
 
   /** One cell of a save: the availability a feature is to have in an offering. */

@@ -28,6 +28,34 @@ describe('Catalogs', () => {
     await expect(saved).resolves.toBe(5);
   });
 
+  it('sends each edit of trims, regions, and offerings as one made from a revision', async () => {
+    const edits: [Promise<number>, string, string, unknown][] = [
+      [catalogs.addTrims(41, 4, [1, 2]), 'POST', '/api/catalogs/41/trims', { trimIds: [1, 2] }],
+      [catalogs.removeTrim(41, 4, 2), 'DELETE', '/api/catalogs/41/trims/2', null],
+      [
+        catalogs.addRegions(41, 4, ['EU']),
+        'POST',
+        '/api/catalogs/41/regions',
+        { regionCodes: ['EU'] },
+      ],
+      [catalogs.removeRegion(41, 4, 'EU'), 'DELETE', '/api/catalogs/41/regions/EU', null],
+      [
+        catalogs.sellIn(41, 4, 2, ['NA', 'EU']),
+        'PUT',
+        '/api/catalogs/41/trims/2/regions',
+        { regionCodes: ['NA', 'EU'] },
+      ],
+    ];
+
+    for (const [saved, method, url, body] of edits) {
+      const request = backend.expectOne({ method, url });
+      expect(request.request.headers.get('If-Match')).toBe('"4"');
+      expect(request.request.body).toEqual(body);
+      request.flush({ revision: 5 });
+      await expect(saved).resolves.toBe(5);
+    }
+  });
+
   it('gives up a save that has gone unanswered for too long, and takes it back', async () => {
     vi.useFakeTimers();
     const saved = catalogs.setCells(41, 4, [manualAvailable]);

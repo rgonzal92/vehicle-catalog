@@ -17,12 +17,15 @@ import { CatalogEditorPage } from './catalog-editor-page';
 @Component({
   selector: 'app-availability-matrix',
   host: { '(click)': 'cellChange.emit(manualAvailable)' },
-  template: `{{ contents().featureRows.length }} feature rows, editable: {{ editable() }}`,
+  template: `{{ contents().featureRows.length }} feature rows, editable: {{ editable() }}, hidden:
+    {{ hidden() }}`,
 })
 class MatrixStandIn {
   readonly contents = input.required<MatrixContents>();
   readonly categories = input.required<Named[]>();
   readonly editable = input(false);
+  readonly hiddenRegions = input<ReadonlySet<string>>(new Set());
+  protected readonly hidden = () => Array.from(this.hiddenRegions()).join(',') || 'none';
   readonly cellChange = output<Cell>();
   protected readonly manualAvailable = manualAvailable;
 
@@ -76,9 +79,12 @@ describe('CatalogEditorPage', () => {
       lineageId: 3,
       status: 'DRAFT',
       revision: 4,
-      trims: [],
-      regions: [],
-      offerings: [],
+      trims: [{ id: 1, name: 'Base', sortOrder: 1 }],
+      regions: [
+        { code: 'NA', name: 'North America' },
+        { code: 'EU', name: 'Europe' },
+      ],
+      offerings: [{ trimId: 1, regionCode: 'NA' }],
       featureRows: [{ id: 1, code: 'ROOF_PANORAMIC', name: 'Panoramic Roof', categoryCode: 'EXT' }],
       cells: [],
     },
@@ -159,7 +165,7 @@ describe('CatalogEditorPage', () => {
     });
     expect(element.querySelector('[role="tab"]')?.textContent?.trim()).toBe('Features');
     expect(element.querySelector('app-availability-matrix')?.textContent).toBe(
-      '1 feature rows, editable: true',
+      '1 feature rows, editable: true, hidden: none',
     );
   });
 
@@ -373,6 +379,112 @@ describe('CatalogEditorPage', () => {
       backend.expectOne((request) => request.url === '/api/catalogs/41/changes'),
     );
     history.flush({ items: [], total: 0 });
+  });
+
+  it('hides a region from the matrix when its box is unticked, and shows it again', async () => {
+    const element = await page(workingCopy);
+    const europe = Array.from(element.querySelectorAll('fieldset label'))
+      .find((label) => label.textContent?.trim() === 'Europe')!
+      .querySelector('input')!;
+    expect(europe.checked).toBe(true);
+
+    europe.click();
+    await vi.waitFor(() => expect(matrixOf(element).textContent).toContain('hidden: EU'));
+
+    europe.click();
+    await vi.waitFor(() => expect(matrixOf(element).textContent).toContain('hidden: none'));
+    backend.expectNone((request) => request.method !== 'GET');
+  });
+
+  describe('managing trims and regions', () => {
+    const dialog = () => document.querySelector<HTMLElement>('.p-dialog');
+
+    /** Opens the dialog, which first reads the catalog again and then the library. */
+    async function manage(): Promise<HTMLElement> {
+      const element = await page(workingCopy);
+      button(element, 'Manage trims and regions')!.click();
+      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush({
+        ...workingCopy,
+        snapshot: { ...workingCopy.snapshot, revision: 6 },
+      });
+      (await vi.waitFor(() => backend.expectOne('/api/trims'))).flush([]);
+      backend.expectOne('/api/regions').flush([]);
+      await vi.waitFor(() => expect(dialog()?.textContent).toContain('Manage trims and regions'));
+
+      return element;
+    }
+
+    it('is offered only to someone who may edit the catalog', async () => {
+      const element = await page({ ...workingCopy, owned: false });
+
+      expect(button(element, 'Manage trims and regions')).toBeUndefined();
+    });
+
+    it('waits for the changes on their way before it opens', async () => {
+      const element = await page(workingCopy);
+      matrixOf(element).click();
+      const save = await saveRequest();
+
+      button(element, 'Manage trims and regions')!.click();
+      await new Promise((resolve) => setTimeout(resolve));
+      backend.expectNone('/api/catalogs/41');
+      expect(dialog()).toBeNull();
+
+      save.flush({ revision: 5 });
+      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush(workingCopy);
+      (await vi.waitFor(() => backend.expectOne('/api/trims'))).flush([]);
+      backend.expectOne('/api/regions').flush([]);
+    });
+
+    it('sends a change as an edit of the revision read and reads the catalog again', async () => {
+      await manage();
+
+      dialog()!
+        .querySelector<HTMLInputElement>('input[aria-label="Base is sold in Europe"]')!
+        .click();
+
+      const change = await vi.waitFor(() =>
+        backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/trims/1/regions' }),
+      );
+      expect(change.request.headers.get('If-Match')).toBe('"6"');
+      expect(change.request.body).toEqual({ regionCodes: ['NA', 'EU'] });
+      change.flush({ revision: 7 });
+      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush({
+        ...workingCopy,
+        snapshot: {
+          ...workingCopy.snapshot,
+          revision: 7,
+          offerings: [
+            { trimId: 1, regionCode: 'NA' },
+            { trimId: 1, regionCode: 'EU' },
+          ],
+        },
+      });
+      await vi.waitFor(() =>
+        expect(
+          dialog()!.querySelector<HTMLInputElement>('input[aria-label="Base is sold in Europe"]')
+            ?.checked,
+        ).toBe(true),
+      );
+    });
+
+    it('closes and asks for a reload after a revision conflict', async () => {
+      const element = await manage();
+
+      dialog()!
+        .querySelector<HTMLInputElement>('input[aria-label="Base is sold in Europe"]')!
+        .click();
+      (
+        await vi.waitFor(() =>
+          backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/trims/1/regions' }),
+        )
+      ).flush(...refuse(412, 'REVISION_CONFLICT', 'Changed somewhere else.'));
+
+      await vi.waitFor(() => expect(dialog()).toBeNull());
+      expect(element.querySelector('[role="alert"]')?.textContent).toContain(
+        'This catalog was changed somewhere else after you opened it',
+      );
+    });
   });
 
   it('names the earlier model year of a base that was carried over', async () => {

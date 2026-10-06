@@ -169,6 +169,12 @@ export class AvailabilityMatrix {
   /** Whether cells can be set. A read-only matrix cannot be focused or changed. */
   readonly editable = input(false);
 
+  /**
+   * The codes of the regions whose offerings are not shown, to keep a wide matrix narrow. Hiding a
+   * region changes nothing about the contents.
+   */
+  readonly hiddenRegions = input<ReadonlySet<string>>(new Set());
+
   /** The cell a person just set, with its new availability. */
   readonly cellChange = output<Cell>();
 
@@ -208,7 +214,11 @@ export class AvailabilityMatrix {
   protected readonly symbols = SYMBOLS;
   protected readonly availabilities = Object.keys(SYMBOLS) as Availability[];
 
-  protected readonly byRegion = computed(() => offeringsByRegion(this.contents()));
+  protected readonly byRegion = computed(() =>
+    offeringsByRegion(this.contents()).filter(
+      ({ region }) => !this.hiddenRegions().has(region.code),
+    ),
+  );
 
   protected readonly offerings = computed<ShownOffering[]>(() =>
     this.byRegion().flatMap(({ region, trims }) =>
