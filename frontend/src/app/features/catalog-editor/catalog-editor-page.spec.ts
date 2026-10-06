@@ -197,9 +197,29 @@ describe('CatalogEditorPage', () => {
     const element = await page(workingCopy);
 
     matrixOf(element).click();
+    const shown = vi.spyOn(TestBed.inject(MessageService), 'add');
     (await saveRequest()).flush({ revision: 5 });
 
     await vi.waitFor(() => expect(told).toEqual([['saved', manualAvailable]]));
+    expect(shown).not.toHaveBeenCalled();
+  });
+
+  it('says there are no new changes when a save changed nothing', async () => {
+    const element = await page(workingCopy);
+    const shown = vi.spyOn(TestBed.inject(MessageService), 'add');
+
+    matrixOf(element).click();
+    // The backend answers with the revision the save was made from: the cell was already so.
+    (await saveRequest()).flush({ revision: 4 });
+
+    await vi.waitFor(() =>
+      expect(shown).toHaveBeenCalledWith(
+        expect.objectContaining({ severity: 'info', summary: 'No new changes' }),
+      ),
+    );
+    expect(told).toEqual([['saved', manualAvailable]]);
+    expect(element.querySelector('[role="alert"]')).toBeNull();
+    expect(matrixOf(element).textContent).toContain('editable: true');
   });
 
   it('gives the reason a save was turned down, puts the cell back, and goes on editing', async () => {

@@ -14,6 +14,7 @@ import { TableModule } from 'primeng/table';
 import { Named } from '../../core/fixed-lists';
 import {
   Availability,
+  AVAILABILITY_NAMES,
   Cell,
   FeatureRow,
   MatrixContents,
@@ -51,7 +52,8 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
  * while they are in view, so the largest catalog stays responsive.
  *
  * In editable mode a cell is set by typing S, A, or - on it, or from the dropdown that Enter or a
- * click opens. The matrix shows the new value and reports the change; it saves nothing itself. Its
+ * click opens. The matrix shows the new value and reports the change; it saves nothing itself.
+ * Setting a cell to what it already is changes nothing, and the matrix says so. Its
  * host tells it how the save of each change went, and a cell whose save failed goes back to what
  * was last saved and is marked, with the reason. The Tab key stops at the matrix once, and the
  * arrow keys move between its cells.
@@ -74,7 +76,10 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
       [rowTrackBy]="rowIdentity"
     >
       <ng-template #caption>
-        <p class="text-sm font-normal">S is Standard, A is Available, and - is Not offered.</p>
+        <p class="text-sm font-normal">
+          S is Standard, A is Available, and - is Not offered.
+          <span class="ml-2" aria-live="polite" data-note>{{ note() }}</span>
+        </p>
       </ng-template>
       <ng-template #header>
         <tr>
@@ -287,6 +292,15 @@ export class AvailabilityMatrix {
     return this.cells().get(keyOf(feature, offering)) ?? 'N';
   }
 
+  /**
+   * What the matrix last told the person who tried to set a cell to the availability it already
+   * has: that there is nothing new to save. It goes when a cell is set, and with new contents.
+   */
+  protected readonly note = linkedSignal(() => {
+    this.contents();
+    return '';
+  });
+
   /** What the cell's mark says about the save that failed, or null when the cell is not marked. */
   protected whyNotSaved(feature: FeatureRow, offering: ShownOffering): string | null {
     const failures = this.failures();
@@ -426,10 +440,18 @@ export class AvailabilityMatrix {
   }
 
   private set(feature: FeatureRow, offering: ShownOffering, availability: Availability): void {
-    if (!this.editable() || this.valueOf(feature, offering) === availability) {
+    if (!this.editable()) {
+      return;
+    }
+    if (this.valueOf(feature, offering) === availability) {
+      this.note.set(
+        `No new changes: ${feature.name}, ${offering.trim.name} in ${offering.region.name} is ` +
+          `already ${AVAILABILITY_NAMES[availability]}.`,
+      );
       return;
     }
     const key = keyOf(feature, offering);
+    this.note.set('');
 
     this.cells.update((cells) => this.put(new Map(cells), key, availability));
     this.awaited().set(key, (this.awaited().get(key) ?? 0) + 1);

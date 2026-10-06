@@ -79,6 +79,14 @@ class CatalogOfferingsIT extends WorkingCopyTests {
     assertThat(offerings(copy)).contains("Off-Road:NA", "Off-Road:EU");
     assertThat(cellsByOffering(copy)).as("a new offering starts with no cells").isEqualTo(cells);
 
+    assertThat(sellIn(ana(), copy, "\"2\"", trim("Off-Road"), "NA", "EU"))
+        .as("saying what is already so changes nothing, the revision included")
+        .hasStatusOk()
+        .bodyJson()
+        .extractingPath("$.revision")
+        .isEqualTo(2);
+    assertThat(count("catalog_change WHERE catalog_id = %d", copy)).isEqualTo(2);
+
     assertThat(sellIn(ana(), copy, "\"2\"", trim("Sport")))
         .as("a trim can be sold nowhere and stay in the catalog")
         .hasStatusOk();

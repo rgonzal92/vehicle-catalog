@@ -78,15 +78,18 @@ export class SaveQueue<Edit> {
 
   /**
    * Queues an edit behind the ones before it. The promise settles when its own save does, and is
-   * rejected with {@link NotSent} when the queue stopped before its turn.
+   * rejected with {@link NotSent} when the queue stopped before its turn. It says whether the edit
+   * changed the catalog: one that asks for what is already so leaves the revision where it was.
    */
-  add(edit: Edit): Promise<void> {
+  add(edit: Edit): Promise<boolean> {
     const saved = this.last.then(async () => {
       if (this.stop()) {
         throw new NotSent();
       }
       try {
-        this.revision = await this.send(edit, this.revision);
+        const from = this.revision;
+        this.revision = await this.send(edit, from);
+        return this.revision !== from;
       } catch (error) {
         const failure = failureOf(error);
         if (failure !== 'rejected') {

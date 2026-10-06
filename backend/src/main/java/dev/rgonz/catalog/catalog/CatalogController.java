@@ -88,7 +88,7 @@ class CatalogController {
 
   /**
    * Sets cells of the caller's working copy. The save names the revision it was made from in {@code
-   * If-Match} and answers with the new one, also as the entity tag.
+   * If-Match} and answers with the one the catalog is at afterwards, also as the entity tag.
    */
   @PutMapping("/api/catalogs/{id}/cells")
   ResponseEntity<Edited> setCells(
@@ -150,7 +150,10 @@ class CatalogController {
     return saved(edits.sellIn(id, people.idOf(caller), ifMatch, trimId, given.regionCodes()));
   }
 
-  /** A saved edit answers with the catalog's new revision, which is also the entity tag. */
+  /**
+   * An edit answers with the revision the catalog is at afterwards, which is also the entity tag.
+   * It is the revision the edit was made from when the edit changed nothing.
+   */
   private static ResponseEntity<Edited> saved(long revision) {
     return ResponseEntity.ok().eTag(String.valueOf(revision)).body(new Edited(revision));
   }

@@ -248,8 +248,13 @@ export class CatalogEditorPage {
     }
 
     try {
-      await saves.add((revision) => this.catalogs.setCells(this.id, revision, [cell]));
+      const changed = await saves.add((revision) =>
+        this.catalogs.setCells(this.id, revision, [cell]),
+      );
       this.matrix()?.saved(cell);
+      if (!changed) {
+        this.noNewChanges();
+      }
     } catch (error) {
       if (error instanceof NotSent) {
         this.matrix()?.notSaved(cell, NOT_SENT);
@@ -282,7 +287,9 @@ export class CatalogEditorPage {
     }
 
     try {
-      await saves.add(edit);
+      if (!(await saves.add(edit))) {
+        this.noNewChanges();
+      }
     } catch (error) {
       if (saves.stopped() === 'closed') {
         await this.closed(reasonOf(error));
@@ -323,6 +330,15 @@ export class CatalogEditorPage {
         next.add(code);
       }
       return next;
+    });
+  }
+
+  /** Tells the person that what they asked for was already so, and that nothing was changed. */
+  private noNewChanges(): void {
+    this.messages.add({
+      severity: 'info',
+      summary: 'No new changes',
+      detail: 'The catalog was already as you set it, so nothing was saved.',
     });
   }
 

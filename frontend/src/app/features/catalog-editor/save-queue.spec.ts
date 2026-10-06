@@ -58,6 +58,19 @@ describe('SaveQueue', () => {
     ]);
   });
 
+  it('says whether an edit changed the catalog, which it did not when the revision stays', async () => {
+    const first = queue.add('first');
+    const second = queue.add('second');
+    await settled();
+
+    sent[0].answer(5);
+    await settled();
+    sent[1].answer(5);
+
+    await expect(first).resolves.toBe(true);
+    await expect(second).resolves.toBe(false);
+  });
+
   it('is idle only while no edit is waiting for its outcome', async () => {
     expect(queue.idle()).toBe(true);
 
@@ -102,7 +115,7 @@ describe('SaveQueue', () => {
     ]);
     sent[1].answer(5);
 
-    await expect(second).resolves.toBeUndefined();
+    await expect(second).resolves.toBe(true);
     expect(queue.stopped()).toBeNull();
   });
 

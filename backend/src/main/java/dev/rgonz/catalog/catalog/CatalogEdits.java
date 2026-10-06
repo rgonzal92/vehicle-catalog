@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -57,9 +58,9 @@ class CatalogEdits {
   }
 
   /**
-   * Sets cells to the availabilities given, whatever they were, and answers with the catalog's new
-   * revision. A cell set to Not offered is no longer stored. Each cell whose availability changed
-   * gets a change entry.
+   * Sets cells to the availabilities given, whatever they were, and answers with the catalog's
+   * revision afterwards. A cell set to Not offered is no longer stored. Each cell whose
+   * availability changed gets a change entry.
    *
    * @param ifMatch the revision the edit was made from, as its {@code If-Match} header gave it
    */
@@ -82,7 +83,7 @@ class CatalogEdits {
           given.forEach(
               cell -> cells.put(List.of(cell.featureId(), cell.trimId(), cell.regionCode()), cell));
 
-          store(catalogId, actorId, cells.values());
+          return store(catalogId, actorId, cells.values());
         });
   }
 
@@ -133,6 +134,7 @@ class CatalogEdits {
               .param("actor", actorId)
               .param("ids", ids)
               .update();
+          return true;
         });
   }
 
@@ -184,6 +186,7 @@ class CatalogEdits {
               .param("actor", actorId)
               .param("codes", codes)
               .update();
+          return true;
         });
   }
 
@@ -214,6 +217,7 @@ class CatalogEdits {
               .param("actor", actorId)
               .param("trim", trimId)
               .update();
+          return true;
         });
   }
 
@@ -246,6 +250,7 @@ class CatalogEdits {
               .param("actor", actorId)
               .param("region", regionCode)
               .update();
+          return true;
         });
   }
 
@@ -288,8 +293,9 @@ class CatalogEdits {
 
           // The history is written first, while the offerings to be removed are still there and
           // the ones to be added are not.
-          jdbc.sql(
-                  """
+          var removed =
+              jdbc.sql(
+                      """
                   INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
                   SELECT :catalog, :actor, 'OFFERING_REMOVED',
                          jsonb_build_object('trimId', o.trim_id, 'regionCode', o.region_code)
@@ -299,13 +305,14 @@ class CatalogEdits {
                     AND o.region_code <> ALL (:codes::text[])
                   ORDER BY r.sort_order, r.code
                   """)
-              .param("catalog", catalogId)
-              .param("actor", actorId)
-              .param("trim", trimId)
-              .param("codes", codes)
-              .update();
-          jdbc.sql(
-                  """
+                  .param("catalog", catalogId)
+                  .param("actor", actorId)
+                  .param("trim", trimId)
+                  .param("codes", codes)
+                  .update();
+          var added =
+              jdbc.sql(
+                      """
                   INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
                   SELECT :catalog, :actor, 'OFFERING_ADDED',
                          jsonb_build_object('trimId', :trim, 'regionCode', code)
@@ -315,11 +322,14 @@ class CatalogEdits {
                       WHERE o.catalog_id = :catalog AND o.trim_id = :trim AND o.region_code = code)
                   ORDER BY place
                   """)
-              .param("catalog", catalogId)
-              .param("actor", actorId)
-              .param("trim", trimId)
-              .param("codes", codes)
-              .update();
+                  .param("catalog", catalogId)
+                  .param("actor", actorId)
+                  .param("trim", trimId)
+                  .param("codes", codes)
+                  .update();
+          if (removed + added == 0) {
+            return false;
+          }
           jdbc.sql(
                   """
                   DELETE FROM catalog_trim_region
@@ -340,6 +350,7 @@ class CatalogEdits {
               .param("trim", trimId)
               .param("codes", codes)
               .update();
+          return true;
         });
   }
 
@@ -375,10 +386,10 @@ class CatalogEdits {
   }
 
   /**
-   * Stores the cells, each named once, and records every one whose availability changes. They have
-   * to be cells of the catalog's own feature rows and offerings.
+   * Stores the cells, each named once, records every one whose availability changes, and says
+   * whether any did. They have to be cells of the catalog's own feature rows and offerings.
    */
-  private void store(long catalogId, long actorId, Collection<CellChange> cells) {
+  private boolean store(long catalogId, long actorId, Collection<CellChange> cells) {
     var outside =
         over(
                 cells,
@@ -402,9 +413,10 @@ class CatalogEdits {
     }
 
     // The history is written first, while the cells still hold their old values.
-    over(
-            cells,
-            """
+    var changed =
+        over(
+                cells,
+                """
             INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
             SELECT :catalog, :actor, 'CELL_SET',
                    jsonb_build_object('featureId', g.feature_id, 'trimId', g.trim_id,
@@ -417,9 +429,12 @@ class CatalogEdits {
             WHERE COALESCE(c.availability, 'N') <> g.wanted
             ORDER BY g.place
             """)
-        .param("catalog", catalogId)
-        .param("actor", actorId)
-        .update();
+            .param("catalog", catalogId)
+            .param("actor", actorId)
+            .update();
+    if (changed == 0) {
+      return false;
+    }
     over(
             cells,
             """
@@ -440,6 +455,8 @@ class CatalogEdits {
             """)
         .param("catalog", catalogId)
         .update();
+
+    return true;
   }
 
   /** A statement over the cells, which it reads as the rows of {@code given}, in their order. */
@@ -460,15 +477,18 @@ class CatalogEdits {
   }
 
   /**
-   * Runs one edit of a working copy and answers with the catalog's new revision. The catalog's row
-   * stays locked from the first check to the commit. The checks come in one order for every edit:
-   * that the catalog is the caller's, that it is in status Draft, that the edit names the revision
-   * the catalog is at, and only then whatever the change itself asks. So no refusal tells anybody
-   * anything about a catalog that is not theirs. A refused edit changes nothing.
+   * Runs one edit of a working copy and answers with the revision the catalog is at afterwards. An
+   * edit that asks for what is already so changes nothing: the revision stays where it was, which
+   * tells the caller so, and nothing is recorded. The catalog's row stays locked from the first
+   * check to the commit. The checks come in one order for every edit: that the catalog is the
+   * caller's, that it is in status Draft, that the edit names the revision the catalog is at, and
+   * only then whatever the change itself asks. So no refusal tells anybody anything about a catalog
+   * that is not theirs. A refused edit changes nothing.
    *
-   * <p>The time is taken through the commit, and only of an edit that is saved.
+   * @param change makes the change and says whether it changed anything
+   *     <p>The time is taken through the commit, and only of an edit that is saved.
    */
-  private long edit(long catalogId, long actorId, String ifMatch, Runnable change) {
+  private long edit(long catalogId, long actorId, String ifMatch, BooleanSupplier change) {
     var started = System.nanoTime();
     var revision =
         transactions.execute(
@@ -489,7 +509,9 @@ class CatalogEdits {
                 throw ApiException.revisionConflict(catalog.revision());
               }
 
-              change.run();
+              if (!change.getAsBoolean()) {
+                return catalog.revision();
+              }
 
               return jdbc.sql(
                       """

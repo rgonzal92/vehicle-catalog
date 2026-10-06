@@ -174,14 +174,28 @@ describe('AvailabilityMatrix', () => {
     ]);
   });
 
-  it('reports nothing when a key sets the value the cell already has', async () => {
-    const { element, host } = await matrix(true);
+  it('reports nothing when a key sets the value the cell already has, and says there is nothing new', async () => {
+    const { fixture, element, host } = await matrix(true);
+    const note = () => element.querySelector('[data-note]')?.textContent;
+    expect(note()).toBe('');
 
     press(cell(element, 1, 0), 's');
+    await fixture.whenStable();
+    expect(note()).toBe('No new changes: 2.0L Turbo, Base in North America is already Standard.');
+
     press(cell(element, 1, 1), '-');
     press(cell(element, 1, 1), 'x');
-
+    await fixture.whenStable();
+    expect(note()).toBe(
+      'No new changes: 2.0L Turbo, Sport in North America is already Not offered.',
+    );
     expect(host.changes).toEqual([]);
+
+    // The note goes once a cell is set.
+    press(cell(element, 1, 1), 'a');
+    await fixture.whenStable();
+    expect(note()).toBe('');
+    expect(host.changes).toHaveLength(1);
   });
 
   it('leaves a key held with Ctrl, Alt, or the command key to the browser', async () => {
