@@ -22,6 +22,9 @@ export class FixedLists {
 
   readonly vehicleTypes = () => this.lists()?.vehicleTypes ?? [];
 
+  /** The categories in display order. */
+  readonly categories = () => this.lists()?.categories ?? [];
+
   async load(): Promise<void> {
     if (!this.lists()) {
       this.lists.set(await firstValueFrom(this.http.get<Lists>('/api/reference')));
@@ -31,5 +34,10 @@ export class FixedLists {
   /** The name shown for a vehicle type, or its code until the lists have loaded. */
   vehicleTypeName(code: string): string {
     return this.vehicleTypes().find((type) => type.code === code)?.name ?? code;
+  }
+
+  /** The name shown for a category, or its code until the lists have loaded. */
+  categoryName(code: string): string {
+    return this.categories().find((category) => category.code === code)?.name ?? code;
   }
 }
