@@ -1,0 +1,8 @@
+# What Terraform downloads and writes while it works. .terraform.lock.hcl is kept.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+
+# Values given at plan and apply time, such as the address the budget alert goes to.
+*.tfvars
