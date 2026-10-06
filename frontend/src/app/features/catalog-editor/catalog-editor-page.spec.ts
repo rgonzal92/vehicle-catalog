@@ -17,12 +17,15 @@ import { CatalogEditorPage } from './catalog-editor-page';
 @Component({
   selector: 'app-availability-matrix',
   host: { '(click)': 'cellChange.emit(manualAvailable)' },
-  template: `{{ contents().featureRows.length }} feature rows, editable: {{ editable() }}`,
+  template: `{{ contents().featureRows.length }} feature rows, editable: {{ editable() }}, hidden:
+    {{ hidden() }}`,
 })
 class MatrixStandIn {
   readonly contents = input.required<MatrixContents>();
   readonly categories = input.required<Named[]>();
   readonly editable = input(false);
+  readonly hiddenRegions = input<ReadonlySet<string>>(new Set());
+  protected readonly hidden = () => Array.from(this.hiddenRegions()).join(',') || 'none';
   readonly cellChange = output<Cell>();
   protected readonly manualAvailable = manualAvailable;
 
@@ -76,9 +79,12 @@ describe('CatalogEditorPage', () => {
       lineageId: 3,
       status: 'DRAFT',
       revision: 4,
-      trims: [],
-      regions: [],
-      offerings: [],
+      trims: [{ id: 1, name: 'Base', sortOrder: 1 }],
+      regions: [
+        { code: 'NA', name: 'North America' },
+        { code: 'EU', name: 'Europe' },
+      ],
+      offerings: [{ trimId: 1, regionCode: 'NA' }],
       featureRows: [{ id: 1, code: 'ROOF_PANORAMIC', name: 'Panoramic Roof', categoryCode: 'EXT' }],
       cells: [],
     },
@@ -159,7 +165,7 @@ describe('CatalogEditorPage', () => {
     });
     expect(element.querySelector('[role="tab"]')?.textContent?.trim()).toBe('Features');
     expect(element.querySelector('app-availability-matrix')?.textContent).toBe(
-      '1 feature rows, editable: true',
+      '1 feature rows, editable: true, hidden: none',
     );
   });
 
@@ -191,9 +197,29 @@ describe('CatalogEditorPage', () => {
     const element = await page(workingCopy);
 
     matrixOf(element).click();
+    const shown = vi.spyOn(TestBed.inject(MessageService), 'add');
     (await saveRequest()).flush({ revision: 5 });
 
     await vi.waitFor(() => expect(told).toEqual([['saved', manualAvailable]]));
+    expect(shown).not.toHaveBeenCalled();
+  });
+
+  it('says there are no new changes when a save changed nothing', async () => {
+    const element = await page(workingCopy);
+    const shown = vi.spyOn(TestBed.inject(MessageService), 'add');
+
+    matrixOf(element).click();
+    // The backend answers with the revision the save was made from: the cell was already so.
+    (await saveRequest()).flush({ revision: 4 });
+
+    await vi.waitFor(() =>
+      expect(shown).toHaveBeenCalledWith(
+        expect.objectContaining({ severity: 'info', summary: 'No new changes' }),
+      ),
+    );
+    expect(told).toEqual([['saved', manualAvailable]]);
+    expect(element.querySelector('[role="alert"]')).toBeNull();
+    expect(matrixOf(element).textContent).toContain('editable: true');
   });
 
   it('gives the reason a save was turned down, puts the cell back, and goes on editing', async () => {
@@ -373,6 +399,195 @@ describe('CatalogEditorPage', () => {
       backend.expectOne((request) => request.url === '/api/catalogs/41/changes'),
     );
     history.flush({ items: [], total: 0 });
+  });
+
+  it('hides a region from the matrix when its box is unticked, and shows it again', async () => {
+    const element = await page(workingCopy);
+    const europe = Array.from(element.querySelectorAll('fieldset label'))
+      .find((label) => label.textContent?.trim() === 'Europe')!
+      .querySelector('input')!;
+    expect(europe.checked).toBe(true);
+
+    europe.click();
+    await vi.waitFor(() => expect(matrixOf(element).textContent).toContain('hidden: EU'));
+
+    europe.click();
+    await vi.waitFor(() => expect(matrixOf(element).textContent).toContain('hidden: none'));
+    backend.expectNone((request) => request.method !== 'GET');
+  });
+
+  describe('managing trims and regions', () => {
+    const dialog = () => document.querySelector<HTMLElement>('.p-dialog');
+
+    /** Opens the dialog, which first reads the catalog again and then the library. */
+    async function manage(): Promise<HTMLElement> {
+      const element = await page(workingCopy);
+      button(element, 'Manage trims and regions')!.click();
+      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush({
+        ...workingCopy,
+        snapshot: { ...workingCopy.snapshot, revision: 6 },
+      });
+      (await vi.waitFor(() => backend.expectOne('/api/trims'))).flush([]);
+      backend.expectOne('/api/regions').flush([]);
+      await vi.waitFor(() => expect(dialog()?.textContent).toContain('Manage trims and regions'));
+
+      return element;
+    }
+
+    it('is offered only to someone who may edit the catalog', async () => {
+      const element = await page({ ...workingCopy, owned: false });
+
+      expect(button(element, 'Manage trims and regions')).toBeUndefined();
+    });
+
+    it('waits for the changes on their way before it opens', async () => {
+      const element = await page(workingCopy);
+      matrixOf(element).click();
+      const save = await saveRequest();
+
+      button(element, 'Manage trims and regions')!.click();
+      await new Promise((resolve) => setTimeout(resolve));
+      backend.expectNone('/api/catalogs/41');
+      expect(dialog()).toBeNull();
+
+      save.flush({ revision: 5 });
+      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush(workingCopy);
+      (await vi.waitFor(() => backend.expectOne('/api/trims'))).flush([]);
+      backend.expectOne('/api/regions').flush([]);
+    });
+
+    it('sends a change as an edit of the revision read and reads the catalog again', async () => {
+      const element = await manage();
+      const europe = Array.from(element.querySelectorAll('fieldset label'))
+        .find((label) => label.textContent?.trim() === 'Europe')!
+        .querySelector('input')!;
+      europe.click();
+
+      dialog()!
+        .querySelector<HTMLInputElement>('input[aria-label="Base is sold in Europe"]')!
+        .click();
+
+      const change = await vi.waitFor(() =>
+        backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/trims/1/regions' }),
+      );
+      expect(change.request.headers.get('If-Match')).toBe('"6"');
+      expect(change.request.body).toEqual({ regionCodes: ['NA', 'EU'] });
+      change.flush({ revision: 7 });
+      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush({
+        ...workingCopy,
+        snapshot: {
+          ...workingCopy.snapshot,
+          revision: 7,
+          offerings: [
+            { trimId: 1, regionCode: 'NA' },
+            { trimId: 1, regionCode: 'EU' },
+          ],
+        },
+      });
+      await vi.waitFor(() =>
+        expect(
+          dialog()!.querySelector<HTMLInputElement>('input[aria-label="Base is sold in Europe"]')
+            ?.checked,
+        ).toBe(true),
+      );
+      // What the person has hidden stays hidden when the catalog is read again.
+      expect(matrixOf(element).textContent).toContain('hidden: EU');
+    });
+
+    it('takes no cell change while it reads the catalog again before opening', async () => {
+      const element = await page(workingCopy);
+
+      button(element, 'Manage trims and regions')!.click();
+      const reread = await vi.waitFor(() => backend.expectOne('/api/catalogs/41'));
+      await vi.waitFor(() => expect(matrixOf(element).textContent).toContain('editable: false'));
+      expect(button(element, 'Manage trims and regions')!.disabled).toBe(true);
+
+      reread.flush(workingCopy);
+      (await vi.waitFor(() => backend.expectOne('/api/trims'))).flush([]);
+      backend.expectOne('/api/regions').flush([]);
+      await vi.waitFor(() => expect(matrixOf(element).textContent).toContain('editable: true'));
+    });
+
+    it('stays shut when the catalog cannot be read again', async () => {
+      const element = await page(workingCopy);
+
+      button(element, 'Manage trims and regions')!.click();
+      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush(null, {
+        status: 503,
+        statusText: 'Unavailable',
+      });
+
+      await vi.waitFor(() => expect(matrixOf(element).textContent).toContain('editable: true'));
+      backend.expectNone('/api/trims');
+      expect(dialog()).toBeNull();
+    });
+
+    it('closes and asks for a reload when a saved change cannot be read back', async () => {
+      const element = await manage();
+
+      dialog()!
+        .querySelector<HTMLInputElement>('input[aria-label="Base is sold in Europe"]')!
+        .click();
+      (
+        await vi.waitFor(() =>
+          backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/trims/1/regions' }),
+        )
+      ).flush({ revision: 7 });
+      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush(null, {
+        status: 503,
+        statusText: 'Unavailable',
+      });
+
+      await vi.waitFor(() => expect(dialog()).toBeNull());
+      expect(element.querySelector('[role="alert"]')?.textContent).toContain(
+        'Your change was saved, but the catalog could not be read again.',
+      );
+      expect(matrixOf(element).textContent).toContain('editable: false');
+
+      button(element, 'Reload')!.click();
+      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush(workingCopy);
+      await vi.waitFor(() => expect(element.querySelector('[role="alert"]')).toBeNull());
+      expect(matrixOf(element).textContent).toContain('editable: true');
+    });
+
+    it('closes and reloads the catalog when it is no longer in status Draft', async () => {
+      const element = await manage();
+
+      dialog()!
+        .querySelector<HTMLInputElement>('input[aria-label="Base is sold in Europe"]')!
+        .click();
+      (
+        await vi.waitFor(() =>
+          backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/trims/1/regions' }),
+        )
+      ).flush(...refuse(409, 'NOT_DRAFT', 'Only a catalog in status Draft can be edited.'));
+      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush({
+        ...workingCopy,
+        snapshot: { ...workingCopy.snapshot, status: 'SUBMITTED' },
+      });
+
+      await vi.waitFor(() => expect(dialog()).toBeNull());
+      await vi.waitFor(() => expect(described(element).Status).toBe('Submitted'));
+      expect(button(element, 'Manage trims and regions')).toBeUndefined();
+    });
+
+    it('closes and asks for a reload after a revision conflict', async () => {
+      const element = await manage();
+
+      dialog()!
+        .querySelector<HTMLInputElement>('input[aria-label="Base is sold in Europe"]')!
+        .click();
+      (
+        await vi.waitFor(() =>
+          backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/trims/1/regions' }),
+        )
+      ).flush(...refuse(412, 'REVISION_CONFLICT', 'Changed somewhere else.'));
+
+      await vi.waitFor(() => expect(dialog()).toBeNull());
+      expect(element.querySelector('[role="alert"]')?.textContent).toContain(
+        'This catalog was changed somewhere else after you opened it',
+      );
+    });
   });
 
   it('names the earlier model year of a base that was carried over', async () => {

@@ -106,6 +106,12 @@ export type StartPoint =
   | { kind: 'COPY' | 'CARRYOVER'; modelYear: number; versionNumber: number }
   | { kind: 'EMPTY' };
 
+/**
+ * An edit of a working copy that is ready to be sent: given the revision it is made from, it sends
+ * itself and answers with the revision it led to.
+ */
+export type CatalogEdit = (revision: number) => Promise<number>;
+
 /** How long, in milliseconds, an edit may go unanswered before its outcome counts as unknown. */
 export const SAVE_PATIENCE = 20_000;
 
@@ -171,15 +177,58 @@ export class Catalogs {
     );
   }
 
+  /** Sets cells of a working copy. Setting a cell to Not offered removes it. */
+  setCells(catalogId: number, revision: number, cells: Cell[]): Promise<number> {
+    return this.edit('PUT', `/api/catalogs/${catalogId}/cells`, revision, cells);
+  }
+
+  /** Adds library trims to a working copy. A new trim is sold nowhere until its regions are set. */
+  addTrims(catalogId: number, revision: number, trimIds: number[]): Promise<number> {
+    return this.edit('POST', `/api/catalogs/${catalogId}/trims`, revision, { trimIds });
+  }
+
+  /** Removes a trim from a working copy, and with it its offerings and their cells. */
+  removeTrim(catalogId: number, revision: number, trimId: number): Promise<number> {
+    return this.edit('DELETE', `/api/catalogs/${catalogId}/trims/${trimId}`, revision);
+  }
+
+  /** Adds library regions to a working copy. */
+  addRegions(catalogId: number, revision: number, regionCodes: string[]): Promise<number> {
+    return this.edit('POST', `/api/catalogs/${catalogId}/regions`, revision, { regionCodes });
+  }
+
+  /** Removes a region from a working copy, and with it its offerings and their cells. */
+  removeRegion(catalogId: number, revision: number, regionCode: string): Promise<number> {
+    return this.edit('DELETE', `/api/catalogs/${catalogId}/regions/${regionCode}`, revision);
+  }
+
+  /** Says in which of a working copy's regions a trim is sold: in exactly the ones given. */
+  sellIn(
+    catalogId: number,
+    revision: number,
+    trimId: number,
+    regionCodes: string[],
+  ): Promise<number> {
+    return this.edit('PUT', `/api/catalogs/${catalogId}/trims/${trimId}/regions`, revision, {
+      regionCodes,
+    });
+  }
+
   /**
-   * Sets cells of a working copy as an edit made from the revision, and answers with the revision
-   * the save led to. The backend refuses it when the catalog has changed since that revision. A
-   * save that has gone unanswered for {@link SAVE_PATIENCE} is given up and fails.
+   * Sends an edit of a working copy as one made from the revision, and answers with the revision it
+   * led to. The backend refuses it when the catalog has changed since that revision. An edit that
+   * has gone unanswered for {@link SAVE_PATIENCE} is given up and fails.
    */
-  async setCells(catalogId: number, revision: number, cells: Cell[]): Promise<number> {
+  private async edit(
+    method: 'POST' | 'PUT' | 'DELETE',
+    address: string,
+    revision: number,
+    body?: unknown,
+  ): Promise<number> {
     const saved = await firstValueFrom(
       this.http
-        .put<{ revision: number }>(`/api/catalogs/${catalogId}/cells`, cells, {
+        .request<{ revision: number }>(method, address, {
+          body,
           headers: { 'If-Match': `"${revision}"` },
         })
         .pipe(timeout(SAVE_PATIENCE)),

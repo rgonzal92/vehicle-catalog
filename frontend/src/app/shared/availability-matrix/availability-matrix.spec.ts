@@ -39,6 +39,7 @@ const categories = [
       [contents]="contents()"
       [categories]="categories"
       [editable]="editable()"
+      [hiddenRegions]="hiddenRegions()"
       (cellChange)="changes.push($event)"
     />
   `,
@@ -47,6 +48,7 @@ class Host {
   readonly contents = signal(contents);
   readonly categories = categories;
   readonly editable = signal(false);
+  readonly hiddenRegions = signal(new Set<string>());
   readonly changes: Cell[] = [];
 }
 
@@ -108,6 +110,23 @@ describe('AvailabilityMatrix', () => {
     expect(texts(second.children)).toEqual(['Base', 'Sport', 'Sport']);
   });
 
+  it('leaves out the offerings of a hidden region, and keeps what was set in them', async () => {
+    const { fixture, element, host } = await matrix(true);
+    press(cell(element, 1, 2), 'a');
+
+    host.hiddenRegions.set(new Set(['EU']));
+    await fixture.whenStable();
+
+    const [top, second] = Array.from(element.querySelectorAll('thead tr'));
+    expect(texts(top.children)).toEqual(['Code', 'Feature', 'North America']);
+    expect(texts(second.children)).toEqual(['Base', 'Sport']);
+    expect(rows(element)[1]).toEqual(['ENGINE_20T', '2.0L Turbo', 'S', '-']);
+
+    host.hiddenRegions.set(new Set());
+    await fixture.whenStable();
+    expect(rows(element)[1]).toEqual(['ENGINE_20T', '2.0L Turbo', 'S', '-', 'A']);
+  });
+
   it('lists feature rows under category subheaders and shows each cell, a missing one as a dash', async () => {
     const { element } = await matrix(false);
 
@@ -155,14 +174,28 @@ describe('AvailabilityMatrix', () => {
     ]);
   });
 
-  it('reports nothing when a key sets the value the cell already has', async () => {
-    const { element, host } = await matrix(true);
+  it('reports nothing when a key sets the value the cell already has, and says there is nothing new', async () => {
+    const { fixture, element, host } = await matrix(true);
+    const note = () => element.querySelector('[data-note]')?.textContent;
+    expect(note()).toBe('');
 
     press(cell(element, 1, 0), 's');
+    await fixture.whenStable();
+    expect(note()).toBe('No new changes: 2.0L Turbo, Base in North America is already Standard.');
+
     press(cell(element, 1, 1), '-');
     press(cell(element, 1, 1), 'x');
-
+    await fixture.whenStable();
+    expect(note()).toBe(
+      'No new changes: 2.0L Turbo, Sport in North America is already Not offered.',
+    );
     expect(host.changes).toEqual([]);
+
+    // The note goes once a cell is set.
+    press(cell(element, 1, 1), 'a');
+    await fixture.whenStable();
+    expect(note()).toBe('');
+    expect(host.changes).toHaveLength(1);
   });
 
   it('leaves a key held with Ctrl, Alt, or the command key to the browser', async () => {

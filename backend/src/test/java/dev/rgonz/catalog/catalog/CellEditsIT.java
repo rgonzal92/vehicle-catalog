@@ -241,7 +241,7 @@ class CellEditsIT extends WorkingCopyTests {
   }
 
   @Test
-  void aSaveThatNamesACellTwiceLeavesItAsGivenLastAndASaveThatChangesNothingIsStillAnEdit() {
+  void aSaveThatNamesACellTwiceLeavesItAsGivenLast() {
     assertThat(
             setCells(
                 ana(),
@@ -250,16 +250,38 @@ class CellEditsIT extends WorkingCopyTests {
                 cell("TRANS_MANUAL", "Base", "NA", "S"),
                 cell("TRANS_MANUAL", "Base", "NA", "A")))
         .hasStatusOk();
+
     assertThat(stored("TRANS_MANUAL", "Base", "NA")).isEqualTo("A");
     assertThat(count("catalog_change WHERE catalog_id = %d", copy)).isEqualTo(1);
+  }
 
-    assertThat(setCells(ana(), copy, "\"1\"", cell("TRANS_MANUAL", "Base", "NA", "A")))
-        .as("nothing changes, and the revision moves on all the same")
+  @Test
+  void aSaveThatChangesNothingLeavesTheCatalogAsItWasAndSaysSoByItsRevision() {
+    var later = workingCopy(ana(), "SPORTS_COUPE", 2026);
+    assertThat(stored("ENGINE_15T_I4", "Base", "NA")).isEqualTo("S");
+    assertThat(stored("TRANS_MANUAL", "Base", "NA")).isEqualTo("N");
+
+    var nothingNew =
+        setCells(
+            ana(),
+            copy,
+            "\"0\"",
+            cell("ENGINE_15T_I4", "Base", "NA", "S"),
+            cell("TRANS_MANUAL", "Base", "NA", "N"));
+
+    assertThat(nothingNew).hasStatusOk().headers().hasValue("ETag", "\"0\"");
+    assertThat(nothingNew).bodyJson().extractingPath("$.revision").isEqualTo(0);
+    assertNothingChanged(copy);
+    var mine = mvc.get().uri("/api/catalogs?scope=mine").with(ana()).exchange();
+    assertThat(ApplicationIT.<List<Integer>>read(mine, "$[*].id"))
+        .as("it does not count as an update either")
+        .containsExactly((int) later, (int) copy);
+    assertThat(setCells(ana(), copy, "\"0\"", cell("TRANS_MANUAL", "Base", "NA", "A")))
+        .as("the next edit is still one of the same revision")
         .hasStatusOk()
         .bodyJson()
         .extractingPath("$.revision")
-        .isEqualTo(2);
-    assertThat(count("catalog_change WHERE catalog_id = %d", copy)).isEqualTo(1);
+        .isEqualTo(1);
   }
 
   @Test

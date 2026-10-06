@@ -30,6 +30,19 @@ test('the owner sets cells with the dropdown and the keyboard, and each is saved
   // The same feature and trim is Standard in one region and Available in the other.
   await expect(turbo).toHaveText(['ENGINE_20T_I4', 'S', '-', 'S', 'S', 'A', '-', 'A']);
 
+  // Setting a cell to what it already is saves nothing, and the matrix says so.
+  const sent: string[] = [];
+  onSave(page, (request) => sent.push(request.method()));
+  await turbo.nth(1).focus();
+  await page.keyboard.press('s');
+  await expect(
+    matrix.getByText(
+      'No new changes: 2.0L Turbo I4 Engine, Base in North America is already Standard.',
+    ),
+  ).toBeVisible();
+  expect(sent).toEqual([]);
+  await expectAccessible(page);
+
   // There is no save button, and nothing is lost by leaving.
   await expect(page.getByRole('button', { name: /save/i })).toHaveCount(0);
   await page.reload();
