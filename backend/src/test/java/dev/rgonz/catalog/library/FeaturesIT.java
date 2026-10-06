@@ -203,8 +203,12 @@ class FeaturesIT extends ApplicationIT {
     assertThat(codes(search(Role.AUTHOR, "query=E_")))
         .as("an underscore stands for itself")
         .containsExactly("ENGINE_20_TURBO", "ENGINE_HYBRID");
+    assertThat(codes(search(Role.AUTHOR, "query=%25"))).as("so does a percent sign").isEmpty();
     assertThat(codes(search(Role.AUTHOR, "category=POWERTRAIN")))
         .containsExactly("ENGINE_20_TURBO", "ENGINE_HYBRID");
+    assertThat(codes(search(Role.AUTHOR, "query=&category=&kind=&status=")))
+        .as("an empty filter lets everything through")
+        .hasSize(5);
     assertThat(codes(search(Role.AUTHOR, "kind=PACKAGE"))).containsExactly("TOW_PACKAGE");
     assertThat(codes(search(Role.AUTHOR, "status=RETIRED"))).containsExactly("ENGINE_20_TURBO");
     assertThat(codes(search(Role.AUTHOR, "query=engine&category=POWERTRAIN&status=ACTIVE")))
@@ -218,8 +222,8 @@ class FeaturesIT extends ApplicationIT {
   }
 
   @Test
-  void aSearchThatIsNotUnderstoodIsABadRequest() {
-    for (var query : List.of("kind=BOAT", "status=GONE", "page=-1", "size=0", "size=101")) {
+  void aKindOrStatusThatDoesNotExistIsABadRequest() {
+    for (var query : List.of("kind=BOAT", "status=GONE")) {
       assertThat(search(Role.AUTHOR, query))
           .as(query)
           .hasStatus(400)
@@ -227,6 +231,22 @@ class FeaturesIT extends ApplicationIT {
           .extractingPath("$.code")
           .isEqualTo("BAD_REQUEST");
     }
+  }
+
+  @Test
+  void aPageOrSizeOutOfRangeIsBroughtIntoRange() {
+    add(Role.ADMIN, "ROOF_PANORAMIC", "Panoramic Roof", "EXTERIOR", "FEATURE");
+    add(Role.ADMIN, "ROOF_REMOVABLE", "Removable roof", "EXTERIOR", "FEATURE");
+
+    assertThat(codes(search(Role.AUTHOR, "page=-1&size=0"))).containsExactly("ROOF_PANORAMIC");
+    assertThat(codes(search(Role.AUTHOR, "size=101")))
+        .containsExactly("ROOF_PANORAMIC", "ROOF_REMOVABLE");
+    assertThat(search(Role.AUTHOR, "page=2147483647&size=100"))
+        .hasStatusOk()
+        .bodyJson()
+        .extractingPath("$.items")
+        .asArray()
+        .isEmpty();
   }
 
   @Test

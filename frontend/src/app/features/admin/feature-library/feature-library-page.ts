@@ -141,11 +141,9 @@ const STATUS_NAMES: Record<FeatureStatus, string> = { ACTIVE: 'Active', RETIRED:
               <p-button
                 severity="secondary"
                 [text]="true"
-                [label]="feature.status === 'ACTIVE' ? 'Retire' : 'Reactivate'"
-                [ariaLabel]="
-                  (feature.status === 'ACTIVE' ? 'Retire ' : 'Reactivate ') + feature.name
-                "
-                (onClick)="setRetired(feature, feature.status === 'ACTIVE')"
+                [label]="statusAction(feature)"
+                [ariaLabel]="statusAction(feature) + ' ' + feature.name"
+                (onClick)="changeStatus(feature)"
               />
             </td>
           </tr>
@@ -346,9 +344,16 @@ export class FeatureLibraryPage {
     }
   }
 
-  protected async setRetired(feature: Feature, retired: boolean): Promise<void> {
+  /** What the row's status button does: an active feature can be retired, a retired one reactivated. */
+  protected statusAction(feature: Feature): string {
+    return feature.status === 'ACTIVE' ? 'Retire' : 'Reactivate';
+  }
+
+  protected async changeStatus(feature: Feature): Promise<void> {
     try {
-      await (retired ? this.library.retire(feature.id) : this.library.reactivate(feature.id));
+      await (feature.status === 'ACTIVE'
+        ? this.library.retire(feature.id)
+        : this.library.reactivate(feature.id));
     } catch (error) {
       this.messages.add({ severity: 'error', summary: feature.name, detail: reasonOf(error) });
     }

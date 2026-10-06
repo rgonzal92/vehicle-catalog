@@ -83,6 +83,35 @@ describe('FeatureLibrary', () => {
     expect(library.features()).toEqual([roof]);
   });
 
+  it('keeps the newest answer when the page is read again twice in quick succession', async () => {
+    await found(everything, [roof], 1);
+    const retired: Feature = { ...roof, status: 'RETIRED', version: 4 };
+    const reactivated: Feature = { ...roof, version: 5 };
+
+    const retiring = library.retire(1);
+    backend.expectOne({ method: 'POST', url: '/api/features/1/retire' }).flush(retired);
+    const slow = await searchRequest();
+    const reactivating = library.reactivate(1);
+    backend.expectOne({ method: 'POST', url: '/api/features/1/reactivate' }).flush(reactivated);
+    const fast = await searchRequest();
+
+    fast.flush({ items: [reactivated], total: 1 });
+    slow.flush({ items: [retired], total: 1 });
+    await Promise.all([retiring, reactivating]);
+
+    expect(library.features()).toEqual([reactivated]);
+  });
+
+  it('reports an accepted change as accepted even when the page cannot be read again', async () => {
+    await found(everything, [roof], 1);
+
+    const retiring = library.retire(1);
+    backend.expectOne({ method: 'POST', url: '/api/features/1/retire' }).flush(roof);
+    (await searchRequest()).flush(null, { status: 503, statusText: 'Service Unavailable' });
+
+    await expect(retiring).resolves.toBeUndefined();
+  });
+
   it('adds a feature, then repeats the search', async () => {
     await found({ ...everything, query: 'roof' }, [], 0);
 

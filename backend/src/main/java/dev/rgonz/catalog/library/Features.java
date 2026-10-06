@@ -27,6 +27,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 class Features {
   private static final String PACKAGES = "PACKAGES";
+  private static final int LARGEST_PAGE = 100;
+
+  /** The last page whose first feature still has a position the database can be asked for. */
+  private static final int LAST_PAGE = Integer.MAX_VALUE / LARGEST_PAGE - 1;
 
   private final FeatureRepository repository;
   private final FixedLists fixedLists;
@@ -36,10 +40,17 @@ class Features {
     this.fixedLists = fixedLists;
   }
 
-  /** One page of the features that pass every given filter, in code order. */
+  /**
+   * One page of the features that pass every given filter, in code order. A page number or size out
+   * of range is brought into it: a page holds between 1 and {@value #LARGEST_PAGE} features.
+   */
   @Transactional(readOnly = true)
   Page<Feature> search(FeatureSearch search, int page, int size) {
-    return repository.findAll(search.matching(), PageRequest.of(page, size, Sort.by("code")));
+    var asked =
+        PageRequest.of(
+            Math.clamp(page, 0, LAST_PAGE), Math.clamp(size, 1, LARGEST_PAGE), Sort.by("code"));
+
+    return repository.findAll(search.matching(), asked);
   }
 
   @Transactional
@@ -89,10 +100,10 @@ class Features {
     }
   }
 
-  /** The filters of a search. An empty query or a null filter lets every feature through. */
+  /** The filters of a search. An empty or missing filter lets every feature through. */
   record FeatureSearch(String query, String category, Kind kind, Status status) {
     Specification<Feature> matching() {
-      return (feature, select, where) -> {
+      return (feature, _, where) -> {
         var all = new ArrayList<Predicate>();
         if (!query.isBlank()) {
           var containsQuery = "%" + literal(query.strip().toLowerCase(Locale.ROOT)) + "%";
@@ -101,7 +112,7 @@ class Features {
                   where.like(where.lower(feature.get("code")), containsQuery, '\\'),
                   where.like(where.lower(feature.get("name")), containsQuery, '\\')));
         }
-        if (category != null) {
+        if (category != null && !category.isBlank()) {
           all.add(where.equal(feature.get("categoryCode"), category));
         }
         if (kind != null) {

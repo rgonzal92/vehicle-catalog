@@ -8,8 +8,6 @@ import dev.rgonz.catalog.library.Features.FeatureChange;
 import dev.rgonz.catalog.library.Features.FeatureSearch;
 import dev.rgonz.catalog.library.Features.NewFeature;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -39,8 +37,8 @@ class FeatureController {
       @RequestParam(required = false) String category,
       @RequestParam(required = false) Kind kind,
       @RequestParam(required = false) Status status,
-      @RequestParam(defaultValue = "0") @Min(0) int page,
-      @RequestParam(defaultValue = "25") @Min(1) @Max(100) int size) {
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "25") int size) {
     var found = features.search(new FeatureSearch(query, category, kind, status), page, size);
 
     return new FeaturePage(

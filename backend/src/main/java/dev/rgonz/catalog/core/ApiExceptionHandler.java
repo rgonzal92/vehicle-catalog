@@ -38,9 +38,9 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     return handleErrorResponseException(refusal, headers, refusal.getStatusCode(), request);
   }
 
-  /** A change made from an outdated copy is refused with 409, so it overwrites nothing. */
+  /** A change made from an earlier version is refused with 409, so it overwrites nothing. */
   @ExceptionHandler(OptimisticLockingFailureException.class)
-  ResponseEntity<Object> handleOutdatedChange(WebRequest request) {
+  ResponseEntity<Object> handleVersionConflict(WebRequest request) {
     var refusal =
         ApiException.conflict(
             "CONFLICT",

@@ -8,7 +8,7 @@ CREATE TABLE feature (
     category_code text   NOT NULL REFERENCES category (code),
     kind          text   NOT NULL CHECK (kind IN ('FEATURE', 'PACKAGE')),
     status        text   NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'RETIRED')),
-    -- Counts the changes made to the feature, so a change made from an outdated copy is refused.
+    -- Counts the changes made to the feature, so a change made from an earlier version is refused.
     version       bigint NOT NULL DEFAULT 0,
     -- A feature is a package exactly when its category is Packages.
     CONSTRAINT feature_kind_matches_category

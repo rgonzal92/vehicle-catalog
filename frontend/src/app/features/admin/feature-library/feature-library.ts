@@ -46,19 +46,18 @@ interface Found {
 /**
  * One page of the feature library: the features the latest search found. The page is read again
  * after every change, accepted or refused, so an edit always starts from the feature as it now is.
+ * Whether that reading works does not alter the outcome of the change.
  */
 @Injectable({ providedIn: 'root' })
 export class FeatureLibrary {
   private readonly http = inject(HttpClient);
   private readonly found = signal<Found>({ items: [], total: 0 });
-  private latest: FeatureSearch = {
-    query: '',
-    category: '',
-    kind: '',
-    status: '',
-    page: 0,
-    size: 25,
-  };
+
+  /** The search the page shows, repeated after every change. Set by the first search. */
+  private latest!: FeatureSearch;
+
+  /** How many searches have been sent, so the answer to an earlier one can be told apart. */
+  private sent = 0;
 
   readonly features = computed(() => this.found().items);
 
@@ -67,11 +66,12 @@ export class FeatureLibrary {
 
   async find(search: FeatureSearch): Promise<void> {
     this.latest = search;
+    const mine = ++this.sent;
     const params = Object.fromEntries(Object.entries(search).filter(([, value]) => value !== ''));
     const found = await firstValueFrom(this.http.get<Found>('/api/features', { params }));
 
-    // A slow answer to an earlier search must not replace the answer to this one.
-    if (search === this.latest) {
+    // A slow answer to an earlier search must not replace the answer to a later one.
+    if (mine === this.sent) {
       this.found.set(found);
     }
   }
@@ -96,7 +96,8 @@ export class FeatureLibrary {
     try {
       await firstValueFrom(change);
     } finally {
-      await this.find(this.latest);
+      // A failure to read the page again has already been shown as a message.
+      await this.find(this.latest).catch(() => undefined);
     }
   }
 }

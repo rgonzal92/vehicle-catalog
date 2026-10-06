@@ -29,7 +29,9 @@ class Feature {
   @Enumerated(EnumType.STRING)
   private Status status = Status.ACTIVE;
 
-  /** Counts the changes made to the feature, so a change made from an outdated copy is refused. */
+  /**
+   * Counts the changes made to the feature, so a change made from an earlier version is refused.
+   */
   @Version private long version;
 
   protected Feature() {}
