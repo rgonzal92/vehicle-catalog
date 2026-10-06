@@ -20,7 +20,11 @@ describe('DashboardPage', () => {
    * Renders the dashboard for a person holding these roles, with these lineages having an Approved
    * version, and returns the page.
    */
-  async function dashboardFor(roles: Role[], lineages: object[] = []): Promise<HTMLElement> {
+  async function dashboardFor(
+    roles: Role[],
+    lineages: object[] = [],
+    mine: object[] = [],
+  ): Promise<HTMLElement> {
     TestBed.configureTestingModule({
       providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
     });
@@ -30,10 +34,18 @@ describe('DashboardPage', () => {
     await loading;
 
     const fixture = TestBed.createComponent(DashboardPage);
+    backend.expectOne('/api/catalogs?scope=mine').flush(mine);
     backend.expectOne('/api/lineages').flush(lineages);
     await fixture.whenStable();
     return fixture.nativeElement as HTMLElement;
   }
+
+  const firstRow = (page: HTMLElement, section: string) =>
+    vi.waitFor(() => {
+      const found = page.querySelector(`section[aria-labelledby="${section}"] tbody tr`);
+      expect(found).not.toBeNull();
+      return found!;
+    });
 
   const headings = (page: HTMLElement) =>
     Array.from(page.querySelectorAll('h2')).map((heading) => heading.textContent?.trim());
@@ -52,11 +64,7 @@ describe('DashboardPage', () => {
   it('lists each lineage that has an Approved version, with a way to open it', async () => {
     const page = await dashboardFor(['author'], [compactSuv]);
 
-    const row = await vi.waitFor(() => {
-      const found = page.querySelector('section[aria-labelledby="approved-catalogs"] tbody tr');
-      expect(found).not.toBeNull();
-      return found!;
-    });
+    const row = await firstRow(page, 'approved-catalogs');
     const cells = Array.from(row.querySelectorAll('td')).map((cell) => cell.textContent?.trim());
     expect(cells.slice(0, 3)).toEqual(['Compact SUV', '2026', '2']);
     expect(cells[3]).toContain('2025');
@@ -64,6 +72,56 @@ describe('DashboardPage', () => {
     const link = row.querySelector('a');
     expect(link?.getAttribute('href')).toBe('/approved/3');
     expect(link?.getAttribute('aria-label')).toBe('Open Compact SUV 2026');
+  });
+
+  it("lists the person's working copies, each with a way to open it", async () => {
+    const page = await dashboardFor(
+      ['author'],
+      [],
+      [
+        {
+          id: 41,
+          name: 'Winter update',
+          vehicleLine: 'Compact SUV',
+          modelYear: 2027,
+          status: 'DRAFT',
+          updatedAt: '2026-01-09T10:00:00Z',
+        },
+      ],
+    );
+
+    const row = await firstRow(page, 'my-catalogs');
+    const cells = Array.from(row.querySelectorAll('td')).map((cell) => cell.textContent?.trim());
+    expect(cells.slice(0, 4)).toEqual(['Winter update', 'Compact SUV', '2027', 'Draft']);
+    expect(cells[4]).toContain('2026');
+    const link = row.querySelector('a');
+    expect(link?.getAttribute('href')).toBe('/catalogs/41');
+    expect(link?.getAttribute('aria-label')).toBe('Open Winter update');
+  });
+
+  it('says so when the person has no working copies', async () => {
+    const page = await dashboardFor(['author']);
+
+    expect(page.querySelector('section[aria-labelledby="my-catalogs"]')?.textContent).toContain(
+      'You have no catalogs.',
+    );
+  });
+
+  it('opens the new catalog dialog from My catalogs', async () => {
+    const page = await dashboardFor(['author']);
+
+    Array.from(page.querySelectorAll('button'))
+      .find((button) => button.textContent?.trim() === 'New catalog')
+      ?.click();
+
+    // The dialog asks for the vehicle lines and the model years as it opens.
+    TestBed.inject(HttpTestingController).expectOne('/api/vehicle-lines').flush([]);
+    TestBed.inject(HttpTestingController)
+      .expectOne('/api/reference')
+      .flush({ vehicleTypes: [], categories: [], modelYears: [] });
+    await vi.waitFor(() =>
+      expect(document.querySelector('.p-dialog')?.textContent).toContain('New catalog'),
+    );
   });
 
   it('says so when no lineage has an Approved version', async () => {
@@ -90,6 +148,7 @@ describe('DashboardPage', () => {
     );
 
     expect(section?.textContent?.trim()).toBe('Approved catalogs');
+    backend.expectOne('/api/catalogs?scope=mine').flush([]);
     backend.expectOne('/api/lineages').flush([]);
   });
 

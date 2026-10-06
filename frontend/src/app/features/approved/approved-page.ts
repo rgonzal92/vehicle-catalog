@@ -7,6 +7,7 @@ import { TableModule } from 'primeng/table';
 import { Catalog, Catalogs, VersionSummary } from '../../core/catalogs';
 import { FixedLists } from '../../core/fixed-lists';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
+import { NewCatalogDialog } from '../../shared/new-catalog-dialog/new-catalog-dialog';
 
 /**
  * A lineage's Approved versions: the list of them, and the read-only matrix of the one being shown,
@@ -14,7 +15,7 @@ import { AvailabilityMatrix } from '../../shared/availability-matrix/availabilit
  * with.
  */
 @Component({
-  imports: [DatePipe, RouterLink, Button, TableModule, AvailabilityMatrix],
+  imports: [DatePipe, RouterLink, Button, TableModule, AvailabilityMatrix, NewCatalogDialog],
   selector: 'app-approved-page',
   template: `
     <main class="px-6 py-10">
@@ -26,7 +27,13 @@ import { AvailabilityMatrix } from '../../shared/availability-matrix/availabilit
             Approved version {{ catalog.versionNumber }}, "{{ catalog.name }}", approved by
             {{ catalog.approvedBy }} on {{ catalog.approvedAt | date: 'mediumDate' }}.
           </p>
+          <p-button
+            class="mt-4 block"
+            label="Create working copy"
+            (onClick)="newCatalog.open(catalog)"
+          />
         </header>
+        <app-new-catalog-dialog #newCatalog />
 
         <section class="mt-8 max-w-5xl" aria-labelledby="versions">
           <h2 id="versions" class="text-xl font-semibold">Versions</h2>

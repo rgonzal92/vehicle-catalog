@@ -307,6 +307,7 @@ class CatalogsIT extends ApplicationIT {
   @Test
   void aCatalogIsLoadedWithOneQueryForItselfAndOneForEachContentTable() {
     var catalog = version(2);
+    var reader = person("a-reader");
     var statements = new ListAppender<ILoggingEvent>();
     var logger = (Logger) LoggerFactory.getLogger(JdbcTemplate.class);
     var level = logger.getLevel();
@@ -315,7 +316,7 @@ class CatalogsIT extends ApplicationIT {
     logger.setLevel(Level.DEBUG);
 
     try {
-      catalogs.find(catalog).orElseThrow();
+      catalogs.find(catalog, reader).orElseThrow();
     } finally {
       logger.setLevel(level);
       logger.detachAppender(statements);
@@ -342,7 +343,7 @@ class CatalogsIT extends ApplicationIT {
   }
 
   private MvcTestResult get(Role as, String address) {
-    return mvc.get().uri(address).with(signedInAs(as)).exchange();
+    return mvc.get().uri(address).with(signedInAs(as, "a-reader")).exchange();
   }
 
   /** The seeded lineage: Compact SUV 2026. */

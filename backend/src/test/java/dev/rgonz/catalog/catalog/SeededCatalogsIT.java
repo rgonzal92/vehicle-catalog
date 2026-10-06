@@ -52,7 +52,7 @@ class SeededCatalogsIT extends ApplicationIT {
     seedLibraryAndCatalogs();
     seeded =
         jdbc.sql("SELECT id FROM catalog ORDER BY id").query(Long.class).list().stream()
-            .map(id -> catalogs.find(id).orElseThrow())
+            .map(id -> catalogs.find(id, person("a-reader")).orElseThrow())
             .map(
                 catalog ->
                     new Seeded(

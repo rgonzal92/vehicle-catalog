@@ -25,6 +25,9 @@ export class FixedLists {
   /** The categories in display order. */
   readonly categories = () => this.lists()?.categories ?? [];
 
+  /** The model years a catalog can be made for. */
+  readonly modelYears = () => this.lists()?.modelYears ?? [];
+
   async load(): Promise<void> {
     if (!this.lists()) {
       this.lists.set(await firstValueFrom(this.http.get<Lists>('/api/reference')));
