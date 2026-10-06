@@ -24,7 +24,7 @@ import tools.jackson.databind.json.JsonMapper;
  * admin endpoints take them, and each is held to those endpoints' rules.
  */
 @Component
-public class LibrarySeed implements ApplicationRunner {
+class LibrarySeed implements ApplicationRunner {
   private final Trims trims;
   private final Regions regions;
   private final VehicleLines vehicleLines;
@@ -50,6 +50,10 @@ public class LibrarySeed implements ApplicationRunner {
     this.validator = validator;
   }
 
+  /**
+   * Runs once the application has started. The whole load is one transaction, so an entry that is
+   * refused leaves the library empty and the next start tries again.
+   */
   @Override
   @Transactional
   public void run(ApplicationArguments arguments) {
@@ -58,7 +62,7 @@ public class LibrarySeed implements ApplicationRunner {
 
   /** Loads the seeded entries, unless the library already holds anything at all. */
   @Transactional
-  public void loadIfEmpty() {
+  void loadIfEmpty() {
     if (!isEmpty()) {
       return;
     }
@@ -86,7 +90,11 @@ public class LibrarySeed implements ApplicationRunner {
       if (!broken.isEmpty()) {
         throw new IllegalStateException("seed/%s: %s breaks %s".formatted(file, entry, broken));
       }
-      add.accept(entry);
+      try {
+        add.accept(entry);
+      } catch (RuntimeException refused) {
+        throw new IllegalStateException("seed/%s: %s was refused".formatted(file, entry), refused);
+      }
     }
   }
 

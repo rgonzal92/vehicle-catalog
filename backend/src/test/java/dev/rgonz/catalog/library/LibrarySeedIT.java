@@ -10,18 +10,23 @@ import dev.rgonz.catalog.library.Trims.NewTrim;
 import dev.rgonz.catalog.vehicleline.VehicleLines.NewVehicleLine;
 import jakarta.validation.Validator;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /** Checks that an empty library starts with the seeded entries and a filled one is left alone. */
 class LibrarySeedIT extends ApplicationIT {
+  private static final List<String> TABLES = List.of("trim", "region", "vehicle_line", "feature");
+
   @Autowired LibrarySeed seed;
   @Autowired Validator validator;
 
   @BeforeEach
   void emptyLibrary() {
-    jdbc.sql("TRUNCATE trim, region, vehicle_line, feature CASCADE").update();
+    for (var table : TABLES) {
+      jdbc.sql("DELETE FROM " + table).update();
+    }
   }
 
   @Test
@@ -39,9 +44,17 @@ class LibrarySeedIT extends ApplicationIT {
             "Pickup Truck TRUCK",
             "Sedan CAR",
             "Sports Coupe CAR");
-    assertThat(count("SELECT count(*) FROM feature")).isBetween(200L, 500L);
-    assertThat(count("SELECT count(*) FROM feature WHERE status <> 'ACTIVE'")).isZero();
-    assertThat(count("SELECT count(*) FROM trim WHERE NOT active")).isZero();
+    assertThat(count("feature")).isBetween(200L, 500L);
+    assertThat(column("SELECT name FROM feature"))
+        .contains(
+            "Panoramic Roof",
+            "Removable Roof",
+            "Manual Transmission",
+            "Hybrid Powertrain",
+            "Tow Package",
+            "Heavy-Duty Cooling");
+    assertThat(column("SELECT code FROM feature WHERE status <> 'ACTIVE'")).isEmpty();
+    assertThat(column("SELECT name FROM trim WHERE NOT active")).isEmpty();
   }
 
   @Test
@@ -49,10 +62,10 @@ class LibrarySeedIT extends ApplicationIT {
     seed.loadIfEmpty();
 
     assertThat(
-            count(
-                "SELECT count(*) FROM category WHERE NOT EXISTS"
+            column(
+                "SELECT code FROM category WHERE NOT EXISTS"
                     + " (SELECT 1 FROM feature WHERE category_code = category.code)"))
-        .isZero();
+        .isEmpty();
     assertThat(column("SELECT name FROM feature WHERE kind = 'PACKAGE'"))
         .contains(
             "Technology Package",
@@ -63,33 +76,42 @@ class LibrarySeedIT extends ApplicationIT {
   }
 
   @Test
-  void theFeaturesTheSeededRulesAndCatalogsRelyOnArePresent() {
+  void startingAgainAddsNothing() {
+    seed.loadIfEmpty();
+    var loaded = TABLES.stream().map(this::count).toList();
+
     seed.loadIfEmpty();
 
-    assertThat(column("SELECT name FROM feature"))
-        .contains(
-            "Panoramic Roof",
-            "Removable Roof",
-            "Manual Transmission",
-            "Hybrid Powertrain",
-            "Tow Package",
-            "Heavy-Duty Cooling");
+    assertThat(TABLES.stream().map(this::count)).containsExactlyElementsOf(loaded);
   }
 
   @Test
-  void aLibraryThatAlreadyHasContentIsLeftAlone() {
-    seed.loadIfEmpty();
-    var features = count("SELECT count(*) FROM feature");
+  void aLibraryHoldingAnythingAtAllIsLeftAlone() {
+    var oneEntry =
+        Map.of(
+            "trim",
+            "INSERT INTO trim (name, sort_order) VALUES ('Base', 1)",
+            "region",
+            "INSERT INTO region (code, name, sort_order) VALUES ('NA', 'North America', 1)",
+            "vehicle_line",
+            "INSERT INTO vehicle_line (code, name, vehicle_type_code)"
+                + " VALUES ('SEDAN', 'Sedan', 'CAR')",
+            "feature",
+            "INSERT INTO feature (code, name, category_code, kind)"
+                + " VALUES ('ROOF_FIXED', 'Fixed Roof', 'EXTERIOR', 'FEATURE')");
 
-    seed.loadIfEmpty();
+    for (var holding : TABLES) {
+      emptyLibrary();
+      jdbc.sql(oneEntry.get(holding)).update();
 
-    assertThat(count("SELECT count(*) FROM feature")).isEqualTo(features);
-    assertThat(count("SELECT count(*) FROM trim")).isEqualTo(6);
+      seed.loadIfEmpty();
 
-    jdbc.sql("TRUNCATE region, vehicle_line, feature CASCADE").update();
-    seed.loadIfEmpty();
-
-    assertThat(count("SELECT count(*) FROM feature")).as("trims are content enough").isZero();
+      for (var table : TABLES) {
+        assertThat(count(table))
+            .as("%s when only %s holds an entry", table, holding)
+            .isEqualTo(table.equals(holding) ? 1 : 0);
+      }
+    }
   }
 
   @Test
@@ -112,14 +134,13 @@ class LibrarySeedIT extends ApplicationIT {
                 assertThat(feature.kind() == Kind.PACKAGE)
                     .as(feature.code())
                     .isEqualTo(feature.categoryCode().equals("PACKAGES")));
-    assertThat(features).extracting(NewFeature::code).doesNotHaveDuplicates();
   }
 
   private List<String> column(String sql) {
     return jdbc.sql(sql).query(String.class).list();
   }
 
-  private long count(String sql) {
-    return jdbc.sql(sql).query(Long.class).single();
+  private long count(String table) {
+    return jdbc.sql("SELECT count(*) FROM " + table).query(Long.class).single();
   }
 }
