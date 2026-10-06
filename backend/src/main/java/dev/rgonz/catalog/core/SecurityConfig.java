@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.hierarchicalroles.RoleHierarchy;
@@ -31,6 +32,7 @@ import org.springframework.security.web.authentication.logout.LogoutSuccessHandl
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import org.springframework.web.util.UriComponentsBuilder;
 import tools.jackson.databind.json.JsonMapper;
@@ -140,11 +142,20 @@ class SecurityConfig {
               if (required == null) {
                 return;
               }
-              var paths = mapping.getPathPatternsCondition().getPatternValues();
-              for (var method : mapping.getMethodsCondition().getMethods()) {
-                requests
-                    .requestMatchers(method.asHttpMethod(), paths.toArray(String[]::new))
-                    .hasRole(required.value().name());
+              var role = required.value().name();
+              var paths =
+                  mapping.getPathPatternsCondition().getPatternValues().toArray(String[]::new);
+              var methods = mapping.getMethodsCondition().getMethods();
+              if (methods.isEmpty()) {
+                // An endpoint that names no method answers every method.
+                requests.requestMatchers(paths).hasRole(role);
+              }
+              for (var method : methods) {
+                requests.requestMatchers(method.asHttpMethod(), paths).hasRole(role);
+                if (method == RequestMethod.GET) {
+                  // Spring answers HEAD with the endpoint that answers GET.
+                  requests.requestMatchers(HttpMethod.HEAD, paths).hasRole(role);
+                }
               }
             });
   }

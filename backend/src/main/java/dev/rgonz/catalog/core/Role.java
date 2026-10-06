@@ -1,5 +1,6 @@
 package dev.rgonz.catalog.core;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 import java.util.Arrays;
 import java.util.Collection;
@@ -24,6 +25,18 @@ public enum Role {
   @JsonValue
   public String key() {
     return name().toLowerCase(Locale.ROOT);
+  }
+
+  /**
+   * The role with that name in the API. Only the name itself is one: a number is not, although
+   * roles have an order.
+   */
+  @JsonCreator
+  static Role of(String key) {
+    return Arrays.stream(values())
+        .filter(role -> role.key().equals(key))
+        .findFirst()
+        .orElseThrow(() -> new IllegalArgumentException("There is no role " + key));
   }
 
   /** Every role these authorities give, directly or through a higher role, highest first. */

@@ -16,6 +16,16 @@ public final class ApiException extends ErrorResponseException {
     return new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "There is nothing at this address.");
   }
 
+  /** The caller may know the thing is there but may not do this to it. */
+  public static ApiException forbidden(String code, String reason) {
+    return new ApiException(HttpStatus.FORBIDDEN, code, reason);
+  }
+
+  /** Something the app relies on did not answer, so the request was not carried out. */
+  public static ApiException unavailable(String code, String reason) {
+    return new ApiException(HttpStatus.SERVICE_UNAVAILABLE, code, reason);
+  }
+
   /** The request cannot be applied to the current state. */
   public static ApiException conflict(String code, String reason) {
     return new ApiException(HttpStatus.CONFLICT, code, reason);

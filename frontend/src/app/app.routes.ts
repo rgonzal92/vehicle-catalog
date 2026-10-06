@@ -77,6 +77,12 @@ export const routes: Routes = [
         (page) => page.FeatureLibraryPage,
       ),
   },
+  {
+    path: 'admin/users',
+    title: 'Users · Vehicle Catalog',
+    canActivate: [holding('admin')],
+    loadComponent: () => import('./features/admin/users/users-page').then((page) => page.UsersPage),
+  },
   // The matrix at full size on generated data. A production build has neither the route nor the page.
   ...(ngDevMode
     ? [
