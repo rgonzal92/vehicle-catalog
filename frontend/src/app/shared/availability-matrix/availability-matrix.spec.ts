@@ -1,5 +1,6 @@
 import { Component, signal } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { AvailabilityMatrix } from './availability-matrix';
 import { Cell, MatrixContents } from './matrix';
 
@@ -79,6 +80,10 @@ describe('AvailabilityMatrix', () => {
 
     return { fixture, element, host: fixture.componentInstance };
   }
+
+  const theMatrix = (fixture: ComponentFixture<Host>) =>
+    fixture.debugElement.query(By.directive(AvailabilityMatrix))
+      .componentInstance as AvailabilityMatrix;
 
   const texts = (cells: Iterable<Element>) =>
     Array.from(cells).map((cell) => cell.textContent?.trim());
@@ -274,6 +279,47 @@ describe('AvailabilityMatrix', () => {
     press(cell(element, 3, 2), 'ArrowLeft');
     press(cell(element, 3, 1), 'ArrowUp');
     expect(document.activeElement).toBe(start);
+  });
+
+  it('puts a cell whose save failed back to what it was, and marks it as not saved', async () => {
+    const { fixture, element, host } = await matrix(true);
+    const baseTurbo = cell(element, 1, 0);
+
+    press(baseTurbo, 'a');
+    await vi.waitFor(() => expect(baseTurbo.textContent?.trim()).toBe('A'));
+    theMatrix(fixture).notSaved(host.changes[0], 'The catalog changed.');
+
+    await vi.waitFor(() => expect(baseTurbo.textContent?.trim()).toBe('S (not saved)'));
+    expect(baseTurbo.title).toBe('Not saved: The catalog changed.');
+    expect(baseTurbo.className).toContain('bg-red-100');
+    expect(cell(element, 1, 1).title).toBe('');
+  });
+
+  it('goes back to the value of the last save that worked', async () => {
+    const { fixture, element, host } = await matrix(true);
+    const baseTurbo = cell(element, 1, 0);
+
+    press(baseTurbo, 'a');
+    theMatrix(fixture).saved(host.changes[0]);
+    press(baseTurbo, '-');
+    await vi.waitFor(() => expect(baseTurbo.textContent?.trim()).toBe('-'));
+    theMatrix(fixture).notSaved(host.changes[1], 'The catalog changed.');
+
+    await vi.waitFor(() => expect(baseTurbo.textContent?.trim()).toBe('A (not saved)'));
+  });
+
+  it('drops the mark from a cell once it is set again', async () => {
+    const { fixture, element, host } = await matrix(true);
+    const baseTurbo = cell(element, 1, 0);
+
+    press(baseTurbo, 'a');
+    theMatrix(fixture).notSaved(host.changes[0], 'The catalog changed.');
+    await vi.waitFor(() => expect(baseTurbo.title).not.toBe(''));
+    press(baseTurbo, 'a');
+
+    await vi.waitFor(() => expect(baseTurbo.textContent?.trim()).toBe('A'));
+    expect(baseTurbo.title).toBe('');
+    expect(baseTurbo.className).not.toContain('bg-red-100');
   });
 
   it('shows the cells of new contents, dropping edits made to the old ones', async () => {

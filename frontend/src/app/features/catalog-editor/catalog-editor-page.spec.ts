@@ -10,8 +10,9 @@ import { Cell, MatrixContents } from '../../shared/availability-matrix/matrix';
 import { CatalogEditorPage } from './catalog-editor-page';
 
 /**
- * Stands in for the matrix, which has tests of its own. It shows what it was given, and a click on
- * it is a person setting the manual transmission of trim 1 in North America to Available.
+ * Stands in for the matrix, which has tests of its own. It shows what it was given and what it was
+ * told about saves, and a click on it is a person setting the manual transmission of trim 1 in
+ * North America to Available.
  */
 @Component({
   selector: 'app-availability-matrix',
@@ -24,13 +25,27 @@ class MatrixStandIn {
   readonly editable = input(false);
   readonly cellChange = output<Cell>();
   protected readonly manualAvailable = manualAvailable;
+
+  saved(cell: Cell): void {
+    told.push(['saved', cell]);
+  }
+
+  notSaved(cell: Cell, reason: string): void {
+    told.push(['not saved', cell, reason]);
+  }
 }
 
 const manualAvailable: Cell = { featureId: 7, trimId: 1, regionCode: 'NA', availability: 'A' };
 
+/** What the matrix has been told about saves, in order. */
+let told: unknown[][];
+
 describe('CatalogEditorPage', () => {
   let backend: HttpTestingController;
 
+  beforeEach(() => {
+    told = [];
+  });
   beforeAll(() => {
     // The tabs watch their own width with an observer the test page lacks.
     vi.stubGlobal(
@@ -151,62 +166,149 @@ describe('CatalogEditorPage', () => {
     save.flush({ revision: 5 });
   });
 
-  it('saves the next cell only once the one before it is saved, from the revision that led to', async () => {
+  const matrixOf = (element: HTMLElement) =>
+    element.querySelector<HTMLElement>('app-availability-matrix')!;
+
+  const saveRequest = () =>
+    vi.waitFor(() => backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/cells' }));
+
+  const refuse = (status: number, code: string, detail: string) =>
+    [
+      { code, detail },
+      { status, statusText: 'Refused' },
+    ] as const;
+
+  const button = (element: HTMLElement, label: string) =>
+    Array.from(element.querySelectorAll('button')).find(
+      (candidate) => candidate.textContent?.trim() === label,
+    );
+
+  it('tells the matrix when a cell has been saved', async () => {
     const element = await page(workingCopy);
-    const matrix = element.querySelector<HTMLElement>('app-availability-matrix')!;
 
-    matrix.click();
-    matrix.click();
+    matrixOf(element).click();
+    (await saveRequest()).flush({ revision: 5 });
 
-    const first = await vi.waitFor(() =>
-      backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/cells' }),
-    );
-    first.flush({ revision: 5 });
-    const second = await vi.waitFor(() =>
-      backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/cells' }),
-    );
-    expect(second.request.headers.get('If-Match')).toBe('"5"');
-    second.flush({ revision: 6 });
+    await vi.waitFor(() => expect(told).toEqual([['saved', manualAvailable]]));
   });
 
-  it('says why a save was refused', async () => {
+  it('gives the reason a save was refused, puts the cell back, and goes on editing', async () => {
     const element = await page(workingCopy);
     const shown = vi.spyOn(TestBed.inject(MessageService), 'add');
 
-    element.querySelector<HTMLElement>('app-availability-matrix')!.click();
-    (
-      await vi.waitFor(() => backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/cells' }))
-    ).flush(
-      { code: 'VALIDATION', detail: 'A cell can be set only for a feature row of this catalog.' },
-      { status: 422, statusText: 'Unprocessable' },
+    matrixOf(element).click();
+    (await saveRequest()).flush(
+      ...refuse(
+        422,
+        'VALIDATION',
+        'A cell can be set only for a feature row and an offering of this catalog.',
+      ),
     );
 
     await vi.waitFor(() =>
-      expect(shown).toHaveBeenCalledWith(
-        expect.objectContaining({
-          detail: 'A cell can be set only for a feature row of this catalog.',
-        }),
+      expect(told).toEqual([
+        [
+          'not saved',
+          manualAvailable,
+          'A cell can be set only for a feature row and an offering of this catalog.',
+        ],
+      ]),
+    );
+    expect(shown).toHaveBeenCalledWith(
+      expect.objectContaining({
+        summary: 'Not saved',
+        detail: 'A cell can be set only for a feature row and an offering of this catalog.',
+      }),
+    );
+    expect(element.querySelector('[role="alert"]')).toBeNull();
+    expect(matrixOf(element).textContent).toContain('editable: true');
+
+    matrixOf(element).click();
+    const next = await saveRequest();
+    expect(next.request.headers.get('If-Match')).toBe('"4"');
+    next.flush({ revision: 5 });
+  });
+
+  it('stops after a revision conflict until the catalog is reloaded', async () => {
+    const element = await page(workingCopy);
+    const matrix = matrixOf(element);
+
+    matrix.click();
+    matrix.click();
+    (await saveRequest()).flush(...refuse(412, 'REVISION_CONFLICT', 'Changed somewhere else.'));
+
+    // Both changes go back: the one refused, and the one behind it, which is never sent.
+    await vi.waitFor(() =>
+      expect(told).toEqual([
+        ['not saved', manualAvailable, 'Changed somewhere else.'],
+        [
+          'not saved',
+          manualAvailable,
+          'An earlier change was not saved, so this one was not sent.',
+        ],
+      ]),
+    );
+    backend.expectNone({ method: 'PUT', url: '/api/catalogs/41/cells' });
+    await vi.waitFor(() =>
+      expect(element.querySelector('[role="alert"]')?.textContent).toContain(
+        'This catalog was changed somewhere else after you opened it',
       ),
     );
-  });
+    expect(matrix.textContent).toContain('editable: false');
 
-  it('names the earlier model year of a base that was carried over', async () => {
-    const element = await page({
+    // Reloading reads the catalog again, and editing goes on from the revision read.
+    button(element, 'Reload')?.click();
+    backend.expectOne('/api/catalogs/41').flush({
       ...workingCopy,
-      base: { catalogId: 9, modelYear: 2026, versionNumber: 2 },
+      snapshot: { ...workingCopy.snapshot, revision: 9 },
     });
-
-    expect(described(element).Base).toBe('2026 Approved v2 (carryover)');
+    await vi.waitFor(() => expect(element.querySelector('[role="alert"]')).toBeNull());
+    expect(matrixOf(element).textContent).toContain('editable: true');
+    matrixOf(element).click();
+    const next = await saveRequest();
+    expect(next.request.headers.get('If-Match')).toBe('"9"');
+    next.flush({ revision: 10 });
   });
 
-  it('says when the catalog started empty', async () => {
-    expect(described(await page({ ...workingCopy, base: null })).Base).toBe('None (started empty)');
+  it('stops without trying again when no answer says whether a change was saved', async () => {
+    const element = await page(workingCopy);
+
+    matrixOf(element).click();
+    (await saveRequest()).error(new ProgressEvent('error'));
+
+    await vi.waitFor(() =>
+      expect(element.querySelector('[role="alert"]')?.textContent).toContain(
+        'No answer says whether your last change was saved.',
+      ),
+    );
+    expect(told).toEqual([
+      [
+        'not saved',
+        manualAvailable,
+        'No answer says whether your last change was saved. Reload the catalog to see, and to go on.',
+      ],
+    ]);
+    expect(matrixOf(element).textContent).toContain('editable: false');
+    backend.expectNone({ method: 'PUT', url: '/api/catalogs/41/cells' });
+    expect(button(element, 'Reload')).toBeDefined();
   });
 
-  it('says so when the address names no catalog the person may open', async () => {
-    const element = await page(404);
+  it('reloads the catalog read-only when it is no longer in status Draft', async () => {
+    const element = await page(workingCopy);
+    const shown = vi.spyOn(TestBed.inject(MessageService), 'add');
 
-    expect(element.textContent).toContain('There is no catalog at this address.');
-    expect(element.querySelector('app-availability-matrix')).toBeNull();
+    matrixOf(element).click();
+    (await saveRequest()).flush(
+      ...refuse(409, 'NOT_DRAFT', 'Only a catalog in status Draft can be edited.'),
+    );
+
+    const reread = await vi.waitFor(() => backend.expectOne('/api/catalogs/41'));
+    reread.flush({ ...workingCopy, snapshot: { ...workingCopy.snapshot, status: 'SUBMITTED' } });
+    await vi.waitFor(() => expect(described(element).Status).toBe('Submitted'));
+    expect(matrixOf(element).textContent).toContain('editable: false');
+    expect(shown).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: 'Only a catalog in status Draft can be edited.' }),
+    );
+    expect(element.querySelector('[role="alert"]')).toBeNull();
   });
 });

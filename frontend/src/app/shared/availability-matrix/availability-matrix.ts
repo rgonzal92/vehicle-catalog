@@ -51,8 +51,10 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
  * while they are in view, so the largest catalog stays responsive.
  *
  * In editable mode a cell is set by typing S, A, or - on it, or from the dropdown that Enter or a
- * click opens. The matrix shows the new value and reports the change; it saves nothing itself. The
- * Tab key stops at the matrix once, and the arrow keys move between its cells.
+ * click opens. The matrix shows the new value and reports the change; it saves nothing itself. Its
+ * user tells it how each save went, and a cell whose save failed goes back to what was last saved
+ * and is marked as not saved. The Tab key stops at the matrix once, and the arrow keys move between
+ * its cells.
  *
  * The host element decides the height, and the matrix scrolls inside it.
  */
@@ -109,9 +111,11 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
               {{ row.feature.name }}
             </td>
             @for (offering of offerings(); track offering.key) {
+              @let failure = whyNotSaved(row.feature, offering);
               <td
                 #cell
-                [class]="offering.classes"
+                [class]="failure ? offering.classes + notSavedCell : offering.classes"
+                [attr.title]="failure"
                 [attr.tabindex]="editable() ? -1 : null"
                 (keydown)="onKey($event, row.feature, offering)"
                 (click)="edit($event)"
@@ -136,6 +140,9 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
                   </select>
                 } @else {
                   {{ symbols[valueOf(row.feature, offering)] }}
+                }
+                @if (failure) {
+                  <span class="sr-only">(not saved)</span>
                 }
               </td>
             }
@@ -191,6 +198,9 @@ export class AvailabilityMatrix {
   private readonly offeringCell =
     'w-24 min-w-24 max-w-24 truncate py-0 text-center scroll-mt-16 scroll-ml-[30rem]';
 
+  /** How a cell looks while it shows a value that could not be saved. */
+  protected readonly notSavedCell = ' bg-red-100 font-semibold text-red-900';
+
   protected readonly symbols = SYMBOLS;
   protected readonly availabilities = Object.keys(SYMBOLS) as Availability[];
 
@@ -211,8 +221,8 @@ export class AvailabilityMatrix {
     matrixRows(this.contents().featureRows, this.categories()),
   );
 
-  /** The Standard and Available cells by key. It follows the contents and holds a person's edits. */
-  private readonly cells = linkedSignal(
+  /** The Standard and Available cells of the contents by key. */
+  private readonly given = computed(
     () =>
       new Map(
         this.contents().cells.map((cell) => [
@@ -221,6 +231,22 @@ export class AvailabilityMatrix {
         ]),
       ),
   );
+
+  /** The Standard and Available cells by key. It follows the contents and holds a person's edits. */
+  private readonly cells = linkedSignal(() => new Map(this.given()));
+
+  /**
+   * The cells as they were last saved: the contents, and every edit since whose save worked. It is
+   * what a cell goes back to when its save fails. Nothing is drawn from it, so it is changed in
+   * place.
+   */
+  private readonly lastSaved = linkedSignal(() => new Map(this.given()));
+
+  /** Why each cell that is marked as not saved was not, by key. New contents clear the marks. */
+  private readonly failures = linkedSignal(() => {
+    this.contents();
+    return new Map<string, string>();
+  });
 
   protected readonly rowIdentity = (_: number, row: MatrixRow) =>
     row.feature?.id ?? row.category?.code;
@@ -236,6 +262,41 @@ export class AvailabilityMatrix {
 
   protected valueOf(feature: FeatureRow, offering: ShownOffering): Availability {
     return this.cells().get(keyOf(feature, offering)) ?? 'N';
+  }
+
+  /** Why the cell is marked as not saved, or null when it is not. */
+  protected whyNotSaved(feature: FeatureRow, offering: ShownOffering): string | null {
+    return this.failures().get(keyOf(feature, offering)) ?? null;
+  }
+
+  /** Takes note that the save of a cell worked, so the cell has a newer value to go back to. */
+  saved({ featureId, trimId, regionCode, availability }: Cell): void {
+    this.put(this.lastSaved(), cellKey(featureId, trimId, regionCode), availability);
+  }
+
+  /**
+   * Puts a cell whose save failed back to what was last saved, and marks it as not saved until it
+   * is set again.
+   */
+  notSaved({ featureId, trimId, regionCode }: Cell, reason: string): void {
+    const key = cellKey(featureId, trimId, regionCode);
+
+    this.cells.update((cells) => this.put(new Map(cells), key, this.lastSaved().get(key) ?? 'N'));
+    this.failures.update((failures) => new Map(failures).set(key, `Not saved: ${reason}`));
+  }
+
+  /** Sets a cell in a map of the Standard and Available ones, where Not offered is no entry. */
+  private put(
+    cells: Map<string, Availability>,
+    key: string,
+    availability: Availability,
+  ): Map<string, Availability> {
+    if (availability === 'N') {
+      cells.delete(key);
+    } else {
+      cells.set(key, availability);
+    }
+    return cells;
   }
 
   /**
@@ -325,15 +386,14 @@ export class AvailabilityMatrix {
     }
     const key = keyOf(feature, offering);
 
-    this.cells.update((cells) => {
-      const changed = new Map(cells);
-      if (availability === 'N') {
-        changed.delete(key);
-      } else {
-        changed.set(key, availability);
-      }
-      return changed;
-    });
+    this.cells.update((cells) => this.put(new Map(cells), key, availability));
+    if (this.failures().has(key)) {
+      this.failures.update((failures) => {
+        const left = new Map(failures);
+        left.delete(key);
+        return left;
+      });
+    }
     this.cellChange.emit({
       featureId: feature.id,
       trimId: offering.trim.id,
