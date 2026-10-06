@@ -33,7 +33,7 @@ function largestCatalog(): MatrixContents {
   const offerings = regions.flatMap((region) =>
     trims.map((trim) => ({ trimId: trim.id, regionCode: region.code })),
   );
-  const features = Array.from({ length: 500 }, (_, index) => ({
+  const featureRows = Array.from({ length: 500 }, (_, index) => ({
     id: index + 1,
     code: `FEATURE_${String(index + 1).padStart(3, '0')}`,
     name: `Feature ${index + 1}`,
@@ -41,7 +41,7 @@ function largestCatalog(): MatrixContents {
   }));
   // A fixed pattern, so every run shows and measures the same matrix: about a quarter Standard, a
   // quarter Available, and half Not offered.
-  const cells = features.flatMap((feature) =>
+  const cells = featureRows.flatMap((feature) =>
     offerings.flatMap((offering, column): Cell[] => {
       const pick = (feature.id * 7 + column * 3) % 4;
       return pick > 1
@@ -50,12 +50,8 @@ function largestCatalog(): MatrixContents {
     }),
   );
 
-  return { trims, regions, offerings, features, cells };
+  return { trims, regions, offerings, featureRows, cells };
 }
-
-/** The matrix's row height and offering column width in pixels, which set the scrolling steps. */
-const ROW_HEIGHT = 36;
-const COLUMN_WIDTH = 96;
 
 const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
 
@@ -89,9 +85,9 @@ function summary(durations: number[]): string {
         />
         <p-button label="Measure" [disabled]="measuring()" (onClick)="measure()" />
       </header>
-      <p aria-live="polite" data-last-change>{{ lastChange() }}</p>
+      <p aria-live="polite">{{ lastChange() }}</p>
       @if (results().length) {
-        <ul data-results>
+        <ul>
           @for (result of results(); track result) {
             <li>{{ result }}</li>
           }
@@ -130,44 +126,51 @@ export class MatrixProofPage {
    */
   protected async measure(): Promise<void> {
     this.measuring.set(true);
-    this.editable.set(true);
-    const viewport = this.page.querySelector<HTMLElement>('.p-virtualscroller')!;
-    const atBottom = () => viewport.scrollTop + viewport.clientHeight >= viewport.scrollHeight - 1;
-    const atRight = () => viewport.scrollLeft + viewport.clientWidth >= viewport.scrollWidth - 1;
-    const toStart = async () => {
-      viewport.scrollTo(0, 0);
-      await nextFrame();
-      await nextFrame();
-    };
+    try {
+      this.editable.set(true);
+      const viewport = this.page.querySelector<HTMLElement>('.p-virtualscroller')!;
+      // The scrolling steps are a feature row's height and an offering's width, as drawn.
+      const row = viewport.querySelector<HTMLElement>('tbody tr')!.offsetHeight;
+      const offering = viewport.querySelector<HTMLElement>('thead tr:last-child th')!.offsetWidth;
+      const atBottom = () =>
+        viewport.scrollTop + viewport.clientHeight >= viewport.scrollHeight - 1;
+      const atRight = () => viewport.scrollLeft + viewport.clientWidth >= viewport.scrollWidth - 1;
+      const toStart = async () => {
+        viewport.scrollTo(0, 0);
+        await nextFrame();
+        await nextFrame();
+      };
 
-    await toStart();
-    const slowly = await framesUntil(atBottom, () => (viewport.scrollTop += ROW_HEIGHT));
-    await toStart();
-    const quickly = await framesUntil(atBottom, () => (viewport.scrollTop += 5 * ROW_HEIGHT));
-    await toStart();
-    const across = await framesUntil(atRight, () => (viewport.scrollLeft += 2 * COLUMN_WIDTH));
-    await toStart();
+      await toStart();
+      const slowly = await framesUntil(atBottom, () => (viewport.scrollTop += row));
+      await toStart();
+      const quickly = await framesUntil(atBottom, () => (viewport.scrollTop += 5 * row));
+      await toStart();
+      const across = await framesUntil(atRight, () => (viewport.scrollLeft += 2 * offering));
+      await toStart();
 
-    const edits: number[] = [];
-    const cells = Array.from(this.page.querySelectorAll<HTMLElement>('td[tabindex="0"]'));
-    for (let edit = 0; edit < 100; edit++) {
-      const cell = cells[(edit * 37) % cells.length];
-      const key = cell.textContent?.trim() === 'S' ? 'a' : 's';
-      const start = performance.now();
-      cell.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
-      this.app.tick();
-      cell.getBoundingClientRect();
-      edits.push(performance.now() - start);
-      await nextFrame();
+      const edits: number[] = [];
+      const cells = Array.from(this.page.querySelectorAll<HTMLElement>('td[tabindex]'));
+      for (let edit = 0; edit < 100; edit++) {
+        const cell = cells[(edit * 37) % cells.length];
+        const key = cell.textContent?.trim() === 'S' ? 'a' : 's';
+        const start = performance.now();
+        cell.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+        this.app.tick();
+        cell.getBoundingClientRect();
+        edits.push(performance.now() - start);
+        await nextFrame();
+      }
+
+      this.results.set([
+        `Scrolling down, 1 row a frame: ${summary(slowly)}`,
+        `Scrolling down, 5 rows a frame: ${summary(quickly)}`,
+        `Scrolling across, 2 offerings a frame: ${summary(across)}`,
+        `Setting a cell: ${summary(edits)}`,
+      ]);
+    } finally {
+      this.measuring.set(false);
     }
-
-    this.results.set([
-      `Scrolling down, 1 row a frame: ${summary(slowly)}`,
-      `Scrolling down, 5 rows a frame: ${summary(quickly)}`,
-      `Scrolling across, 2 columns a frame: ${summary(across)}`,
-      `Setting a cell: ${summary(edits)}`,
-    ]);
-    this.measuring.set(false);
   }
 }
 

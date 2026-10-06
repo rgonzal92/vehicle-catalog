@@ -17,7 +17,7 @@ const contents: MatrixContents = {
     { trimId: 2, regionCode: 'NA' },
     { trimId: 2, regionCode: 'EU' },
   ],
-  features: [
+  featureRows: [
     { id: 10, code: 'ROOF_PANORAMIC', name: 'Panoramic Roof', categoryCode: 'EXTERIOR' },
     { id: 11, code: 'ENGINE_20T', name: '2.0L Turbo', categoryCode: 'POWERTRAIN' },
   ],
@@ -35,7 +35,6 @@ const categories = [
   imports: [AvailabilityMatrix],
   template: `
     <app-availability-matrix
-      style="height: 400px"
       [contents]="contents()"
       [categories]="categories"
       [editable]="editable()"
@@ -51,9 +50,9 @@ class Host {
 }
 
 describe('AvailabilityMatrix', () => {
-  // The test page has no layout. The table draws only the rows that fit its height, so every
-  // element is given a size, and the observer its frozen columns watch their width with is absent.
+  // The test page has no layout, so the table is told what a browser would have measured.
   beforeAll(() => {
+    // The table's frozen cells watch their own width with an observer the test page lacks.
     vi.stubGlobal(
       'ResizeObserver',
       class {
@@ -61,9 +60,10 @@ describe('AvailabilityMatrix', () => {
         disconnect(): void {}
       },
     );
+    // The table starts drawing rows only once it is visible, which it judges by this.
     vi.spyOn(HTMLElement.prototype, 'offsetParent', 'get').mockReturnValue(document.body);
+    // It draws the rows that fit its height: at 36 pixels a row, all four of the test's rows.
     vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(400);
-    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800);
   });
   afterAll(() => {
     vi.unstubAllGlobals();
@@ -86,14 +86,14 @@ describe('AvailabilityMatrix', () => {
   const rows = (element: HTMLElement) =>
     Array.from(element.querySelectorAll('tbody tr')).map((row) => texts(row.children));
 
-  /** The cell of a feature row in one of the offering columns, counted from 0. */
+  /** The cell of a row of the table for one of the offerings, counted from 0. */
   const cell = (element: HTMLElement, row: number, offering: number) =>
     element.querySelectorAll('tbody tr')[row].children[offering + 2] as HTMLTableCellElement;
 
   const press = (target: Element, key: string) =>
     target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
 
-  it('heads the columns with regions and, under each, only the trims sold there', async () => {
+  it('heads the offerings with their regions and, under each, only the trims sold there', async () => {
     const { element } = await matrix(false);
     const [top, second] = Array.from(element.querySelectorAll('thead tr'));
 
@@ -103,7 +103,7 @@ describe('AvailabilityMatrix', () => {
     expect(texts(second.children)).toEqual(['Base', 'Sport', 'Sport']);
   });
 
-  it('lists features under category subheaders and shows each cell, a missing one as a dash', async () => {
+  it('lists feature rows under category subheaders and shows each cell, a missing one as a dash', async () => {
     const { element } = await matrix(false);
 
     expect(rows(element)).toEqual([
@@ -115,14 +115,18 @@ describe('AvailabilityMatrix', () => {
   });
 
   it('allows no edits when read-only', async () => {
-    const { element, host } = await matrix(false);
+    const { fixture, element, host } = await matrix(false);
     const first = cell(element, 1, 0);
 
-    expect(element.querySelectorAll('td[tabindex]').length).toBe(0);
+    expect(element.querySelectorAll('td[tabindex], app-availability-matrix[tabindex]').length).toBe(
+      0,
+    );
     press(first, 'a');
+    press(first, 'Enter');
     first.click();
-    await vi.waitFor(() => expect(first.textContent?.trim()).toBe('S'));
+    await fixture.whenStable();
 
+    expect(first.textContent?.trim()).toBe('S');
     expect(element.querySelector('select')).toBeNull();
     expect(host.changes).toEqual([]);
   });
@@ -156,15 +160,35 @@ describe('AvailabilityMatrix', () => {
     expect(host.changes).toEqual([]);
   });
 
+  it('leaves a key held with Ctrl, Alt, or the command key to the browser', async () => {
+    const { fixture, element, host } = await matrix(true);
+    const first = cell(element, 1, 1);
+
+    for (const held of [{ ctrlKey: true }, { altKey: true }, { metaKey: true }]) {
+      const shortcut = new KeyboardEvent('keydown', {
+        key: 'a',
+        bubbles: true,
+        cancelable: true,
+        ...held,
+      });
+      first.dispatchEvent(shortcut);
+      expect(shortcut.defaultPrevented).toBe(false);
+    }
+    await fixture.whenStable();
+
+    expect(first.textContent?.trim()).toBe('-');
+    expect(host.changes).toEqual([]);
+  });
+
   it('opens a dropdown with Enter and sets the cell to the choice made there', async () => {
     const { element, host } = await matrix(true);
     const baseInNorthAmerica = cell(element, 3, 0);
 
     press(baseInNorthAmerica, 'Enter');
     const dropdown = await vi.waitFor(() => {
-      const select = baseInNorthAmerica.querySelector('select');
-      expect(select).not.toBeNull();
-      return select!;
+      const opened = baseInNorthAmerica.querySelector('select');
+      expect(opened).not.toBeNull();
+      return opened!;
     });
     expect(dropdown.getAttribute('aria-label')).toBe('Panoramic Roof, Base in North America');
     expect(texts(dropdown.options)).toEqual(['S', 'A', '-']);
@@ -186,15 +210,56 @@ describe('AvailabilityMatrix', () => {
 
     first.click();
     const dropdown = await vi.waitFor(() => {
-      const select = first.querySelector('select');
-      expect(select).not.toBeNull();
-      return select!;
+      const opened = first.querySelector('select');
+      expect(opened).not.toBeNull();
+      return opened!;
     });
     press(dropdown, 'Escape');
     await vi.waitFor(() => expect(first.querySelector('select')).toBeNull());
 
     expect(first.textContent?.trim()).toBe('S');
     expect(host.changes).toEqual([]);
+  });
+
+  it('is one stop for the Tab key, which leads to the first cell and later to the cell last used', async () => {
+    const { element } = await matrix(true);
+    const tabStop = element.querySelector<HTMLElement>('[tabindex="0"]')!;
+    // The test page cannot tell a key press from a click; the focus here comes by keyboard.
+    vi.spyOn(tabStop, 'matches').mockReturnValue(true);
+
+    expect(element.querySelectorAll('[tabindex="0"]').length).toBe(1);
+    tabStop.focus();
+    expect(document.activeElement).toBe(cell(element, 1, 0));
+
+    press(cell(element, 1, 0), 'ArrowRight');
+    tabStop.focus();
+    expect(document.activeElement, 'coming back from a cell, the focus rests').toBe(tabStop);
+
+    tabStop.blur();
+    tabStop.focus();
+    expect(document.activeElement).toBe(cell(element, 1, 1));
+  });
+
+  it('keeps the focus on the tab stop of a read-only matrix, where the keyboard scrolls it', async () => {
+    const { element } = await matrix(false);
+    const tabStop = element.querySelector<HTMLElement>('[tabindex="0"]')!;
+    vi.spyOn(tabStop, 'matches').mockReturnValue(true);
+
+    tabStop.focus();
+
+    expect(document.activeElement).toBe(tabStop);
+  });
+
+  it('closes an open dropdown when the matrix becomes read-only', async () => {
+    const { fixture, element, host } = await matrix(true);
+    const first = cell(element, 1, 0);
+    press(first, 'Enter');
+    await vi.waitFor(() => expect(first.querySelector('select')).not.toBeNull());
+
+    host.editable.set(false);
+    await fixture.whenStable();
+
+    expect(element.querySelector('select')).toBeNull();
   });
 
   it('moves the focus between cells with the arrow keys, stepping over subheaders', async () => {

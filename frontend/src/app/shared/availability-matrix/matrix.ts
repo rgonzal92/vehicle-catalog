@@ -22,8 +22,8 @@ export interface Offering {
   regionCode: string;
 }
 
-/** A feature row of a catalog. */
-export interface MatrixFeature {
+/** A feature a catalog has added: one row of the matrix. */
+export interface FeatureRow {
   id: number;
   code: string;
   name: string;
@@ -44,29 +44,29 @@ export interface MatrixContents {
   /** In the order the matrix shows them, left to right. */
   regions: MatrixRegion[];
   offerings: Offering[];
-  features: MatrixFeature[];
+  featureRows: FeatureRow[];
   cells: Cell[];
 }
 
-/** A region with the trims sold there, in trim order: one group of the matrix's columns. */
-export interface RegionColumns {
+/** A region with the trims sold there, in trim order: its offerings, side by side in the matrix. */
+export interface RegionOfferings {
   region: MatrixRegion;
   trims: MatrixTrim[];
 }
 
-/** A row of the matrix: a category subheader, or a feature under the subheader before it. */
+/** A row of the matrix: a category subheader, or a feature row under the subheader before it. */
 export interface MatrixRow {
   category?: Named;
-  feature?: MatrixFeature;
+  feature?: FeatureRow;
 }
 
 /**
  * The matrix's two-level header: the regions in the order given and, under each, the trims sold
- * there in trim order. A region where no trim is sold has no columns, so it is left out.
+ * there in trim order. A region where no trim is sold has no offerings, so it is left out.
  */
-export function regionColumns(
+export function offeringsByRegion(
   contents: Pick<MatrixContents, 'trims' | 'regions' | 'offerings'>,
-): RegionColumns[] {
+): RegionOfferings[] {
   const inOrder = [...contents.trims].sort(
     (one, other) => one.sortOrder - other.sortOrder || one.id - other.id,
   );
@@ -83,13 +83,13 @@ export function regionColumns(
 }
 
 /**
- * The matrix's rows: each category that has features as a subheader, in the categories' display
- * order, followed by its features in code order.
+ * The matrix's rows: each category that has feature rows as a subheader, in the categories' display
+ * order, followed by its feature rows in code order.
  */
-export function matrixRows(features: MatrixFeature[], categories: Named[]): MatrixRow[] {
+export function matrixRows(featureRows: FeatureRow[], categories: Named[]): MatrixRow[] {
   const place = new Map(categories.map((category, index) => [category.code, index]));
-  const placeOf = (feature: MatrixFeature) => place.get(feature.categoryCode) ?? categories.length;
-  const inOrder = [...features].sort(
+  const placeOf = (feature: FeatureRow) => place.get(feature.categoryCode) ?? categories.length;
+  const inOrder = [...featureRows].sort(
     (one, other) =>
       placeOf(one) - placeOf(other) ||
       one.categoryCode.localeCompare(other.categoryCode) ||
