@@ -66,6 +66,8 @@ export interface WorkingCopy {
   vehicleLine: string;
   modelYear: number;
   status: CatalogStatus;
+  /** What an edit made from the list, such as deleting it, names. */
+  revision: number;
   updatedAt: string;
 }
 
@@ -177,6 +179,23 @@ export class Catalogs {
     );
   }
 
+  /** Renames a working copy. */
+  rename(catalogId: number, revision: number, name: string): Promise<number> {
+    return this.edit('PATCH', `/api/catalogs/${catalogId}`, revision, { name });
+  }
+
+  /**
+   * Deletes a working copy as its owner last saw it, with its contents and its change history. The
+   * backend refuses when the catalog has changed since that revision.
+   */
+  async delete(catalogId: number, revision: number): Promise<void> {
+    await firstValueFrom(
+      this.http.delete(`/api/catalogs/${catalogId}`, {
+        headers: { 'If-Match': `"${revision}"` },
+      }),
+    );
+  }
+
   /** Sets cells of a working copy. Setting a cell to Not offered removes it. */
   setCells(catalogId: number, revision: number, cells: Cell[]): Promise<number> {
     return this.edit('PUT', `/api/catalogs/${catalogId}/cells`, revision, cells);
@@ -230,7 +249,7 @@ export class Catalogs {
    * has gone unanswered for {@link SAVE_PATIENCE} is given up and fails.
    */
   private async edit(
-    method: 'POST' | 'PUT' | 'DELETE',
+    method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     address: string,
     revision: number,
     body?: unknown,

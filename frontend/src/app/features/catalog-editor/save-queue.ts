@@ -8,7 +8,7 @@ import { computed, signal } from '@angular/core';
  *   Editing goes on.
  * - `conflict`: a revision conflict. The catalog has to be read again before any further edit.
  * - `closed`: the catalog can no longer be edited at all, because it is no longer in status Draft
- *   or no longer there.
+ *   or what the edit is about is no longer there.
  * - `uncertain`: no answer says whether the edit was saved.
  */
 export type SaveFailure = 'rejected' | 'conflict' | 'closed' | 'uncertain';
@@ -27,8 +27,13 @@ export function failureOf(error: unknown): SaveFailure {
     case 412:
       return 'conflict';
     case 404:
-    case 409:
       return 'closed';
+    case 409:
+      // A catalog that is not in status Draft takes no edit. Any other conflict, such as a name
+      // that is taken, is about this edit alone.
+      return (error.error as { code?: unknown } | null)?.code === 'NOT_DRAFT'
+        ? 'closed'
+        : 'rejected';
     default:
       return 'rejected';
   }

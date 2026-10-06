@@ -28,7 +28,8 @@ class WorkingCopies {
   /** A working copy as its owner's list shows it; a statement adds which ones it reads. */
   private static final String SUMMARY =
       """
-      SELECT c.id, c.name, v.name AS vehicle_line, l.model_year, c.status, c.updated_at
+      SELECT c.id, c.name, v.name AS vehicle_line, l.model_year, c.status, c.revision,
+             c.updated_at
       FROM catalog c
       JOIN lineage l ON l.id = c.lineage_id
       JOIN vehicle_line v ON v.id = l.vehicle_line_id
@@ -217,7 +218,17 @@ class WorkingCopies {
     }
   }
 
-  /** A working copy as its owner's list shows it. */
+  /**
+   * A working copy as its owner's list shows it.
+   *
+   * @param revision what an edit made from the list, such as deleting it, names
+   */
   record WorkingCopy(
-      long id, String name, String vehicleLine, int modelYear, Status status, Instant updatedAt) {}
+      long id,
+      String name,
+      String vehicleLine,
+      int modelYear,
+      Status status,
+      long revision,
+      Instant updatedAt) {}
 }

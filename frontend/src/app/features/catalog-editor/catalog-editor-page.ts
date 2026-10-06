@@ -1,7 +1,16 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, inject, signal, viewChild } from '@angular/core';
+import {
+  afterNextRender,
+  Component,
+  computed,
+  ElementRef,
+  inject,
+  Injector,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { NonNullableFormBuilder, ReactiveFormsModule } from '@angular/forms';
+import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { Button } from 'primeng/button';
@@ -25,7 +34,8 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
 
 /**
  * A catalog as its owner works on it: what describes it, its matrix on the Features tab, and its
- * change history on the History tab. A working copy shows the library's current labels.
+ * change history on the History tab. The owner of a working copy in status Draft renames it in the
+ * header. A working copy shows the library's current labels.
  *
  * The owner of a working copy in status Draft sets its cells, adds and removes feature rows, and
  * manages its trims, regions, and offerings, and each change is saved at once, with no save
@@ -63,7 +73,45 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
       <a class="text-primary underline" routerLink="/dashboard">Dashboard</a>
       @if (catalog(); as catalog) {
         <header class="mt-4">
-          <h1 class="text-2xl font-semibold">{{ catalog.name }}</h1>
+          @if (renaming()) {
+            <!-- The page keeps its heading while the name is a box to type in. -->
+            <h1 class="sr-only">{{ catalog.name }}</h1>
+            <form
+              class="flex flex-wrap items-center gap-2"
+              [formGroup]="newName"
+              (ngSubmit)="rename()"
+            >
+              <label class="sr-only" for="catalog-name">Name</label>
+              <input
+                #nameBox
+                pInputText
+                id="catalog-name"
+                class="w-96 max-w-full"
+                autocomplete="off"
+                formControlName="name"
+                (keydown.escape)="stopRenaming()"
+              />
+              <p-button type="submit" label="Save" [disabled]="newName.invalid" />
+              <p-button label="Cancel" severity="secondary" (onClick)="stopRenaming()" />
+            </form>
+            @if (renameRefusal()) {
+              <p-message class="mt-2 block" severity="error">{{ renameRefusal() }}</p-message>
+            }
+          } @else {
+            <div class="flex flex-wrap items-center gap-2">
+              <h1 class="text-2xl font-semibold">{{ catalog.name }}</h1>
+              @if (editable()) {
+                <p-button
+                  #renameButton
+                  label="Rename"
+                  severity="secondary"
+                  size="small"
+                  [text]="true"
+                  (onClick)="startRenaming(catalog)"
+                />
+              }
+            </div>
+          }
           <dl class="mt-2 flex flex-wrap gap-x-8 gap-y-2">
             <div>
               <dt class="text-sm text-muted-color">Vehicle line</dt>
@@ -256,6 +304,7 @@ export class CatalogEditorPage {
   private readonly catalogs = inject(Catalogs);
   protected readonly fixedLists = inject(FixedLists);
   private readonly messages = inject(MessageService);
+  private readonly injector = inject(Injector);
   protected readonly id = Number(inject(ActivatedRoute).snapshot.paramMap.get('id'));
 
   protected readonly catalog = signal<Catalog | null>(null);
@@ -313,6 +362,20 @@ export class CatalogEditorPage {
   });
 
   protected readonly kindFilters = KIND_FILTERS;
+
+  /** Whether the name in the header is being edited in place. */
+  protected readonly renaming = signal(false);
+
+  /** The name being typed while the catalog is renamed. */
+  protected readonly newName = inject(NonNullableFormBuilder).group({
+    name: ['', [Validators.required, Validators.maxLength(80)]],
+  });
+
+  /** Why the backend refused the new name, shown under it. */
+  protected readonly renameRefusal = signal('');
+
+  private readonly nameBox = viewChild<ElementRef<HTMLInputElement>>('nameBox');
+  private readonly renameButton = viewChild('renameButton', { read: ElementRef });
 
   /** The feature row the person is asked to confirm the removal of, or null while there is none. */
   protected readonly removing = signal<{ feature: FeatureRow; cells: number } | null>(null);
@@ -474,6 +537,55 @@ export class CatalogEditorPage {
       this.managing.set(false);
     }
     await dialog.open();
+  }
+
+  /** Turns the name in the header into a box to type the new name in. */
+  protected startRenaming(catalog: Catalog): void {
+    this.newName.setValue({ name: catalog.name });
+    this.renameRefusal.set('');
+    this.renaming.set(true);
+    afterNextRender(() => this.nameBox()?.nativeElement.select(), { injector: this.injector });
+  }
+
+  /** Turns the box back into the name, and puts the focus back on the button that opened it. */
+  protected stopRenaming(): void {
+    this.renaming.set(false);
+    afterNextRender(
+      () =>
+        (this.renameButton()?.nativeElement as HTMLElement | undefined)
+          ?.querySelector('button')
+          ?.focus(),
+      { injector: this.injector },
+    );
+  }
+
+  /** Saves the new name behind the saves on their way, or keeps the box open with the refusal. */
+  protected async rename(): Promise<void> {
+    const saves = this.saves();
+    const name = this.newName.getRawValue().name.trim();
+    if (!saves || !name || this.newName.invalid) {
+      return;
+    }
+
+    try {
+      const changed = await saves.add((revision) => this.catalogs.rename(this.id, revision, name));
+      if (changed) {
+        this.catalog.update((catalog) => catalog && { ...catalog, name });
+      } else {
+        this.noNewChanges();
+      }
+      this.stopRenaming();
+    } catch (error) {
+      if (!(error instanceof NotSent) && failureOf(error) === 'rejected') {
+        this.renameRefusal.set(reasonOf(error));
+        return;
+      }
+      // The editor has stopped, which the banner says.
+      this.stopRenaming();
+      if (saves.stopped() === 'closed') {
+        await this.closed(reasonOf(error));
+      }
+    }
   }
 
   /** Asks the person to confirm the removal of a feature row, which takes its cells along. */

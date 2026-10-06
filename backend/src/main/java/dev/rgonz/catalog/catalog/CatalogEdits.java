@@ -15,17 +15,18 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.core.simple.JdbcClient.StatementSpec;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Edits working copies: their cells, the library trims, regions, and features they have added, and
- * where each trim is sold. Only a catalog in status Draft can be edited, and only by its owner.
- * Every edit names the revision it was made from and runs in one transaction that locks the
- * catalog, so edits of one catalog happen one after another and none overwrites a change it has not
- * seen.
+ * Edits working copies: their names, their cells, the library trims, regions, and features they
+ * have added, and where each trim is sold. It also deletes them. Only a catalog in status Draft can
+ * be edited, and only by its owner. Every edit names the revision it was made from and runs in one
+ * transaction that locks the catalog, so edits of one catalog happen one after another and none
+ * overwrites a change it has not seen.
  */
 @Service
 class CatalogEdits {
@@ -37,6 +38,9 @@ class CatalogEdits {
 
   /** The most regions a catalog has. */
   private static final int MOST_REGIONS = 8;
+
+  /** The most characters a catalog's name has. */
+  private static final int LONGEST_NAME = 80;
 
   /** The most feature rows a catalog has. */
   private static final int MOST_FEATURE_ROWS = 500;
@@ -255,6 +259,73 @@ class CatalogEdits {
               .param("region", regionCode)
               .update();
           return true;
+        });
+  }
+
+  /**
+   * Renames the catalog. The name is 1 to 80 characters, and no other working copy of the owner's
+   * has it, whatever its case.
+   */
+  long rename(long catalogId, long actorId, String ifMatch, String name) {
+    return edit(
+        catalogId,
+        actorId,
+        ifMatch,
+        () -> {
+          var wanted = name == null ? "" : name.strip();
+          if (wanted.isEmpty() || wanted.length() > LONGEST_NAME) {
+            throw ApiException.invalid(
+                "Enter a name of %d characters or fewer.".formatted(LONGEST_NAME));
+          }
+          var had =
+              jdbc.sql("SELECT name FROM catalog WHERE id = :id")
+                  .param("id", catalogId)
+                  .query(String.class)
+                  .single();
+          if (had.equals(wanted)) {
+            return false;
+          }
+          try {
+            jdbc.sql("UPDATE catalog SET name = :name WHERE id = :id")
+                .param("name", wanted)
+                .param("id", catalogId)
+                .update();
+          } catch (DuplicateKeyException taken) {
+            // The database keeps an owner's working copy names apart whatever their case.
+            throw ApiException.conflict(
+                "NAME_TAKEN", "Another of your working copies already has this name.");
+          }
+          jdbc.sql(
+                  """
+                  INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
+                  VALUES (:catalog, :actor, 'RENAMED', jsonb_build_object('old', :had, 'new', :name))
+                  """)
+              .param("catalog", catalogId)
+              .param("actor", actorId)
+              .param("had", had)
+              .param("name", wanted)
+              .update();
+          return true;
+        });
+  }
+
+  /**
+   * Deletes the catalog with its contents and its change history. Its lineage stays, and so does
+   * every other catalog. It follows the rules of an edit: only the owner deletes a catalog, only
+   * while it is in status Draft, and only as they last saw it.
+   */
+  void delete(long catalogId, long actorId, String ifMatch) {
+    transactions.executeWithoutResult(
+        transaction -> {
+          lockToEdit(catalogId, actorId, ifMatch);
+          // Offerings and cells go with the trims, regions, and feature rows they belong to.
+          for (var table :
+              List.of("catalog_feature", "catalog_trim", "catalog_region", "catalog_change")) {
+            jdbc.sql("DELETE FROM " + table + " WHERE catalog_id = :id")
+                .param("id", catalogId)
+                .update();
+          }
+          jdbc.sql("DELETE FROM catalog WHERE id = :id").param("id", catalogId).update();
         });
   }
 
@@ -585,22 +656,7 @@ class CatalogEdits {
     var revision =
         transactions.execute(
             transaction -> {
-              var catalog =
-                  jdbc.sql(
-                          "SELECT owner_id, status, revision FROM catalog WHERE id = :id FOR UPDATE")
-                      .param("id", catalogId)
-                      .query(Locked.class)
-                      .optional()
-                      .filter(found -> found.ownerId() == actorId)
-                      .orElseThrow(ApiException::notFound);
-              if (catalog.status() != Status.DRAFT) {
-                throw ApiException.conflict(
-                    "NOT_DRAFT", "Only a catalog in status Draft can be edited.");
-              }
-              if (catalog.revision() != expectedRevision(ifMatch)) {
-                throw ApiException.revisionConflict(catalog.revision());
-              }
-
+              var catalog = lockToEdit(catalogId, actorId, ifMatch);
               if (!change.getAsBoolean()) {
                 return catalog.revision();
               }
@@ -618,6 +674,28 @@ class CatalogEdits {
     editTime.record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
 
     return revision;
+  }
+
+  /**
+   * Locks the catalog's row until the transaction ends and makes sure the caller may edit the
+   * catalog as it is: that it is theirs, that it is in status Draft, and that the edit names the
+   * revision it is at, in that order.
+   */
+  private Locked lockToEdit(long catalogId, long actorId, String ifMatch) {
+    var catalog =
+        jdbc.sql("SELECT owner_id, status, revision FROM catalog WHERE id = :id FOR UPDATE")
+            .param("id", catalogId)
+            .query(Locked.class)
+            .optional()
+            .filter(found -> found.ownerId() == actorId)
+            .orElseThrow(ApiException::notFound);
+    if (catalog.status() != Status.DRAFT) {
+      throw ApiException.conflict("NOT_DRAFT", "Only a catalog in status Draft can be edited.");
+    }
+    if (catalog.revision() != expectedRevision(ifMatch)) {
+      throw ApiException.revisionConflict(catalog.revision());
+    }
+    return catalog;
   }
 
   /** The revision an edit says it was made from. */
