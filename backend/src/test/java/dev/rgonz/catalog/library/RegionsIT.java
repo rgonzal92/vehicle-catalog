@@ -14,7 +14,7 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 class RegionsIT extends ApplicationIT {
   @BeforeEach
   void noRegions() {
-    jdbc.sql("DELETE FROM region").update();
+    emptyLibraryAndCatalogs();
   }
 
   @Test

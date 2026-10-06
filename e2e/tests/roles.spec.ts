@@ -28,7 +28,8 @@ for (const { username, role, name, sections } of demoAccounts) {
     await signIn(page, username);
 
     await expect(page).toHaveURL('/dashboard');
-    await expect(page.getByText(name)).toBeVisible();
+    // The name also appears in the list of Approved catalogs, as the approver.
+    await expect(page.locator('main > header').getByText(name)).toBeVisible();
     await expect(page.locator('[data-role]')).toHaveText(role);
     await expect(page.getByRole('heading', { level: 2 })).toHaveText(sections);
     await expectAccessible(page);

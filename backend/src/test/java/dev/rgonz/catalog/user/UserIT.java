@@ -5,6 +5,8 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 
 import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.core.Role;
+import dev.rgonz.catalog.user.DemoAccounts.DemoAccount;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -72,6 +74,49 @@ class UserIT extends ApplicationIT {
     assertThat(result).hasStatusOk().bodyJson().extractingPath("$[0].role").isEqualTo("author");
     assertThat(result).bodyJson().extractingPath("$[0].username").isEqualTo("demo-author");
     assertThat(result).bodyJson().extractingPath("$[0].password").isEqualTo("demo-password");
+    assertThat(result)
+        .bodyJson()
+        .extractingPath("$[0]")
+        .asMap()
+        .as("who the account is to the app stays private")
+        .containsOnlyKeys("role", "username", "password");
+  }
+
+  @Test
+  void theSeedsRecordOfADemoAccountIsTheRecordItsFirstLoginFinds() {
+    jdbc.sql("DELETE FROM app_user WHERE cognito_sub = 'sub-demo'").update();
+    var people =
+        new DemoPeople(
+            new DemoAccounts(
+                List.of(new DemoAccount(Role.AUTHOR, "demo-ana", "secret", "sub-demo", "Ana"))),
+            jdbc);
+
+    var recorded = people.record(Role.AUTHOR).orElseThrow();
+
+    assertThat(people.record(Role.AUTHOR)).as("recorded once").contains(recorded);
+    assertThat(people.record(Role.MANAGER)).as("no manager account is configured").isEmpty();
+    var signedIn = users.recordLogin("sub-demo", "demo-ana", "ana@example.test", "Ana A.");
+    assertThat(signedIn.id()).isEqualTo(recorded);
+    assertThat(people.record(Role.AUTHOR)).contains(recorded);
+    assertThat(users.findBySubject("sub-demo").orElseThrow().displayName())
+        .as("someone who has signed in keeps their details")
+        .isEqualTo("Ana A.");
+  }
+
+  @Test
+  void aDemoAccountThatDoesNotSayWhoItIsIsNotRecorded() {
+    var people =
+        new DemoPeople(
+            new DemoAccounts(
+                List.of(new DemoAccount(Role.AUTHOR, "demo-nobody", "secret", null, null))),
+            jdbc);
+
+    assertThat(people.record(Role.AUTHOR)).isEmpty();
+    assertThat(
+            jdbc.sql("SELECT count(*) FROM app_user WHERE username = 'demo-nobody'")
+                .query(Long.class)
+                .single())
+        .isZero();
   }
 
   private java.time.Instant lastLogin(long id) {

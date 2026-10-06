@@ -14,7 +14,7 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 class TrimsIT extends ApplicationIT {
   @BeforeEach
   void noTrims() {
-    jdbc.sql("DELETE FROM trim").update();
+    emptyLibraryAndCatalogs();
   }
 
   @Test

@@ -101,10 +101,16 @@ services:
       SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_COGNITO_AUTHORIZATION_URI: http://localhost:8091/default/authorize
       SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_COGNITO_TOKEN_URI: http://login:8080/default/token
       SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_COGNITO_JWK_SET_URI: http://login:8080/default/jwks
+      # The demo accounts as the login server above knows them. Its subject for an account is the
+      # username typed at sign-in. Seeded catalogs belong to the author and the manager.
       APP_DEMOACCOUNTS_0_ROLE: author
       APP_DEMOACCOUNTS_0_USERNAME: author
+      APP_DEMOACCOUNTS_0_SUBJECT: author
+      APP_DEMOACCOUNTS_0_DISPLAYNAME: Demo Author
       APP_DEMOACCOUNTS_1_ROLE: manager
       APP_DEMOACCOUNTS_1_USERNAME: manager
+      APP_DEMOACCOUNTS_1_SUBJECT: manager
+      APP_DEMOACCOUNTS_1_DISPLAYNAME: Demo Manager
       APP_DEMOACCOUNTS_2_ROLE: admin
       APP_DEMOACCOUNTS_2_USERNAME: admin
     ports:
