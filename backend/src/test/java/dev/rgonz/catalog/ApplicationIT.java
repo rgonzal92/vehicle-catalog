@@ -169,8 +169,8 @@ public abstract class ApplicationIT {
   @Autowired protected JdbcClient jdbc;
 
   /**
-   * What the application runs once it has started, in order. Today that is the seeds, which are
-   * reached this way because each is private to its own package.
+   * What the application runs once it has started, in order: the seeds and what else fills the
+   * database at startup. They are reached this way because each is private to its own package.
    */
   @Autowired private List<ApplicationRunner> startup;
 

@@ -17,7 +17,7 @@ public class FixedLists {
   }
 
   /** The model years a catalog can be made for. */
-  List<Integer> modelYears() {
+  public List<Integer> modelYears() {
     return modelYears;
   }
 

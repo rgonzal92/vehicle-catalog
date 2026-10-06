@@ -113,6 +113,9 @@ services:
       APP_DEMOACCOUNTS_1_DISPLAYNAME: Demo Manager
       APP_DEMOACCOUNTS_2_ROLE: admin
       APP_DEMOACCOUNTS_2_USERNAME: admin
+      # Set LARGEST_CATALOG=true to start with the largest catalog there can be as well, 500 feature
+      # rows by 96 offerings, to see and measure the app at that size.
+      APP_LARGESTCATALOG: ${LARGEST_CATALOG:-false}
     ports:
       - "127.0.0.1:8090:8080"
     # Ready means startup has finished, which includes filling an empty library.
