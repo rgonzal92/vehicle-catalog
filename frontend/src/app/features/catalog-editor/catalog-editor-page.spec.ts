@@ -450,6 +450,135 @@ describe('CatalogEditorPage', () => {
     backend.expectNone((request) => request.method !== 'GET');
   });
 
+  describe('renaming the catalog in the header', () => {
+    const renameRequest = () =>
+      vi.waitFor(() => backend.expectOne({ method: 'PATCH', url: '/api/catalogs/41' }));
+
+    /** Starts renaming, types the name, and saves it. */
+    async function renameTo(element: HTMLElement, name: string): Promise<void> {
+      button(element, 'Rename')!.click();
+      const box = await vi.waitFor(() => {
+        const found = element.querySelector<HTMLInputElement>('#catalog-name');
+        expect(found).not.toBeNull();
+        return found!;
+      });
+      expect(box.value).toBe('Winter update');
+      box.value = name;
+      box.dispatchEvent(new Event('input'));
+      await vi.waitFor(() => expect(button(element, 'Save')!.disabled).toBe(false));
+      button(element, 'Save')!.click();
+    }
+
+    it('is offered only to someone who may edit the catalog', async () => {
+      const element = await page({ ...workingCopy, owned: false });
+
+      expect(button(element, 'Rename')).toBeUndefined();
+    });
+
+    it('saves the new name as an edit of the revision read, and shows it', async () => {
+      const element = await page(workingCopy);
+
+      await renameTo(element, '  Spring update ');
+
+      const request = await renameRequest();
+      expect(request.request.headers.get('If-Match')).toBe('"4"');
+      expect(request.request.body).toEqual({ name: 'Spring update' });
+      request.flush({ revision: 5 });
+      await vi.waitFor(() =>
+        expect(element.querySelector('h1')?.textContent).toBe('Spring update'),
+      );
+      // The matrix is left as it is, and the next edit is one of the new revision.
+      expect(matrixOf(element).textContent).toContain('editable: true');
+      matrixOf(element).click();
+      const next = await saveRequest();
+      expect(next.request.headers.get('If-Match')).toBe('"5"');
+      next.flush({ revision: 6 });
+    });
+
+    it('keeps the box open with the reason when the name is taken, and editing goes on', async () => {
+      const element = await page(workingCopy);
+
+      await renameTo(element, 'Coupe');
+      (await renameRequest()).flush(
+        ...refuse(409, 'NAME_TAKEN', 'Another of your working copies already has this name.'),
+      );
+
+      await vi.waitFor(() =>
+        expect(element.textContent).toContain(
+          'Another of your working copies already has this name.',
+        ),
+      );
+      expect(element.querySelector('#catalog-name')).not.toBeNull();
+      expect(element.querySelector('[role="alert"] button')).toBeNull();
+      expect(matrixOf(element).textContent).toContain('editable: true');
+
+      button(element, 'Cancel')!.click();
+      await vi.waitFor(() =>
+        expect(element.querySelector('h1')?.textContent).toBe('Winter update'),
+      );
+      // The focus is back on the button that opened the box.
+      await vi.waitFor(() => expect(document.activeElement).toBe(button(element, 'Rename')));
+    });
+
+    it('saves once, however often Enter is pressed, and says so when the name is the one it has', async () => {
+      const element = await page(workingCopy);
+      const shown = vi.spyOn(TestBed.inject(MessageService), 'add');
+
+      await renameTo(element, 'Winter update');
+      button(element, 'Save')!.click();
+
+      // The backend answers with the revision the rename was made from: nothing changed.
+      (await renameRequest()).flush({ revision: 4 });
+      await vi.waitFor(() =>
+        expect(shown).toHaveBeenCalledWith(expect.objectContaining({ summary: 'No new changes' })),
+      );
+      backend.expectNone({ method: 'PATCH', url: '/api/catalogs/41' });
+      await vi.waitFor(() =>
+        expect(element.querySelector('h1')?.textContent).toBe('Winter update'),
+      );
+    });
+
+    it('leaves the name as it is when Escape is pressed', async () => {
+      const element = await page(workingCopy);
+      button(element, 'Rename')!.click();
+      const box = await vi.waitFor(() => {
+        const found = element.querySelector<HTMLInputElement>('#catalog-name');
+        expect(found).not.toBeNull();
+        return found!;
+      });
+      // The box takes the focus, with the name ready to be typed over.
+      await vi.waitFor(() => expect(document.activeElement).toBe(box));
+
+      box.value = 'Typed and dropped';
+      box.dispatchEvent(new Event('input'));
+      box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+      await vi.waitFor(() =>
+        expect(element.querySelector('h1')?.textContent).toBe('Winter update'),
+      );
+      backend.expectNone({ method: 'PATCH', url: '/api/catalogs/41' });
+    });
+
+    it('cannot save an empty name', async () => {
+      const element = await page(workingCopy);
+
+      button(element, 'Rename')!.click();
+      const box = await vi.waitFor(() => {
+        const found = element.querySelector<HTMLInputElement>('#catalog-name');
+        expect(found).not.toBeNull();
+        return found!;
+      });
+      for (const noName of ['', '   ']) {
+        box.value = 'A name';
+        box.dispatchEvent(new Event('input'));
+        await vi.waitFor(() => expect(button(element, 'Save')!.disabled).toBe(false));
+        box.value = noName;
+        box.dispatchEvent(new Event('input'));
+        await vi.waitFor(() => expect(button(element, 'Save')!.disabled).toBe(true));
+      }
+    });
+  });
+
   describe('narrowing the matrix to some feature rows', () => {
     const shownIn = (element: HTMLElement) => matrixOf(element).textContent?.split(' of ')[0];
 

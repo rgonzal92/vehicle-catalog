@@ -24,9 +24,11 @@ export function changeInWords(change: Change): string {
   const feature = featureName && `${featureName} (${featureCode})`;
   const offering = trim && region ? `${trim} in ${region}` : (trim ?? region);
   const touched = [feature, offering].filter(Boolean).join(', ');
+  // Only a cell's values are availabilities. Any other value, such as a name, reads as it is.
+  const worded = change.kind === 'CELL_SET' ? availabilityName : (value: string) => value;
   const values =
     oldValue !== null && newValue !== null
-      ? `was ${availabilityName(oldValue)}, now ${availabilityName(newValue)}`
+      ? `was ${worded(oldValue)}, now ${worded(newValue)}`
       : '';
 
   return [touched, values].filter(Boolean).join(': ');

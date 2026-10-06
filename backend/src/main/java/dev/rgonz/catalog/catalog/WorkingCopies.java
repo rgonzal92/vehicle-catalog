@@ -22,13 +22,23 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 class WorkingCopies {
+  /** The most characters a catalog's name has. */
+  static final int LONGEST_NAME = 80;
+
+  /** What a catalog without a name is refused with, when it is created and when it is renamed. */
+  static final String NAME_MISSING = "Enter a name.";
+
+  /** What a name that is too long is refused with. */
+  static final String NAME_TOO_LONG = "Keep the name to " + LONGEST_NAME + " characters or fewer.";
+
   /** The most working copies one person can own at a time. */
   private static final int MOST_PER_OWNER = 20;
 
   /** A working copy as its owner's list shows it; a statement adds which ones it reads. */
   private static final String SUMMARY =
       """
-      SELECT c.id, c.name, v.name AS vehicle_line, l.model_year, c.status, c.updated_at
+      SELECT c.id, c.name, v.name AS vehicle_line, l.model_year, c.status, c.revision,
+             c.updated_at
       FROM catalog c
       JOIN lineage l ON l.id = c.lineage_id
       JOIN vehicle_line v ON v.id = l.vehicle_line_id
@@ -104,6 +114,15 @@ class WorkingCopies {
         .param("owner", ownerId)
         .query(WorkingCopy.class)
         .list();
+  }
+
+  /**
+   * The refusal of a name another working copy of the owner's has. The database keeps an owner's
+   * working copy names apart whatever their case, and says so when a name is written.
+   */
+  static ApiException nameTaken() {
+    return ApiException.conflict(
+        "NAME_TAKEN", "Another of your working copies already has this name.");
   }
 
   /** A catalog can be made only for a configured model year of an active vehicle line. */
@@ -184,9 +203,7 @@ class WorkingCopies {
           .query(Long.class)
           .single();
     } catch (DuplicateKeyException taken) {
-      // The database keeps an owner's working copy names apart whatever their case.
-      throw ApiException.conflict(
-          "NAME_TAKEN", "Another of your working copies already has this name.");
+      throw nameTaken();
     }
   }
 
@@ -207,8 +224,7 @@ class WorkingCopies {
 
   /** What a person gives to create a working copy. */
   record NewWorkingCopy(
-      @NotBlank(message = "Enter a name.")
-          @Size(max = 80, message = "Keep the name to 80 characters or fewer.")
+      @NotBlank(message = NAME_MISSING) @Size(max = LONGEST_NAME, message = NAME_TOO_LONG)
           String name,
       @NotNull(message = "Choose a vehicle line.") Long vehicleLineId,
       @NotNull(message = "Choose a model year.") Integer modelYear) {
@@ -217,7 +233,17 @@ class WorkingCopies {
     }
   }
 
-  /** A working copy as its owner's list shows it. */
+  /**
+   * A working copy as its owner's list shows it.
+   *
+   * @param revision what an edit made from the list, such as deleting it, names
+   */
   record WorkingCopy(
-      long id, String name, String vehicleLine, int modelYear, Status status, Instant updatedAt) {}
+      long id,
+      String name,
+      String vehicleLine,
+      int modelYear,
+      Status status,
+      long revision,
+      Instant updatedAt) {}
 }

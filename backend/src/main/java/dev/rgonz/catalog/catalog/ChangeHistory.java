@@ -79,8 +79,9 @@ class ChangeHistory {
    * One change to a catalog: who made it, when, its kind, and what it touched, named by its labels.
    * A change names only what its kind is about, and the rest is null.
    *
-   * @param oldValue what a cell was before a change of kind {@code CELL_SET}: S, A, or N
-   * @param newValue what the cell was set to
+   * @param oldValue what the change replaced: a cell's availability (S, A, or N) for a change of
+   *     kind {@code CELL_SET}, or a catalog's name for one of kind {@code RENAMED}
+   * @param newValue what it was replaced with
    */
   record Change(
       long id,

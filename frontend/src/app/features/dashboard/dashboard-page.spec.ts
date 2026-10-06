@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import { MessageService } from 'primeng/api';
 import { Role, Session } from '../../core/session';
 import { DashboardPage } from './dashboard-page';
 
@@ -26,7 +27,12 @@ describe('DashboardPage', () => {
     mine: object[] = [],
   ): Promise<HTMLElement> {
     TestBed.configureTestingModule({
-      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        MessageService,
+      ],
     });
     const backend = TestBed.inject(HttpTestingController);
     const loading = TestBed.inject(Session).load();
@@ -99,6 +105,151 @@ describe('DashboardPage', () => {
     expect(link?.getAttribute('aria-label')).toBe('Open Winter update');
   });
 
+  describe('deleting a working copy', () => {
+    const winterUpdate = {
+      id: 41,
+      name: 'Winter update',
+      vehicleLine: 'Compact SUV',
+      modelYear: 2027,
+      status: 'DRAFT',
+      revision: 6,
+      updatedAt: '2026-01-09T10:00:00Z',
+    };
+    const submitted = { ...winterUpdate, id: 42, name: 'Sent for review', status: 'SUBMITTED' };
+
+    const dialog = () => document.querySelector<HTMLElement>('.p-dialog');
+
+    const dialogButton = (label: string) =>
+      Array.from(dialog()?.querySelectorAll('button') ?? []).find(
+        (candidate) => candidate.textContent?.trim() === label,
+      )!;
+
+    /** Renders the dashboard with the two working copies and asks to delete the one in Draft. */
+    async function ask(): Promise<HTMLElement> {
+      const page = await dashboardFor(['author'], [], [winterUpdate, submitted]);
+      await firstRow(page, 'my-catalogs');
+      page.querySelector<HTMLButtonElement>('button[aria-label="Delete Winter update"]')!.click();
+      await vi.waitFor(() =>
+        expect(dialog()?.querySelector('[data-question]')?.textContent).toContain(
+          'Delete Winter update?',
+        ),
+      );
+
+      return page;
+    }
+
+    const backend = () => TestBed.inject(HttpTestingController);
+
+    it('is offered only for a working copy in status Draft', async () => {
+      const page = await dashboardFor(['author'], [], [winterUpdate, submitted]);
+      await firstRow(page, 'my-catalogs');
+
+      expect(page.querySelector('button[aria-label="Delete Winter update"]')).not.toBeNull();
+      expect(page.querySelector('button[aria-label="Delete Sent for review"]')).toBeNull();
+    });
+
+    it('asks first, and keeps the working copy when told to', async () => {
+      const page = await ask();
+
+      dialogButton('Keep').click();
+
+      await vi.waitFor(() => expect(dialog()).toBeNull());
+      backend().expectNone((request) => request.method === 'DELETE');
+      // The focus goes back to the button that asked.
+      await vi.waitFor(() =>
+        expect(document.activeElement).toBe(
+          page.querySelector('button[aria-label="Delete Winter update"]'),
+        ),
+      );
+    });
+
+    it('deletes it as the list shows it, and reads the list again', async () => {
+      const page = await ask();
+
+      dialogButton('Delete').click();
+
+      const deletion = backend().expectOne({ method: 'DELETE', url: '/api/catalogs/41' });
+      expect(deletion.request.headers.get('If-Match')).toBe('"6"');
+      deletion.flush(null, { status: 204, statusText: 'No Content' });
+      (await vi.waitFor(() => backend().expectOne('/api/catalogs?scope=mine'))).flush([submitted]);
+      await vi.waitFor(() => expect(dialog()).toBeNull());
+      expect(
+        page.querySelector('section[aria-labelledby="my-catalogs"]')?.textContent,
+      ).not.toContain('Winter update');
+    });
+
+    it('deletes it once, however often Delete is pressed, and then puts the focus on the heading of the list', async () => {
+      const page = await ask();
+
+      dialogButton('Delete').click();
+      dialogButton('Delete').click();
+
+      backend()
+        .expectOne({ method: 'DELETE', url: '/api/catalogs/41' })
+        .flush(null, { status: 204, statusText: 'No Content' });
+      (await vi.waitFor(() => backend().expectOne('/api/catalogs?scope=mine'))).flush([submitted]);
+      await vi.waitFor(() => expect(dialog()).toBeNull());
+      backend().expectNone({ method: 'DELETE', url: '/api/catalogs/41' });
+      await vi.waitFor(() =>
+        expect(document.activeElement).toBe(page.querySelector('#my-catalogs')),
+      );
+    });
+
+    it('closes the question and gives the reason when the working copy has left status Draft', async () => {
+      const page = await ask();
+      const shown = vi.spyOn(TestBed.inject(MessageService), 'add');
+
+      dialogButton('Delete').click();
+      backend()
+        .expectOne({ method: 'DELETE', url: '/api/catalogs/41' })
+        .flush(
+          { code: 'NOT_DRAFT', detail: 'Only a catalog in status Draft can be edited.' },
+          { status: 409, statusText: 'Conflict' },
+        );
+      (await vi.waitFor(() => backend().expectOne('/api/catalogs?scope=mine'))).flush([
+        { ...winterUpdate, status: 'SUBMITTED' },
+        submitted,
+      ]);
+
+      await vi.waitFor(() => expect(dialog()).toBeNull());
+      expect(shown).toHaveBeenCalledWith(
+        expect.objectContaining({
+          summary: 'Not deleted',
+          detail: 'Only a catalog in status Draft can be edited.',
+        }),
+      );
+      expect(page.querySelector('button[aria-label="Delete Winter update"]')).toBeNull();
+    });
+
+    it('keeps the question open with the reason when the backend refuses, about the list as it then is', async () => {
+      await ask();
+
+      dialogButton('Delete').click();
+      backend()
+        .expectOne({ method: 'DELETE', url: '/api/catalogs/41' })
+        .flush(
+          { code: 'REVISION_CONFLICT', detail: 'This catalog was changed somewhere else.' },
+          { status: 412, statusText: 'Precondition Failed' },
+        );
+      (await vi.waitFor(() => backend().expectOne('/api/catalogs?scope=mine'))).flush([
+        { ...winterUpdate, revision: 7 },
+        submitted,
+      ]);
+
+      await vi.waitFor(() =>
+        expect(dialog()?.textContent).toContain(
+          'This working copy was changed after the list was read. The list shows it as it is now.',
+        ),
+      );
+      dialogButton('Delete').click();
+      const again = backend().expectOne({ method: 'DELETE', url: '/api/catalogs/41' });
+      expect(again.request.headers.get('If-Match')).toBe('"7"');
+      again.flush(null, { status: 204, statusText: 'No Content' });
+      (await vi.waitFor(() => backend().expectOne('/api/catalogs?scope=mine'))).flush([submitted]);
+      await vi.waitFor(() => expect(dialog()).toBeNull());
+    });
+  });
+
   it('says so when the person has no working copies', async () => {
     const page = await dashboardFor(['author']);
 
@@ -134,7 +285,12 @@ describe('DashboardPage', () => {
 
   it('says nothing about Approved catalogs until the backend has answered', async () => {
     TestBed.configureTestingModule({
-      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        MessageService,
+      ],
     });
     const backend = TestBed.inject(HttpTestingController);
     const loading = TestBed.inject(Session).load();

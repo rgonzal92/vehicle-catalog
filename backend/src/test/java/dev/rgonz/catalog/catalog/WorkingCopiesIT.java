@@ -318,13 +318,6 @@ class WorkingCopiesIT extends WorkingCopyTests {
     return timer == null ? 0 : timer.count();
   }
 
-  /** Approved versions do not count towards what a person's working copies may be or number. */
-  private void anaOwnsTheApprovedVersions() {
-    jdbc.sql("UPDATE catalog SET owner_id = :ana WHERE status = 'APPROVED'")
-        .param("ana", person("ana"))
-        .update();
-  }
-
   private MvcTestResult startPoint(RequestPostProcessor who, long vehicleLineId, int modelYear) {
     return mvc.get()
         .uri(

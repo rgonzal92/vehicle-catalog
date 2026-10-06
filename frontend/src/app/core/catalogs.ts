@@ -66,6 +66,8 @@ export interface WorkingCopy {
   vehicleLine: string;
   modelYear: number;
   status: CatalogStatus;
+  /** What an edit made from the list, such as deleting it, names. */
+  revision: number;
   updatedAt: string;
 }
 
@@ -84,7 +86,10 @@ export interface Change {
   featureName: string | null;
   trim: string | null;
   region: string | null;
-  /** What a cell was before the change, and what it was set to: S, A, or N. */
+  /**
+   * What the change replaced, and what it was replaced with: a cell's availability (S, A, or N), or
+   * a catalog's name.
+   */
   oldValue: string | null;
   newValue: string | null;
 }
@@ -111,6 +116,9 @@ export type StartPoint =
  * itself and answers with the revision it led to.
  */
 export type CatalogEdit = (revision: number) => Promise<number>;
+
+/** The most characters a catalog's name has. */
+export const LONGEST_CATALOG_NAME = 80;
 
 /** How long, in milliseconds, an edit may go unanswered before its outcome counts as unknown. */
 export const SAVE_PATIENCE = 20_000;
@@ -177,6 +185,19 @@ export class Catalogs {
     );
   }
 
+  /** Renames a working copy. */
+  rename(catalogId: number, revision: number, name: string): Promise<number> {
+    return this.edit('PATCH', `/api/catalogs/${catalogId}`, revision, { name });
+  }
+
+  /**
+   * Deletes a working copy as its owner last saw it, with its contents and its change history. The
+   * backend refuses when the catalog has changed since that revision.
+   */
+  async delete(catalogId: number, revision: number): Promise<void> {
+    await this.send('DELETE', `/api/catalogs/${catalogId}`, revision);
+  }
+
   /** Sets cells of a working copy. Setting a cell to Not offered removes it. */
   setCells(catalogId: number, revision: number, cells: Cell[]): Promise<number> {
     return this.edit('PUT', `/api/catalogs/${catalogId}/cells`, revision, cells);
@@ -230,20 +251,27 @@ export class Catalogs {
    * has gone unanswered for {@link SAVE_PATIENCE} is given up and fails.
    */
   private async edit(
-    method: 'POST' | 'PUT' | 'DELETE',
+    method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     address: string,
     revision: number,
     body?: unknown,
   ): Promise<number> {
-    const saved = await firstValueFrom(
-      this.http
-        .request<{ revision: number }>(method, address, {
-          body,
-          headers: { 'If-Match': `"${revision}"` },
-        })
-        .pipe(timeout(SAVE_PATIENCE)),
-    );
+    const saved = await this.send<{ revision: number }>(method, address, revision, body);
 
     return saved.revision;
+  }
+
+  /** Sends a request about a working copy as one made from the revision, and gives up in time. */
+  private send<Answer>(
+    method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    address: string,
+    revision: number,
+    body?: unknown,
+  ): Promise<Answer> {
+    return firstValueFrom(
+      this.http
+        .request<Answer>(method, address, { body, headers: { 'If-Match': `"${revision}"` } })
+        .pipe(timeout(SAVE_PATIENCE)),
+    );
   }
 }

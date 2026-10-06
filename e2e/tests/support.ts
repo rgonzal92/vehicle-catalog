@@ -65,19 +65,24 @@ export async function startNewCatalog(
   return dialog;
 }
 
-/** Creates a working copy from the dashboard and waits for it to open in the catalog editor. */
+/**
+ * Creates a working copy from the dashboard and waits for it to open in the catalog editor. Answers
+ * with its name.
+ */
 export async function createWorkingCopy(
   page: Page,
   vehicleType: string,
   vehicleLine: string,
   modelYear: string,
-): Promise<void> {
+): Promise<string> {
   const name = unique(`${vehicleLine} ${modelYear}`);
   const dialog = await startNewCatalog(page, vehicleType, vehicleLine, modelYear);
   await expect(dialog.getByText(/^Starts /)).toBeVisible();
   await dialog.getByLabel('Name').fill(name);
   await dialog.getByRole('button', { name: 'Create' }).click();
   await expect(page.getByRole('heading', { name })).toBeVisible();
+
+  return name;
 }
 
 /**

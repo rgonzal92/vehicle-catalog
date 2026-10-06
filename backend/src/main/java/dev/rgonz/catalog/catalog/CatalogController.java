@@ -18,6 +18,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -29,8 +30,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Shows everyone with a role the lineages, their Approved versions, and a catalog's contents, and
- * lets each of them create and edit working copies of their own and read a catalog's change
- * history.
+ * lets each of them create, edit, rename, and delete working copies of their own and read a
+ * catalog's change history.
  */
 @RestController
 class CatalogController {
@@ -150,6 +151,26 @@ class CatalogController {
     return saved(edits.sellIn(id, people.idOf(caller), ifMatch, trimId, given.regionCodes()));
   }
 
+  /** Renames the caller's working copy. */
+  @PatchMapping("/api/catalogs/{id}")
+  ResponseEntity<Edited> rename(
+      @PathVariable long id,
+      @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+      @RequestBody NewName given,
+      Authentication caller) {
+    return saved(edits.rename(id, people.idOf(caller), ifMatch, given.name()));
+  }
+
+  /** Deletes the caller's working copy, with its contents and its change history. */
+  @DeleteMapping("/api/catalogs/{id}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  void delete(
+      @PathVariable long id,
+      @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+      Authentication caller) {
+    edits.delete(id, people.idOf(caller), ifMatch);
+  }
+
   /** Adds library features to the caller's working copy as feature rows. */
   @PostMapping("/api/catalogs/{id}/features")
   ResponseEntity<Edited> addFeatures(
@@ -177,6 +198,9 @@ class CatalogController {
   private static ResponseEntity<Edited> saved(long revision) {
     return ResponseEntity.ok().eTag(String.valueOf(revision)).body(new Edited(revision));
   }
+
+  /** The name a working copy is to have. */
+  record NewName(String name) {}
 
   /** The library trims to add to a catalog, by their identities and nothing else. */
   record TrimsToAdd(List<Long> trimIds) {}

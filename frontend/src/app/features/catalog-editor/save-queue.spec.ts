@@ -14,7 +14,8 @@ describe('SaveQueue', () => {
   /** Lets the queue react to an answer. */
   const settled = () => new Promise((resolve) => setTimeout(resolve));
 
-  const refusal = (status: number) => new HttpErrorResponse({ status });
+  const refusal = (status: number, code?: string) =>
+    new HttpErrorResponse({ status, error: code ? { code } : null });
 
   const whatWasSent = () => sent.map(({ edit, revision }) => [edit, revision]);
 
@@ -149,7 +150,7 @@ describe('SaveQueue', () => {
     const first = queue.add('first');
     await settled();
 
-    sent[0].fail(refusal(409));
+    sent[0].fail(refusal(409, 'NOT_DRAFT'));
 
     await expect(first).rejects.toBeInstanceOf(HttpErrorResponse);
     expect(queue.stopped()).toBe('closed');
@@ -159,7 +160,6 @@ describe('SaveQueue', () => {
 describe('failureOf', () => {
   it.each([
     [412, 'conflict'],
-    [409, 'closed'],
     [404, 'closed'],
     [422, 'rejected'],
     [400, 'rejected'],
@@ -172,6 +172,14 @@ describe('failureOf', () => {
     [200, 'uncertain'],
   ])('reads a response with status %i as %s', (status, failure) => {
     expect(failureOf(new HttpErrorResponse({ status }))).toBe(failure);
+  });
+
+  it('reads a conflict as closed only when the catalog is no longer in status Draft', () => {
+    const conflict = (code: string) => new HttpErrorResponse({ status: 409, error: { code } });
+
+    expect(failureOf(conflict('NOT_DRAFT'))).toBe('closed');
+    expect(failureOf(conflict('NAME_TAKEN'))).toBe('rejected');
+    expect(failureOf(new HttpErrorResponse({ status: 409 }))).toBe('rejected');
   });
 
   it('reads anything that is no response, such as a save given up on, as uncertain', () => {
