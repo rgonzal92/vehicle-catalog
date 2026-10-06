@@ -1,0 +1,91 @@
+# Dependency updates arrive as pull requests, once a week, for the versions written in the pom, the
+# package files, the workflow's actions, the Dockerfile, and the Compose files.
+#
+# Changed by hand, because no update reaches them: the Node and Java versions the workflow installs,
+# and the image tags the backend's tests start, which follow the Compose file.
+#
+# Within an ecosystem, minor and patch updates come together in one pull request, and each major
+# update comes in one of its own. The Angular packages share a version, so they move together.
+#
+# Platform versions change by decision, not here. No version update is proposed that takes Spring
+# Boot off 4.1, Angular off 22, PostgreSQL off 18, or the Java images off 25, or that takes
+# TypeScript past what the installed Angular supports.
+version: 2
+updates:
+  - package-ecosystem: maven
+    directory: /backend
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "org.springframework.boot:*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+  - package-ecosystem: npm
+    directories: [/frontend, /e2e]
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      angular:
+        patterns: ["@angular/*"]
+      minor-and-patch:
+        patterns: ["*"]
+        exclude-patterns: ["@angular/*"]
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "@angular/*"
+        update-types: ["version-update:semver-major"]
+      # Angular 22 supports TypeScript from 6.0 up to, but not including, 6.1.
+      - dependency-name: typescript
+        versions: [">=6.1"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: amazoncorretto
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: docker-compose
+    directories: [/, /e2e]
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
