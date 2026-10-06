@@ -1,15 +1,16 @@
 # Dependency updates arrive as pull requests, once a week, for the versions written in the pom, the
-# package files, the workflow's actions, the Dockerfile, and the Compose files.
+# package files, the workflows' actions, the Dockerfile, the Compose files, and the Terraform
+# configuration.
 #
-# Changed by hand, because no update reaches them: the Node and Java versions the workflow installs,
-# and the image tags the backend's tests start, which follow the Compose file.
+# Changed by hand, because no update reaches them: the Node, Java, and Terraform versions the
+# workflows install, and the image tags the backend's tests start, which follow the Compose file.
 #
 # Within an ecosystem, minor and patch updates come together in one pull request, and each major
 # update comes in one of its own. The Angular packages share a version, so they move together.
 #
 # Platform versions change by decision, not here. No version update is proposed that takes Spring
-# Boot off 4.1, Angular off 22, PostgreSQL off 18, or the Java images off 25, or that takes
-# TypeScript past what the installed Angular supports.
+# Boot off 4.1, Angular off 22, PostgreSQL off 18, the Java images off 25, or the Terraform AWS
+# provider off 6, or that takes TypeScript past what the installed Angular supports.
 version: 2
 updates:
   - package-ecosystem: maven
@@ -88,4 +89,19 @@ updates:
         update-types: [minor, patch]
     ignore:
       - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: terraform
+    directory: /infra
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: hashicorp/aws
         update-types: ["version-update:semver-major"]
