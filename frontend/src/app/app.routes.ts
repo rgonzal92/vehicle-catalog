@@ -61,6 +61,19 @@ export const routes: Routes = [
         (page) => page.FeatureLibraryPage,
       ),
   },
+  // The matrix at full size on generated data. A production build has neither the route nor the page.
+  ...(ngDevMode
+    ? [
+        {
+          path: 'dev/matrix',
+          title: 'Matrix proof · Vehicle Catalog',
+          loadComponent: () =>
+            import('./features/matrix-proof/matrix-proof-page').then(
+              (page) => page.MatrixProofPage,
+            ),
+        },
+      ]
+    : []),
   // Any other address leads to the landing page, whose guard sends each person where they belong.
   { path: '**', redirectTo: '' },
 ];
