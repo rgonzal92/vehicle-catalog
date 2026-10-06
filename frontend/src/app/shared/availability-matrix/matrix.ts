@@ -3,6 +3,13 @@ import { Named } from '../../core/fixed-lists';
 /** What a cell states: Standard, Available, or Not offered. */
 export type Availability = 'S' | 'A' | 'N';
 
+/** The name of each availability, where the matrix itself shows S, A, and a dash. */
+export const AVAILABILITY_NAMES: Record<Availability, string> = {
+  S: 'Standard',
+  A: 'Available',
+  N: 'Not offered',
+};
+
 /** A trim a catalog has added, with the name and place in the order the matrix shows. */
 export interface MatrixTrim {
   id: number;

@@ -334,6 +334,28 @@ describe('CatalogEditorPage', () => {
     });
   });
 
+  it('shows the change history when the History tab is chosen, read afresh each time', async () => {
+    const element = await page(workingCopy);
+    const tab = (name: string) =>
+      Array.from(element.querySelectorAll<HTMLElement>('[role="tab"]')).find(
+        (candidate) => candidate.textContent?.trim() === name,
+      )!;
+    const history = () =>
+      vi.waitFor(() => backend.expectOne((request) => request.url === '/api/catalogs/41/changes'));
+    backend.expectNone((request) => request.url === '/api/catalogs/41/changes');
+
+    tab('History').click();
+    (await history()).flush({ items: [], total: 0 });
+    await vi.waitFor(() =>
+      expect(element.textContent).toContain('No changes have been made to this catalog.'),
+    );
+
+    tab('Features').click();
+    await vi.waitFor(() => expect(element.querySelector('app-history-tab')).toBeNull());
+    tab('History').click();
+    (await history()).flush({ items: [], total: 0 });
+  });
+
   it('names the earlier model year of a base that was carried over', async () => {
     const element = await page({
       ...workingCopy,

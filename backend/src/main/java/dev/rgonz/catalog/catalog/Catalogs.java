@@ -17,6 +17,9 @@ import org.springframework.transaction.annotation.Transactional;
 /** Reads lineages, their Approved versions, and whole catalogs. */
 @Repository
 class Catalogs {
+  /** The condition on a catalog {@code c} under which the person {@code :viewer} may open it. */
+  private static final String OPENS_FOR_VIEWER = "(c.status = 'APPROVED' OR c.owner_id = :viewer)";
+
   private final JdbcClient jdbc;
 
   Catalogs(JdbcClient jdbc) {
@@ -63,12 +66,23 @@ class Catalogs {
   }
 
   /**
+   * Whether the viewer may open the catalog. Everyone opens an Approved version. A working copy is
+   * its owner's alone, and to anyone else it is as if it did not exist.
+   */
+  boolean opensFor(long id, long viewerId) {
+    return jdbc.sql(
+            "SELECT EXISTS (SELECT 1 FROM catalog c WHERE c.id = :id AND %s)"
+                .formatted(OPENS_FOR_VIEWER))
+        .param("id", id)
+        .param("viewer", viewerId)
+        .query(Boolean.class)
+        .single();
+  }
+
+  /**
    * A catalog with its contents, if the viewer may open it: one query for the catalog itself and
    * one for each content table. The queries share one view of the database, so the contents always
    * belong to the revision.
-   *
-   * <p>Everyone opens an Approved version. A working copy is its owner's alone, and to anyone else
-   * it is as if it did not exist.
    */
   @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
   Optional<CatalogView> find(long id, long viewerId) {
@@ -85,8 +99,9 @@ class Catalogs {
             LEFT JOIN app_user a ON a.id = c.approved_by
             LEFT JOIN catalog b ON b.id = c.base_catalog_id
             LEFT JOIN lineage bl ON bl.id = b.lineage_id
-            WHERE c.id = :id AND (c.status = 'APPROVED' OR c.owner_id = :viewer)
-            """)
+            WHERE c.id = :id AND %s
+            """
+                .formatted(OPENS_FOR_VIEWER))
         .param("id", id)
         .param("viewer", viewerId)
         .query(Header.class)

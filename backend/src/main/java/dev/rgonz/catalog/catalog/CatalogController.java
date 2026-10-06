@@ -4,6 +4,7 @@ import dev.rgonz.catalog.catalog.CatalogEdits.CellChange;
 import dev.rgonz.catalog.catalog.Catalogs.CatalogView;
 import dev.rgonz.catalog.catalog.Catalogs.LineageSummary;
 import dev.rgonz.catalog.catalog.Catalogs.VersionSummary;
+import dev.rgonz.catalog.catalog.ChangeHistory.ChangePage;
 import dev.rgonz.catalog.catalog.WorkingCopies.NewWorkingCopy;
 import dev.rgonz.catalog.catalog.WorkingCopies.StartPoint;
 import dev.rgonz.catalog.catalog.WorkingCopies.WorkingCopy;
@@ -27,20 +28,27 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Shows everyone with a role the lineages, their Approved versions, and a catalog's contents, and
- * lets each of them create and edit working copies of their own.
+ * lets each of them create and edit working copies of their own and read a catalog's change
+ * history.
  */
 @RestController
 class CatalogController {
   private final Catalogs catalogs;
   private final WorkingCopies workingCopies;
   private final CatalogEdits edits;
+  private final ChangeHistory history;
   private final AppUsers people;
 
   CatalogController(
-      Catalogs catalogs, WorkingCopies workingCopies, CatalogEdits edits, AppUsers people) {
+      Catalogs catalogs,
+      WorkingCopies workingCopies,
+      CatalogEdits edits,
+      ChangeHistory history,
+      AppUsers people) {
     this.catalogs = catalogs;
     this.workingCopies = workingCopies;
     this.edits = edits;
+    this.history = history;
     this.people = people;
   }
 
@@ -90,6 +98,22 @@ class CatalogController {
     var revision = edits.setCells(id, people.idOf(caller), ifMatch, cells);
 
     return ResponseEntity.ok().eTag(String.valueOf(revision)).body(new Edited(revision));
+  }
+
+  /**
+   * The catalog's change history, newest first and a page at a time, for anyone who may open the
+   * catalog.
+   */
+  @GetMapping("/api/catalogs/{id}/changes")
+  ChangePage changes(
+      @PathVariable long id,
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "25") int size,
+      Authentication caller) {
+    if (!catalogs.opensFor(id, people.idOf(caller))) {
+      throw ApiException.notFound();
+    }
+    return history.page(id, page, size);
   }
 
   /** What a saved edit answers with. */

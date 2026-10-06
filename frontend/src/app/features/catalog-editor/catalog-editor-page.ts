@@ -11,11 +11,12 @@ import { FixedLists } from '../../core/fixed-lists';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
 import { Cell } from '../../shared/availability-matrix/matrix';
 import { reasonOf } from '../../shared/reason-of';
+import { HistoryTab } from './history-tab';
 import { NotSent, SaveQueue, SaveStop } from './save-queue';
 
 /**
- * A catalog as its owner works on it: what describes it, and its matrix on the Features tab. A
- * working copy shows the library's current labels.
+ * A catalog as its owner works on it: what describes it, its matrix on the Features tab, and its
+ * change history on the History tab. A working copy shows the library's current labels.
  *
  * The owner of a working copy in status Draft sets its cells, and each change is saved at once,
  * with no save button. Anyone else, and any other status, gets the matrix read-only.
@@ -37,6 +38,7 @@ import { NotSent, SaveQueue, SaveStop } from './save-queue';
     Tabs,
     Tag,
     AvailabilityMatrix,
+    HistoryTab,
   ],
   selector: 'app-catalog-editor-page',
   template: `
@@ -78,9 +80,10 @@ import { NotSent, SaveQueue, SaveStop } from './save-queue';
           </p-message>
         }
 
-        <p-tabs class="mt-6 block" value="features">
+        <p-tabs class="mt-6 block" [(value)]="tab">
           <p-tablist>
             <p-tab value="features">Features</p-tab>
+            <p-tab value="history">History</p-tab>
           </p-tablist>
           <p-tabpanels>
             <p-tabpanel value="features">
@@ -92,6 +95,11 @@ import { NotSent, SaveQueue, SaveStop } from './save-queue';
                 [editable]="editable()"
                 (cellChange)="save($event)"
               />
+            </p-tabpanel>
+            <p-tabpanel value="history">
+              @if (tab() === 'history') {
+                <app-history-tab [catalogId]="id" />
+              }
             </p-tabpanel>
           </p-tabpanels>
         </p-tabs>
@@ -106,7 +114,7 @@ export class CatalogEditorPage {
   private readonly catalogs = inject(Catalogs);
   protected readonly fixedLists = inject(FixedLists);
   private readonly messages = inject(MessageService);
-  private readonly id = Number(inject(ActivatedRoute).snapshot.paramMap.get('id'));
+  protected readonly id = Number(inject(ActivatedRoute).snapshot.paramMap.get('id'));
 
   protected readonly catalog = signal<Catalog | null>(null);
 
@@ -114,6 +122,12 @@ export class CatalogEditorPage {
   protected readonly missing = signal(false);
 
   protected readonly statusNames = STATUS_NAMES;
+
+  /**
+   * The tab being shown. The History tab is drawn only while it is, so it reads the history afresh
+   * each time it is chosen.
+   */
+  protected readonly tab = signal<string | number | undefined>('features');
 
   /** The matrix, which is told how the save of each change it reported went. */
   private readonly matrix = viewChild<AvailabilityMatrix>('matrix');
