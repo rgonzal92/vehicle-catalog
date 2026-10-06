@@ -12,15 +12,10 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.assertj.MvcTestResult;
-import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -455,28 +450,6 @@ class CellEditsIT extends WorkingCopyTests {
   private long editsTimed() {
     var timer = metrics.find("catalog.edit").timer();
     return timer == null ? 0 : timer.count();
-  }
-
-  /** Sends the cells as one save that names the revision, or none when it is null. */
-  private MvcTestResult setCells(
-      RequestPostProcessor who, long catalog, String revision, String... cells) {
-    var request =
-        mvc.put()
-            .uri("/api/catalogs/{id}/cells", catalog)
-            .with(who)
-            .with(csrfToken())
-            .contentType(MediaType.APPLICATION_JSON)
-            .content(Stream.of(cells).collect(Collectors.joining(",", "[", "]")));
-
-    return (revision == null ? request : request.header("If-Match", revision)).exchange();
-  }
-
-  /** A cell of a save, with its feature named by code and its trim by name. */
-  private String cell(String feature, String trim, String region, String availability) {
-    return """
-        {"featureId": %d, "trimId": %d, "regionCode": "%s", "availability": "%s"}
-        """
-        .formatted(feature(feature), trim(trim), region, availability);
   }
 
   /** What the working copy stores for the cell, where no stored cell is Not offered. */

@@ -2,11 +2,15 @@ package dev.rgonz.catalog.catalog;
 
 import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.core.Role;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-/** What the tests of working copies share: people on record, and ways to create and open one. */
+/**
+ * What the tests of working copies share: people on record, and ways to create, open, and edit one.
+ */
 abstract class WorkingCopyTests extends ApplicationIT {
   /** Ana, an author who is on record. */
   protected RequestPostProcessor ana() {
@@ -40,6 +44,28 @@ abstract class WorkingCopyTests extends ApplicationIT {
 
   protected MvcTestResult open(RequestPostProcessor who, long catalog) {
     return mvc.get().uri("/api/catalogs/" + catalog).with(who).exchange();
+  }
+
+  /** Sends the cells as one save that names the revision, or none when it is null. */
+  protected MvcTestResult setCells(
+      RequestPostProcessor who, long catalog, String revision, String... cells) {
+    var request =
+        mvc.put()
+            .uri("/api/catalogs/{id}/cells", catalog)
+            .with(who)
+            .with(csrfToken())
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(Stream.of(cells).collect(Collectors.joining(",", "[", "]")));
+
+    return (revision == null ? request : request.header("If-Match", revision)).exchange();
+  }
+
+  /** A cell of a save, with its feature named by code and its trim by name. */
+  protected String cell(String feature, String trim, String region, String availability) {
+    return """
+        {"featureId": %d, "trimId": %d, "regionCode": "%s", "availability": "%s"}
+        """
+        .formatted(feature(feature), trim(trim), region, availability);
   }
 
   protected static long idOf(MvcTestResult created) {

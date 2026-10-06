@@ -69,6 +69,32 @@ export interface WorkingCopy {
   updatedAt: string;
 }
 
+/**
+ * One change to a catalog, as its change history lists it: who made it, when, its kind, and what it
+ * touched. A change names only what its kind is about, and the rest is null.
+ */
+export interface Change {
+  id: number;
+  at: string;
+  /** The name of the person who made the change. */
+  actor: string;
+  /** Such as `CELL_SET`. New kinds appear without the frontend knowing them. */
+  kind: string;
+  featureCode: string | null;
+  featureName: string | null;
+  trim: string | null;
+  region: string | null;
+  /** What a cell was before the change, and what it was set to: S, A, or N. */
+  oldValue: string | null;
+  newValue: string | null;
+}
+
+/** One page of a catalog's changes, newest first, and how many there are in all. */
+export interface ChangePage {
+  items: Change[];
+  total: number;
+}
+
 /** What a person gives to create a working copy. */
 export type NewWorkingCopy = Pick<WorkingCopy, 'name' | 'modelYear'> & { vehicleLineId: number };
 
@@ -96,8 +122,8 @@ export function startPointInWords(start: StartPoint): string {
 }
 
 /**
- * Reads lineages, their Approved versions, and whole catalogs, and creates and edits working
- * copies.
+ * Reads lineages, their Approved versions, whole catalogs, and their change history, and creates
+ * and edits working copies.
  */
 @Injectable({ providedIn: 'root' })
 export class Catalogs {
@@ -136,6 +162,13 @@ export class Catalogs {
   /** Creates a working copy that belongs to the signed-in person. */
   create(given: NewWorkingCopy): Promise<WorkingCopy> {
     return firstValueFrom(this.http.post<WorkingCopy>('/api/catalogs', given));
+  }
+
+  /** One page of the catalog's change history, newest first. Pages are numbered from 0. */
+  changes(catalogId: number, page: number, size: number): Promise<ChangePage> {
+    return firstValueFrom(
+      this.http.get<ChangePage>(`/api/catalogs/${catalogId}/changes`, { params: { page, size } }),
+    );
   }
 
   /**

@@ -334,6 +334,47 @@ describe('CatalogEditorPage', () => {
     });
   });
 
+  it('shows the change history when the History tab is chosen, read afresh each time', async () => {
+    const element = await page(workingCopy);
+    const tab = (name: string) =>
+      Array.from(element.querySelectorAll<HTMLElement>('[role="tab"]')).find(
+        (candidate) => candidate.textContent?.trim() === name,
+      )!;
+    const history = () =>
+      vi.waitFor(() => backend.expectOne((request) => request.url === '/api/catalogs/41/changes'));
+    backend.expectNone((request) => request.url === '/api/catalogs/41/changes');
+
+    tab('History').click();
+    (await history()).flush({ items: [], total: 0 });
+    await vi.waitFor(() =>
+      expect(element.textContent).toContain('No changes have been made to this catalog.'),
+    );
+
+    tab('Features').click();
+    await vi.waitFor(() => expect(element.querySelector('app-history-tab')).toBeNull());
+    tab('History').click();
+    (await history()).flush({ items: [], total: 0 });
+  });
+
+  it('reads the change history only once the changes on their way have been saved', async () => {
+    const element = await page(workingCopy);
+    const historyTab = Array.from(element.querySelectorAll<HTMLElement>('[role="tab"]')).find(
+      (candidate) => candidate.textContent?.trim() === 'History',
+    )!;
+
+    matrixOf(element).click();
+    const save = await saveRequest();
+    historyTab.click();
+    await new Promise((resolve) => setTimeout(resolve));
+    backend.expectNone((request) => request.url === '/api/catalogs/41/changes');
+
+    save.flush({ revision: 5 });
+    const history = await vi.waitFor(() =>
+      backend.expectOne((request) => request.url === '/api/catalogs/41/changes'),
+    );
+    history.flush({ items: [], total: 0 });
+  });
+
   it('names the earlier model year of a base that was carried over', async () => {
     const element = await page({
       ...workingCopy,
