@@ -7,7 +7,7 @@ import jakarta.persistence.Id;
 
 /** A product sold across model years, such as "Compact SUV". It has one vehicle type. */
 @Entity
-class VehicleLine {
+public class VehicleLine {
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
   private Long id;

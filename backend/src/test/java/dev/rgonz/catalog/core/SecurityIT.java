@@ -21,6 +21,15 @@ class SecurityIT extends ApplicationIT {
   }
 
   @Test
+  void readinessAnswersWithoutASessionOnceStartupHasFinished() {
+    assertThat(mvc.get().uri("/api/health/readiness"))
+        .hasStatusOk()
+        .bodyJson()
+        .extractingPath("$.status")
+        .isEqualTo("UP");
+  }
+
+  @Test
   void apiRefusesAVisitorWithoutASession() {
     assertThat(mvc.get().uri("/api/me"))
         .hasStatus(401)

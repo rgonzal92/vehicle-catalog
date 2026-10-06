@@ -109,13 +109,14 @@ services:
       APP_DEMOACCOUNTS_2_USERNAME: admin
     ports:
       - "127.0.0.1:8090:8080"
+    # Ready means startup has finished, which includes filling an empty library.
     healthcheck:
       test:
         - CMD
         - wget
         - --quiet
         - --spider
-        - http://127.0.0.1:8080/api/health
+        - http://127.0.0.1:8080/api/health/readiness
       interval: 5s
       timeout: 3s
       retries: 12

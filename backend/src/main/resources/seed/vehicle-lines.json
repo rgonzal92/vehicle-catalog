@@ -1,0 +1,7 @@
+[
+  {"code": "SEDAN", "name": "Sedan", "vehicleTypeCode": "CAR"},
+  {"code": "SPORTS_COUPE", "name": "Sports Coupe", "vehicleTypeCode": "CAR"},
+  {"code": "COMPACT_SUV", "name": "Compact SUV", "vehicleTypeCode": "SUV"},
+  {"code": "FULL_SIZE_SUV", "name": "Full-Size SUV", "vehicleTypeCode": "SUV"},
+  {"code": "PICKUP_TRUCK", "name": "Pickup Truck", "vehicleTypeCode": "TRUCK"}
+]
