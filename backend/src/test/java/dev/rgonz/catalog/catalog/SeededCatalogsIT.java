@@ -7,11 +7,11 @@ import dev.rgonz.catalog.catalog.CatalogSnapshot.Availability;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Cell;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.FeatureRow;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Offering;
+import dev.rgonz.catalog.catalog.CatalogSnapshot.Trim;
 import dev.rgonz.catalog.core.Role;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -19,17 +19,72 @@ import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
- * Checks that the seeded catalogs show every way a working copy can start, and that each is a sound
- * example: uneven across its regions, complete, and consistent in the combinations the seeded rules
- * will hold it to. No test here changes anything, so the catalogs are seeded once for the class.
+ * Checks which lineages are seeded with an Approved version, and that each seeded catalog is a
+ * sound example: uneven across its regions, complete, and consistent where its features depend on
+ * or exclude each other. A failure names the catalog and the offering, so the seed file can be put
+ * right from it. No test here changes anything, so the catalogs are seeded once for the class.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class SeededCatalogsIT extends ApplicationIT {
+  private static final String TOW_PACKAGE = "PACKAGE_TOW";
+  private static final String HEAVY_DUTY_COOLING = "COOLING_HEAVY_DUTY";
+  private static final String REMOVABLE_ROOF = "ROOF_REMOVABLE";
+
+  /** Where the first of a pair is Standard, the second is Not offered. */
+  private static final Map<String, String> NOT_BESIDE_A_STANDARD =
+      Map.of(
+          "ROOF_PANORAMIC",
+          REMOVABLE_ROOF,
+          REMOVABLE_ROOF,
+          "ROOF_PANORAMIC",
+          "TRANS_MANUAL",
+          "POWERTRAIN_HYBRID",
+          "POWERTRAIN_HYBRID",
+          "TRANS_MANUAL");
+
   @Autowired Catalogs catalogs;
+
+  /** The seeded catalogs: Compact SUV 2026 in two versions, and three more. */
+  private List<Seeded> seeded;
 
   @BeforeAll
   void seededCatalogs() throws Exception {
     seedLibraryAndCatalogs();
+    seeded =
+        jdbc.sql("SELECT id FROM catalog ORDER BY id").query(Long.class).list().stream()
+            .map(id -> catalogs.find(id).orElseThrow())
+            .map(
+                catalog ->
+                    new Seeded(
+                        "%s %d version %d"
+                            .formatted(
+                                catalog.vehicleLine(),
+                                catalog.modelYear(),
+                                catalog.versionNumber()),
+                        catalog.snapshot()))
+            .toList();
+  }
+
+  @Test
+  void theFeaturesTheseChecksAskAboutAreInTheLibraryUnderTheirCodes() {
+    assertThat(
+            jdbc.sql("SELECT code || ' ' || name FROM feature WHERE code IN (:codes)")
+                .param(
+                    "codes",
+                    Stream.concat(
+                            Stream.of(TOW_PACKAGE, HEAVY_DUTY_COOLING),
+                            NOT_BESIDE_A_STANDARD.keySet().stream())
+                        .toList())
+                .query(String.class)
+                .list())
+        .containsExactlyInAnyOrder(
+            "PACKAGE_TOW Tow Package",
+            "COOLING_HEAVY_DUTY Heavy-Duty Cooling",
+            "ROOF_PANORAMIC Panoramic Roof",
+            "ROOF_REMOVABLE Removable Roof",
+            "TRANS_MANUAL Manual Transmission",
+            "POWERTRAIN_HYBRID Hybrid Powertrain");
+    assertThat(seeded).hasSize(5);
   }
 
   @Test
@@ -51,12 +106,12 @@ class SeededCatalogsIT extends ApplicationIT {
             "Pickup Truck 2026 version 1",
             "Sedan 2027 version 1");
     assertThat(jdbc.sql("SELECT count(*) FROM lineage").query(Long.class).single())
-        .as("a lineage without an Approved version would start a working copy differently")
+        .as("every lineage that exists has an Approved version")
         .isEqualTo(4);
   }
 
   @Test
-  void compactSuv2027WasCarriedOverFromTheNewest2026Version() {
+  void compactSuv2027WasCarriedOverFromTheCurrentApprovedOf2026() {
     assertThat(
             jdbc.sql(
                     """
@@ -78,35 +133,13 @@ class SeededCatalogsIT extends ApplicationIT {
   void everySeededCatalogCoversTwoOrThreeRegionsUnevenly() {
     var all = new SoftAssertions();
 
-    for (var catalog : seeded()) {
-      var snapshot = catalog.snapshot();
-      all.assertThat(snapshot.regions()).as(catalog.title()).hasSizeBetween(2, 3);
-      all.assertThat(
-              snapshot.trims().stream()
-                  .anyMatch(
-                      trim ->
-                          snapshot.regions().stream()
-                              .anyMatch(
-                                  region ->
-                                      !snapshot
-                                          .offerings()
-                                          .contains(new Offering(trim.id(), region.code())))))
+    for (var catalog : seeded) {
+      all.assertThat(catalog.snapshot().regions()).as(catalog.title()).hasSizeBetween(2, 3);
+      all.assertThat(catalog.hasATrimNotSoldInOneOfItsRegions())
           .as("%s has a trim that is not sold in one of its regions", catalog.title())
           .isTrue();
-      all.assertThat(
-              snapshot.featureRows().stream()
-                  .anyMatch(
-                      feature ->
-                          snapshot.trims().stream()
-                              .anyMatch(
-                                  trim ->
-                                      snapshot.offerings().stream()
-                                              .filter(offering -> offering.trimId() == trim.id())
-                                              .map(offering -> catalog.at(feature, offering))
-                                              .distinct()
-                                              .count()
-                                          > 1)))
-          .as("%s has a cell that differs between regions", catalog.title())
+      all.assertThat(catalog.hasACellThatDiffersBetweenRegions())
+          .as("%s has a feature that one trim offers differently in two regions", catalog.title())
           .isTrue();
     }
     all.assertAll();
@@ -116,58 +149,68 @@ class SeededCatalogsIT extends ApplicationIT {
   void everySeededCatalogSellsEveryTrimAndRegionAndLeavesNoOfferingEmpty() {
     var all = new SoftAssertions();
 
-    for (var catalog : seeded()) {
+    for (var catalog : seeded) {
       var snapshot = catalog.snapshot();
-      all.assertThat(snapshot.offerings().stream().map(Offering::trimId).distinct())
-          .as("%s sells every trim somewhere", catalog.title())
-          .hasSameSizeAs(snapshot.trims());
-      all.assertThat(snapshot.offerings().stream().map(Offering::regionCode).distinct())
-          .as("%s sells a trim in every region", catalog.title())
-          .hasSameSizeAs(snapshot.regions());
+      for (var trim : snapshot.trims()) {
+        all.assertThat(catalog.offeringsOf(trim))
+            .as("%s sells %s somewhere", catalog.title(), trim.name())
+            .isNotEmpty();
+      }
+      for (var region : snapshot.regions()) {
+        all.assertThat(snapshot.offerings())
+            .as("%s sells a trim in %s", catalog.title(), region.code())
+            .anyMatch(offering -> offering.regionCode().equals(region.code()));
+      }
       for (var offering : snapshot.offerings()) {
-        all.assertThat(snapshot.cells())
-            .as("%s has a Standard or Available feature in %s", catalog.title(), offering)
-            .anyMatch(
-                cell ->
-                    cell.trimId() == offering.trimId()
-                        && cell.regionCode().equals(offering.regionCode()));
+        all.assertThat(snapshot.featureRows())
+            .as("%s, %s: a Standard or Available feature", catalog.title(), catalog.name(offering))
+            .anyMatch(feature -> catalog.at(feature, offering) != Availability.N);
       }
     }
     all.assertAll();
   }
 
   @Test
-  void everySeededCatalogKeepsTheCombinationsConsistentInEveryOffering() {
+  void everySeededCatalogKeepsTowingWithCoolingInEveryOffering() {
     var all = new SoftAssertions();
 
-    for (var catalog : seeded()) {
+    for (var catalog : seeded) {
       for (var offering : catalog.snapshot().offerings()) {
-        var where = "%s, %s".formatted(catalog.title(), offering);
-        var tow = catalog.at("Tow Package", offering);
-        var cooling = catalog.at("Heavy-Duty Cooling", offering);
+        var where = "%s, %s".formatted(catalog.title(), catalog.name(offering));
+        var tow = catalog.at(TOW_PACKAGE, offering);
+        var cooling = catalog.at(HEAVY_DUTY_COOLING, offering);
+
         if (tow != Availability.N) {
           all.assertThat(cooling)
-              .as("Heavy-Duty Cooling with Tow Package in " + where)
+              .as("%s: Heavy-Duty Cooling, where Tow Package is offered", where)
               .isNotEqualTo(Availability.N);
         }
         if (tow == Availability.S) {
           all.assertThat(cooling)
-              .as("Heavy-Duty Cooling with a Standard Tow Package in " + where)
+              .as("%s: Heavy-Duty Cooling, where Tow Package is Standard", where)
               .isEqualTo(Availability.S);
         }
-        for (var pair :
-            List.of(
-                List.of("Panoramic Roof", "Removable Roof"),
-                List.of("Manual Transmission", "Hybrid Powertrain"))) {
-          for (var one : pair) {
-            var other = pair.get(1 - pair.indexOf(one));
-            if (catalog.at(one, offering) == Availability.S) {
-              all.assertThat(catalog.at(other, offering))
-                  .as("%s beside a Standard %s in %s", other, one, where)
-                  .isEqualTo(Availability.N);
-            }
-          }
-        }
+      }
+    }
+    all.assertAll();
+  }
+
+  @Test
+  void everySeededCatalogLeavesAFeatureOutWhereTheOneItExcludesIsStandard() {
+    var all = new SoftAssertions();
+
+    for (var catalog : seeded) {
+      for (var offering : catalog.snapshot().offerings()) {
+        NOT_BESIDE_A_STANDARD.forEach(
+            (standard, excluded) -> {
+              if (catalog.at(standard, offering) == Availability.S) {
+                all.assertThat(catalog.at(excluded, offering))
+                    .as(
+                        "%s, %s: %s, where %s is Standard",
+                        catalog.title(), catalog.name(offering), excluded, standard)
+                    .isEqualTo(Availability.N);
+              }
+            });
       }
     }
     all.assertAll();
@@ -175,62 +218,84 @@ class SeededCatalogsIT extends ApplicationIT {
 
   @Test
   void aPickupOffersTowingEverywhereAndASedanOffersNoRemovableRoof() {
-    for (var catalog : seeded()) {
+    var all = new SoftAssertions();
+
+    for (var catalog : seeded) {
       for (var offering : catalog.snapshot().offerings()) {
+        var where = "%s, %s".formatted(catalog.title(), catalog.name(offering));
         if (catalog.title().startsWith("Pickup Truck")) {
-          assertThat(catalog.at("Tow Package", offering))
-              .as("%s, %s", catalog.title(), offering)
+          all.assertThat(catalog.at(TOW_PACKAGE, offering))
+              .as("%s: Tow Package", where)
               .isNotEqualTo(Availability.N);
         }
         if (catalog.title().startsWith("Sedan")) {
-          assertThat(catalog.at("Removable Roof", offering))
-              .as("%s, %s", catalog.title(), offering)
+          all.assertThat(catalog.at(REMOVABLE_ROOF, offering))
+              .as("%s: Removable Roof", where)
               .isEqualTo(Availability.N);
         }
       }
     }
+    all.assertAll();
   }
 
-  /** Every catalog in the database, which a first start leaves holding only the seeded ones. */
-  private List<Seeded> seeded() {
-    var ids = jdbc.sql("SELECT id FROM catalog ORDER BY id").query(Long.class).list();
-    assertThat(ids).hasSize(5);
-
-    return ids.stream()
-        .map(id -> catalogs.find(id).orElseThrow())
-        .map(
-            catalog ->
-                new Seeded(
-                    "%s %d version %d"
-                        .formatted(
-                            catalog.vehicleLine(), catalog.modelYear(), catalog.versionNumber()),
-                    catalog.snapshot()))
-        .toList();
-  }
-
-  /** A seeded catalog, with a way to ask what any feature is in any offering. */
+  /** A seeded catalog, with what the checks ask of it. */
   private record Seeded(String title, CatalogSnapshot snapshot) {
+    /** What the feature row states for the offering. A missing cell is Not offered. */
     Availability at(FeatureRow feature, Offering offering) {
       return snapshot.cells().stream()
-          .filter(
-              cell ->
-                  cell.featureId() == feature.id()
-                      && cell.trimId() == offering.trimId()
-                      && cell.regionCode().equals(offering.regionCode()))
+          .filter(cell -> cell.featureId() == feature.id())
+          .filter(cell -> cell.trimId() == offering.trimId())
+          .filter(cell -> cell.regionCode().equals(offering.regionCode()))
           .map(Cell::availability)
           .findFirst()
           .orElse(Availability.N);
     }
 
-    /** A feature that is not a row of the catalog is Not offered. */
-    Availability at(String featureName, Offering offering) {
-      var byName =
-          snapshot.featureRows().stream()
-              .collect(Collectors.toMap(FeatureRow::name, Function.identity()));
+    /**
+     * What the feature with the code states for the offering. One that is no row is Not offered.
+     */
+    Availability at(String featureCode, Offering offering) {
+      return snapshot.featureRows().stream()
+          .filter(feature -> feature.code().equals(featureCode))
+          .findFirst()
+          .map(feature -> at(feature, offering))
+          .orElse(Availability.N);
+    }
 
-      return byName.containsKey(featureName)
-          ? at(byName.get(featureName), offering)
-          : Availability.N;
+    List<Offering> offeringsOf(Trim trim) {
+      return snapshot.offerings().stream()
+          .filter(offering -> offering.trimId() == trim.id())
+          .toList();
+    }
+
+    /** The offering in words, such as "Sport in NA". */
+    String name(Offering offering) {
+      var trim =
+          snapshot.trims().stream()
+              .filter(candidate -> candidate.id() == offering.trimId())
+              .map(Trim::name)
+              .findFirst()
+              .orElseThrow();
+
+      return trim + " in " + offering.regionCode();
+    }
+
+    boolean hasATrimNotSoldInOneOfItsRegions() {
+      return snapshot.offerings().size() < snapshot.trims().size() * snapshot.regions().size();
+    }
+
+    /** Whether some feature row states two different things for one trim in two regions. */
+    boolean hasACellThatDiffersBetweenRegions() {
+      return snapshot.featureRows().stream()
+          .anyMatch(
+              feature ->
+                  snapshot.trims().stream()
+                      .anyMatch(trim -> statedDifferentlyAcrossRegions(feature, trim)));
+    }
+
+    private boolean statedDifferentlyAcrossRegions(FeatureRow feature, Trim trim) {
+      return offeringsOf(trim).stream().map(offering -> at(feature, offering)).distinct().count()
+          > 1;
     }
   }
 }

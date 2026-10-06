@@ -26,9 +26,7 @@ test('the dashboard lists the seeded lineages with their current Approved versio
   }
 });
 
-test('a seeded pickup is sold in two regions, with one trim in only one of them', async ({
-  page,
-}) => {
+test('a seeded pickup is sold in two regions, and not every trim in both', async ({ page }) => {
   await signIn(page, 'author');
   await page.getByRole('link', { name: 'Open Pickup Truck 2026' }).click();
   await expect(page.getByRole('heading', { name: 'Pickup Truck 2026' })).toBeVisible();
