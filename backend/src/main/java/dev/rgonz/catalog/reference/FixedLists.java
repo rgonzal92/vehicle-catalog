@@ -1,16 +1,28 @@
 package dev.rgonz.catalog.reference;
 
 import java.util.List;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-/** Reads the fixed lists: vehicle types and categories. */
+/** Reads the fixed lists: vehicle types, categories, and the configured model years. */
 @Repository
 public class FixedLists {
   private final JdbcClient jdbc;
+  private final List<Integer> modelYears;
 
-  FixedLists(JdbcClient jdbc) {
+  FixedLists(JdbcClient jdbc, @Value("${app.model-years}") List<Integer> modelYears) {
     this.jdbc = jdbc;
+    this.modelYears = modelYears;
+  }
+
+  /** The model years a catalog can be made for. */
+  List<Integer> modelYears() {
+    return modelYears;
+  }
+
+  public boolean hasModelYear(int modelYear) {
+    return modelYears.contains(modelYear);
   }
 
   List<Named> vehicleTypes() {

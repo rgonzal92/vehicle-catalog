@@ -143,6 +143,8 @@ describe('ApprovedPage', () => {
     await vi.waitFor(() =>
       expect(document.querySelector('.p-dialog')?.textContent).toContain('Starts from Approved v2'),
     );
+    // The new catalog does not take the name of the Approved version it was opened from.
+    expect(document.querySelector<HTMLInputElement>('#new-catalog-name')?.value).toBe('');
   });
 
   it('shows another version when it is chosen from the list', async () => {

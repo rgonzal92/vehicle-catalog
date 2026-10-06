@@ -2,6 +2,7 @@ package dev.rgonz.catalog.catalog;
 
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
 import dev.rgonz.catalog.core.ApiException;
+import dev.rgonz.catalog.reference.FixedLists;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import jakarta.validation.constraints.NotBlank;
@@ -9,7 +10,6 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.List;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -22,18 +22,25 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 class WorkingCopies {
+  /** The most working copies one person can own at a time. */
   private static final int MOST_PER_OWNER = 20;
 
+  /** A working copy as its owner's list shows it; a statement adds which ones it reads. */
+  private static final String SUMMARY =
+      """
+      SELECT c.id, c.name, v.name AS vehicle_line, l.model_year, c.status, c.updated_at
+      FROM catalog c
+      JOIN lineage l ON l.id = c.lineage_id
+      JOIN vehicle_line v ON v.id = l.vehicle_line_id
+      """;
+
   private final JdbcClient jdbc;
-  private final List<Integer> modelYears;
+  private final FixedLists fixedLists;
   private final Timer copyTime;
 
-  WorkingCopies(
-      JdbcClient jdbc,
-      @Value("${app.model-years}") List<Integer> modelYears,
-      MeterRegistry metrics) {
+  WorkingCopies(JdbcClient jdbc, FixedLists fixedLists, MeterRegistry metrics) {
     this.jdbc = jdbc;
-    this.modelYears = modelYears;
+    this.fixedLists = fixedLists;
     this.copyTime =
         Timer.builder("catalog.copy")
             .description("How long copying a catalog's contents into a new working copy takes")
@@ -64,7 +71,7 @@ class WorkingCopies {
             .single();
     if (owned >= MOST_PER_OWNER) {
       throw ApiException.limitExceeded(
-          "You have %d working copies, which is the most one person can have. Delete one first."
+          "You have %d working copies, which is the most one person can have."
               .formatted(MOST_PER_OWNER));
     }
 
@@ -91,7 +98,7 @@ class WorkingCopies {
     return jdbc.sql(
             SUMMARY
                 + """
-                 WHERE c.owner_id = :owner AND c.status <> 'APPROVED'
+                WHERE c.owner_id = :owner AND c.status <> 'APPROVED'
                 ORDER BY c.updated_at DESC, c.id DESC
                 """)
         .param("owner", ownerId)
@@ -99,17 +106,9 @@ class WorkingCopies {
         .list();
   }
 
-  private static final String SUMMARY =
-      """
-      SELECT c.id, c.name, v.name AS vehicle_line, l.model_year, c.status, c.updated_at
-      FROM catalog c
-      JOIN lineage l ON l.id = c.lineage_id
-      JOIN vehicle_line v ON v.id = l.vehicle_line_id
-      """;
-
   /** A catalog can be made only for a configured model year of an active vehicle line. */
   private void requireOpenFor(long vehicleLineId, int modelYear) {
-    if (!modelYears.contains(modelYear)) {
+    if (!fixedLists.hasModelYear(modelYear)) {
       throw ApiException.invalid("Choose one of the model years.");
     }
     var active =

@@ -10,7 +10,6 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
@@ -19,7 +18,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  * a working copy in status Draft is its owner's alone. Every test starts from the seeded library
  * and catalogs.
  */
-class WorkingCopiesIT extends ApplicationIT {
+class WorkingCopiesIT extends WorkingCopyTests {
   /**
    * What a copy takes from each content table, which is everything but the approval-time labels.
    */
@@ -67,7 +66,7 @@ class WorkingCopiesIT extends ApplicationIT {
   }
 
   @Test
-  void aLineageWithoutOneStartsFromTheNearestEarlierModelYearThatHasOne() {
+  void aLineageWithoutAnApprovedVersionStartsFromTheNearestEarlierModelYearThatHasOne() {
     var pickup2026 = approved("PICKUP_TRUCK", 2026, 1);
 
     var start = startPoint(ana(), line("PICKUP_TRUCK"), 2027);
@@ -85,6 +84,11 @@ class WorkingCopiesIT extends ApplicationIT {
         .isNotEqualTo(header(pickup2026).get("lineage_id"));
     assertSameContents(copy, pickup2026);
 
+    assertThat(startPoint(ana(), line("PICKUP_TRUCK"), 2028))
+        .as("2027 has a working copy but no Approved version, so 2026 is still the nearest")
+        .bodyJson()
+        .extractingPath("$.catalogId")
+        .isEqualTo((int) pickup2026);
     assertThat(startPoint(ana(), line("COMPACT_SUV"), 2028))
         .as("2027 is nearer to 2028 than 2026 is")
         .bodyJson()
@@ -93,7 +97,7 @@ class WorkingCopiesIT extends ApplicationIT {
   }
 
   @Test
-  void aLineageWithNeitherStartsEmpty() {
+  void aLineageWithNoApprovedVersionInItsOwnOrAnEarlierModelYearStartsEmpty() {
     var start = startPoint(ana(), line("SPORTS_COUPE"), 2026);
 
     assertThat(start).hasStatusOk().bodyJson().extractingPath("$.kind").isEqualTo("EMPTY");
@@ -151,12 +155,13 @@ class WorkingCopiesIT extends ApplicationIT {
 
   @Test
   void aNameIsTakenOnlyAmongItsOwnersWorkingCopiesWhateverItsCase() {
+    anaOwnsTheApprovedVersions();
     assertThat(create(ana(), "Winter update", line("SPORTS_COUPE"), 2026)).hasStatus(201);
 
     var again = create(ana(), "  WINTER Update ", line("SEDAN"), 2028);
 
     assertThat(again).hasStatus(409).bodyJson().extractingPath("$.code").isEqualTo("NAME_TAKEN");
-    assertThat(create(signedInAs(Role.AUTHOR, "ben"), "Winter update", line("SEDAN"), 2028))
+    assertThat(create(ben(), "Winter update", line("SEDAN"), 2028))
         .as("another owner may use the name")
         .hasStatus(201);
     assertThat(create(ana(), "Hybrid and autumn update", line("SEDAN"), 2028))
@@ -171,7 +176,7 @@ class WorkingCopiesIT extends ApplicationIT {
   void twoWorkingCopiesOfOneLineageExistAtOnce() {
     var one = idOf(create(ana(), "One", line("COMPACT_SUV"), 2026));
     var other = idOf(create(ana(), "Other", line("COMPACT_SUV"), 2026));
-    var bens = idOf(create(signedInAs(Role.AUTHOR, "ben"), "One", line("COMPACT_SUV"), 2026));
+    var bens = idOf(create(ben(), "One", line("COMPACT_SUV"), 2026));
 
     assertThat(List.of(header(one), header(other), header(bens)))
         .extracting(catalog -> catalog.get("lineage_id"))
@@ -182,6 +187,7 @@ class WorkingCopiesIT extends ApplicationIT {
 
   @Test
   void anOwnerHasAtMostTwentyWorkingCopies() {
+    anaOwnsTheApprovedVersions();
     for (var number = 1; number <= 20; number++) {
       assertThat(create(ana(), "Coupe " + number, line("SPORTS_COUPE"), 2026)).hasStatus(201);
     }
@@ -193,7 +199,7 @@ class WorkingCopiesIT extends ApplicationIT {
         .bodyJson()
         .extractingPath("$.code")
         .isEqualTo("LIMIT_EXCEEDED");
-    assertThat(create(signedInAs(Role.AUTHOR, "ben"), "Coupe 21", line("SPORTS_COUPE"), 2026))
+    assertThat(create(ben(), "Coupe 21", line("SPORTS_COUPE"), 2026))
         .as("the limit is each owner's own")
         .hasStatus(201);
   }
@@ -271,7 +277,7 @@ class WorkingCopiesIT extends ApplicationIT {
   void myCatalogsListsTheCallersWorkingCopiesLastUpdatedFirst() {
     var coupe = idOf(create(ana(), "Coupe", line("SPORTS_COUPE"), 2026));
     var suv = idOf(create(ana(), "Winter update", line("COMPACT_SUV"), 2026));
-    create(signedInAs(Role.AUTHOR, "ben"), "Ben's", line("SEDAN"), 2027);
+    create(ben(), "Ben's", line("SEDAN"), 2027);
 
     var mine = mvc.get().uri("/api/catalogs?scope=mine").with(ana()).exchange();
 
@@ -303,9 +309,11 @@ class WorkingCopiesIT extends ApplicationIT {
     return timer == null ? 0 : timer.count();
   }
 
-  /** Ana, an author who is on record. */
-  private RequestPostProcessor ana() {
-    return signedInAs(Role.AUTHOR, "ana");
+  /** Approved versions do not count towards what a person's working copies may be or number. */
+  private void anaOwnsTheApprovedVersions() {
+    jdbc.sql("UPDATE catalog SET owner_id = :ana WHERE status = 'APPROVED'")
+        .param("ana", person("ana"))
+        .update();
   }
 
   private MvcTestResult startPoint(RequestPostProcessor who, long vehicleLineId, int modelYear) {
@@ -316,52 +324,6 @@ class WorkingCopiesIT extends ApplicationIT {
             modelYear)
         .with(who)
         .exchange();
-  }
-
-  private MvcTestResult create(
-      RequestPostProcessor who, String name, long vehicleLineId, int modelYear) {
-    return mvc.post()
-        .uri("/api/catalogs")
-        .with(who)
-        .with(csrfToken())
-        .contentType(MediaType.APPLICATION_JSON)
-        .content(
-            """
-            {"name": "%s", "vehicleLineId": %d, "modelYear": %d}
-            """
-                .formatted(name, vehicleLineId, modelYear))
-        .exchange();
-  }
-
-  private MvcTestResult open(RequestPostProcessor who, long catalog) {
-    return mvc.get().uri("/api/catalogs/" + catalog).with(who).exchange();
-  }
-
-  private static long idOf(MvcTestResult created) {
-    return ApplicationIT.<Integer>read(created, "$.id");
-  }
-
-  private long line(String code) {
-    return jdbc.sql("SELECT id FROM vehicle_line WHERE code = :code")
-        .param("code", code)
-        .query(Long.class)
-        .single();
-  }
-
-  /** The catalog that is the given Approved version of the vehicle line's model year. */
-  private long approved(String vehicleLine, int modelYear, int version) {
-    return jdbc.sql(
-            """
-            SELECT c.id
-            FROM catalog c
-            JOIN lineage l ON l.id = c.lineage_id
-            WHERE l.vehicle_line_id = :line AND l.model_year = :year AND c.version_number = :version
-            """)
-        .param("line", line(vehicleLine))
-        .param("year", modelYear)
-        .param("version", version)
-        .query(Long.class)
-        .single();
   }
 
   private Map<String, Object> header(long catalog) {
@@ -405,9 +367,5 @@ class WorkingCopiesIT extends ApplicationIT {
                 """,
                 copy))
         .isZero();
-  }
-
-  private long count(String from, Object... values) {
-    return jdbc.sql("SELECT count(*) FROM " + from.formatted(values)).query(Long.class).single();
   }
 }

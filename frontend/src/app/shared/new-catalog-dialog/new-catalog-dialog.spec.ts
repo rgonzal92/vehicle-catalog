@@ -63,7 +63,9 @@ describe('NewCatalogDialog', () => {
   });
 
   it('says where a working copy for the lineage would start from', async () => {
-    await open({ vehicleLineId: 2, modelYear: 2026 });
+    // What it is opened with may say more than a lineage does, such as the name of a catalog.
+    await open({ vehicleLineId: 2, modelYear: 2026, name: 'Autumn update' } as never);
+    expect(button('Create')?.disabled).toBe(true);
 
     const request = await startPointRequest();
     expect(request.request.params.get('vehicleLineId')).toBe('2');
@@ -75,6 +77,8 @@ describe('NewCatalogDialog', () => {
         'Starts from 2025 Approved v2 (carryover)',
       ),
     );
+    expect(dialog()?.querySelector<HTMLInputElement>('#new-catalog-name')?.value).toBe('');
+    expect(button('Create')?.disabled).toBe(true);
   });
 
   it('asks for nothing and cannot create until a vehicle line and a model year are chosen', async () => {

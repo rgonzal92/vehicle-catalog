@@ -34,13 +34,7 @@ import { reasonOf } from '../reason-of';
         }
         <div class="grid gap-1">
           <label for="new-catalog-name">Name</label>
-          <input
-            pInputText
-            id="new-catalog-name"
-            formControlName="name"
-            autocomplete="off"
-            maxlength="80"
-          />
+          <input pInputText id="new-catalog-name" formControlName="name" autocomplete="off" />
         </div>
         <div class="grid gap-1">
           <label id="new-catalog-type-label" for="new-catalog-type">Vehicle type</label>
@@ -83,7 +77,12 @@ import { reasonOf } from '../reason-of';
         <p class="min-h-6" aria-live="polite" data-start-point>{{ startPoint() }}</p>
         <div class="flex justify-end gap-2">
           <p-button label="Cancel" severity="secondary" (onClick)="visible.set(false)" />
-          <p-button type="submit" label="Create" [disabled]="form.invalid" [loading]="creating()" />
+          <p-button
+            type="submit"
+            label="Create"
+            [disabled]="form.invalid || !startPoint()"
+            [loading]="creating()"
+          />
         </div>
       </form>
     </p-dialog>
@@ -95,6 +94,7 @@ export class NewCatalogDialog {
   protected readonly fixedLists = inject(FixedLists);
   private readonly router = inject(Router);
 
+  /** Whether the dialog is open. */
   protected readonly visible = signal(false);
 
   /** Why the backend refused the last request, shown in the dialog. */
@@ -139,7 +139,11 @@ export class NewCatalogDialog {
     }
     const line = this.vehicleLines.lines().find(({ id }) => id === lineage?.vehicleLineId);
     if (lineage && line) {
-      this.form.patchValue({ ...lineage, vehicleTypeCode: line.vehicleTypeCode });
+      this.form.patchValue({
+        vehicleTypeCode: line.vehicleTypeCode,
+        vehicleLineId: lineage.vehicleLineId,
+        modelYear: lineage.modelYear,
+      });
       await this.askStartPoint();
     }
   }
@@ -172,6 +176,7 @@ export class NewCatalogDialog {
     }
   }
 
+  /** Creates the working copy and opens it, or stays open with the reason it was refused. */
   protected async create(): Promise<void> {
     const { name, vehicleLineId, modelYear } = this.form.getRawValue();
     if (!name || vehicleLineId === null || modelYear === null || this.creating()) {
