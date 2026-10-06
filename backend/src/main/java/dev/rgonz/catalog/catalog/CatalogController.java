@@ -11,7 +11,6 @@ import dev.rgonz.catalog.core.ApiException;
 import dev.rgonz.catalog.user.AppUsers;
 import jakarta.validation.Valid;
 import java.util.List;
-import java.util.regex.Pattern;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -88,28 +87,10 @@ class CatalogController {
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       @RequestBody List<CellChange> cells,
       Authentication caller) {
-    var revision = edits.setCells(id, people.idOf(caller), expectedRevision(ifMatch), cells);
+    var revision = edits.setCells(id, people.idOf(caller), ifMatch, cells);
 
     return ResponseEntity.ok().eTag(String.valueOf(revision)).body(new Edited(revision));
   }
-
-  /**
-   * The revision an edit says it was made from: the entity tag the catalog was last read or saved
-   * with, sent back as it was given.
-   */
-  private static long expectedRevision(String ifMatch) {
-    if (ifMatch == null) {
-      throw ApiException.revisionRequired();
-    }
-    var revision = REVISION.matcher(ifMatch.strip());
-    if (!revision.matches()) {
-      throw ApiException.badRequest(
-          "If-Match takes the catalog's revision in quotes, as in \"42\".");
-    }
-    return Long.parseLong(revision.group(1));
-  }
-
-  private static final Pattern REVISION = Pattern.compile("\"(\\d{1,18})\"");
 
   /** What a saved edit answers with. */
   record Edited(long revision) {}

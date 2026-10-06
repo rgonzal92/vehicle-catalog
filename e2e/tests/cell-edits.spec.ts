@@ -53,7 +53,7 @@ test('cells set in quick succession are all saved, in the order they were set', 
   await createWorkingCopy(page, 'SUV', 'Compact SUV', '2026');
   const matrix = page.locator('app-availability-matrix');
   const turbo = matrix.getByRole('row', { name: /ENGINE_20T_I4/ }).getByRole('cell');
-  const revisions: (string | null)[] = [];
+  const revisions: string[] = [];
   page.on('request', (request) => {
     if (request.method() === 'PUT' && request.url().endsWith('/cells')) {
       revisions.push(request.headers()['if-match']);

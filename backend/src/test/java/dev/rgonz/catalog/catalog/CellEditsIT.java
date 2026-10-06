@@ -6,16 +6,22 @@ import com.jayway.jsonpath.JsonPath;
 import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.core.Role;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Checks that the owner of a working copy in status Draft sets cells, that each save names the
@@ -24,6 +30,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  */
 class CellEditsIT extends WorkingCopyTests {
   @Autowired MeterRegistry metrics;
+  @Autowired TransactionTemplate transactions;
 
   /** Ana's working copy, at revision 0. */
   private long copy;
@@ -52,15 +59,6 @@ class CellEditsIT extends WorkingCopyTests {
                         .formatted(feature("TRANS_MANUAL"), trim("Base"))
                     + ".availability"))
         .containsExactly("A");
-  }
-
-  @Test
-  void aCatalogSaysWhetherItIsTheViewers() {
-    assertThat(open(ana(), copy)).bodyJson().extractingPath("$.owned").isEqualTo(true);
-    assertThat(open(ana(), approved("COMPACT_SUV", 2026, 2)))
-        .bodyJson()
-        .extractingPath("$.owned")
-        .isEqualTo(false);
   }
 
   @Test
@@ -111,11 +109,11 @@ class CellEditsIT extends WorkingCopyTests {
           .isEqualTo("BAD_REQUEST");
     }
 
-    assertNothingChanged(copy, 0);
+    assertNothingChanged(copy);
   }
 
   @Test
-  void aSaveFromAnOutdatedRevisionIsARevisionConflictThatNamesTheCurrentOne() {
+  void aSaveFromAnEarlierRevisionIsARevisionConflictThatNamesTheCurrentOne() {
     setCells(ana(), copy, "\"0\"", cell("TRANS_MANUAL", "Base", "NA", "A"));
     var changes = count("catalog_change WHERE catalog_id = %d", copy);
 
@@ -175,7 +173,98 @@ class CellEditsIT extends WorkingCopyTests {
     }
     assertThat(setCells(ana(), 987_654_321, "\"0\"", change)).hasStatus(404);
     assertThat(setCells(request -> request, copy, "\"0\"", change)).hasStatus(401);
-    assertNothingChanged(copy, 0);
+    assertNothingChanged(copy);
+  }
+
+  @Test
+  void whoseTheCatalogIsAndItsStatusAreSettledBeforeAnythingElseAboutAnEdit() {
+    var approved = approved("COMPACT_SUV", 2026, 2);
+    var nonsense = "{\"availability\": \"X\"}";
+
+    for (var revision : new String[] {null, "no revision", "\"7\""}) {
+      assertThat(setCells(ben(), copy, revision, nonsense))
+          .as("someone else's working copy, at %s", revision)
+          .hasStatus(404);
+      assertThat(setCells(signedInAs(Role.AUTHOR, "author"), approved, revision, nonsense))
+          .as("the owner's Approved version, at %s", revision)
+          .hasStatus(409);
+    }
+    assertThat(setCells(ana(), copy, "\"7\"", nonsense))
+        .as("the revision is settled before what the save holds")
+        .hasStatus(412);
+    assertThat(setCells(ana(), copy, "\"0\"", nonsense)).hasStatus(422);
+    assertNothingChanged(copy);
+  }
+
+  @Test
+  void twoSavesFromOneRevisionAtTheSameMomentDoNotBothGoThrough() throws Exception {
+    var first = cell("TRANS_MANUAL", "Base", "NA", "A");
+    var second = cell("ROOF_PANORAMIC", "Sport", "NA", "S");
+    var held = new CountDownLatch(1);
+    var release = new CountDownLatch(1);
+    try (var threads = Executors.newFixedThreadPool(3)) {
+      // Holds the catalog's row, as an edit in progress does, until both saves are waiting on it.
+      var holder =
+          threads.submit(
+              () ->
+                  transactions.executeWithoutResult(
+                      transaction -> {
+                        jdbc.sql("SELECT id FROM catalog WHERE id = :id FOR UPDATE")
+                            .param("id", copy)
+                            .query(Long.class)
+                            .single();
+                        held.countDown();
+                        await(release);
+                      }));
+      await(held);
+      var saves =
+          List.of(
+              threads.submit(() -> setCells(ana(), copy, "\"0\"", first).getResponse().getStatus()),
+              threads.submit(
+                  () -> setCells(ana(), copy, "\"0\"", second).getResponse().getStatus()));
+      Awaitility.await()
+          .atMost(Duration.ofSeconds(10))
+          .until(() -> count("pg_stat_activity WHERE wait_event_type = 'Lock'") == 2);
+
+      release.countDown();
+      holder.get();
+
+      assertThat(List.of(saves.get(0).get(), saves.get(1).get()))
+          .containsExactlyInAnyOrder(200, 412);
+    }
+    assertThat(revision(copy)).isEqualTo(1);
+    assertThat(count("catalog_change WHERE catalog_id = %d", copy)).isEqualTo(1);
+  }
+
+  private static void await(CountDownLatch latch) {
+    try {
+      assertThat(latch.await(10, TimeUnit.SECONDS)).isTrue();
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException(interrupted);
+    }
+  }
+
+  @Test
+  void aSaveThatNamesACellTwiceLeavesItAsGivenLastAndASaveThatChangesNothingIsStillAnEdit() {
+    assertThat(
+            setCells(
+                ana(),
+                copy,
+                "\"0\"",
+                cell("TRANS_MANUAL", "Base", "NA", "S"),
+                cell("TRANS_MANUAL", "Base", "NA", "A")))
+        .hasStatusOk();
+    assertThat(stored("TRANS_MANUAL", "Base", "NA")).isEqualTo("A");
+    assertThat(count("catalog_change WHERE catalog_id = %d", copy)).isEqualTo(1);
+
+    assertThat(setCells(ana(), copy, "\"1\"", cell("TRANS_MANUAL", "Base", "NA", "A")))
+        .as("nothing changes, and the revision moves on all the same")
+        .hasStatusOk()
+        .bodyJson()
+        .extractingPath("$.revision")
+        .isEqualTo(2);
+    assertThat(count("catalog_change WHERE catalog_id = %d", copy)).isEqualTo(1);
   }
 
   @Test
@@ -196,7 +285,7 @@ class CellEditsIT extends WorkingCopyTests {
     assertThat(setCells(ana(), approved, "\"0\"", change))
         .as("someone who can read it but does not own it")
         .hasStatus(404);
-    assertNothingChanged(approved, 0);
+    assertNothingChanged(approved);
   }
 
   @Test
@@ -238,7 +327,7 @@ class CellEditsIT extends WorkingCopyTests {
         .bodyJson()
         .extractingPath("$.code")
         .isEqualTo("VALIDATION");
-    assertNothingChanged(copy, 0);
+    assertNothingChanged(copy);
 
     assertThat(setCells(ana(), copy, "\"0\"", cells.subList(0, 500).toArray(String[]::new)))
         .hasStatusOk()
@@ -276,7 +365,9 @@ class CellEditsIT extends WorkingCopyTests {
             cell("TRANS_MANUAL", "Base", "NA", "X"),
             "a cell that names no feature",
             "{\"trimId\": %d, \"regionCode\": \"NA\", \"availability\": \"A\"}"
-                .formatted(trim("Base")));
+                .formatted(trim("Base")),
+            "a cell that is nothing",
+            "null");
 
     refused.forEach(
         (what, change) ->
@@ -291,7 +382,7 @@ class CellEditsIT extends WorkingCopyTests {
     assertThat(stored("ROOF_PANORAMIC", "Sport", "NA"))
         .as("a refused save sets none of its cells")
         .isEqualTo("N");
-    assertNothingChanged(copy, 0);
+    assertNothingChanged(copy);
   }
 
   @Test
@@ -406,9 +497,11 @@ class CellEditsIT extends WorkingCopyTests {
         .orElse("N");
   }
 
-  /** The catalog has the cells of Compact SUV 2026 version 2, the revision, and no history. */
-  private void assertNothingChanged(long catalog, long revision) {
-    assertThat(revision(catalog)).isEqualTo(revision);
+  /**
+   * The catalog has the cells of Compact SUV 2026 version 2, its first revision, and no history.
+   */
+  private void assertNothingChanged(long catalog) {
+    assertThat(revision(catalog)).isZero();
     assertThat(count("catalog_change WHERE catalog_id = %d", catalog)).isZero();
     assertThat(
             jdbc.sql(

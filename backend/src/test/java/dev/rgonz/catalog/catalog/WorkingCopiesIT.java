@@ -262,7 +262,16 @@ class WorkingCopiesIT extends WorkingCopyTests {
   void onlyItsOwnerOpensAWorkingCopyInStatusDraft() {
     var copy = idOf(create(ana(), "Winter update", line("COMPACT_SUV"), 2026));
 
-    assertThat(open(ana(), copy)).hasStatusOk();
+    assertThat(open(ana(), copy))
+        .hasStatusOk()
+        .bodyJson()
+        .extractingPath("$.owned")
+        .isEqualTo(true);
+    assertThat(open(ana(), approved("COMPACT_SUV", 2026, 2)))
+        .as("an Approved version opens for everyone, and is its owner's all the same")
+        .bodyJson()
+        .extractingPath("$.owned")
+        .isEqualTo(false);
     for (var role : Role.values()) {
       assertThat(open(signedInAs(role, "someone-else"), copy))
           .as(role.name())
