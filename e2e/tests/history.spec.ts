@@ -32,13 +32,13 @@ test('the History tab lists every change, newest first, with who made it and the
     /20\d\d/,
     'Demo Admin',
     'Cell set',
-    '2.0L Turbo I4 Engine, Sport in North America: was Available, now Not offered',
+    '2.0L Turbo I4 Engine (ENGINE_20T_I4), Sport in North America: was Available, now Not offered',
   ]);
   await expect(changes.nth(1).getByRole('cell')).toHaveText([
     /20\d\d/,
     'Demo Admin',
     'Cell set',
-    '2.0L Turbo I4 Engine, Base in North America: was Not offered, now Standard',
+    '2.0L Turbo I4 Engine (ENGINE_20T_I4), Base in North America: was Not offered, now Standard',
   ]);
   await expectAccessible(page);
 });

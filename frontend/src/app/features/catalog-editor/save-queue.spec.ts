@@ -58,6 +58,22 @@ describe('SaveQueue', () => {
     ]);
   });
 
+  it('is idle only while no edit is waiting for its outcome', async () => {
+    expect(queue.idle()).toBe(true);
+
+    void queue.add('first');
+    void queue.add('second').catch(() => undefined);
+    expect(queue.idle()).toBe(false);
+    await settled();
+    sent[0].answer(5);
+    await settled();
+    expect(queue.idle()).toBe(false);
+    sent[1].fail(refusal(422));
+    await settled();
+
+    expect(queue.idle()).toBe(true);
+  });
+
   it('drops an edit the backend turns down and goes on from the same revision', async () => {
     const first = queue.add('first');
     const second = queue.add('second');

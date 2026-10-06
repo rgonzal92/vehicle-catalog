@@ -36,6 +36,9 @@ describe('HistoryTab', () => {
       Array.from(row.querySelectorAll('td')).map((cell) => cell.textContent?.trim()),
     );
 
+  const headings = (element: HTMLElement) =>
+    Array.from(element.querySelectorAll('th')).map((heading) => heading.textContent?.trim());
+
   /** Renders the history of catalog 41 and answers its first page with these changes. */
   async function history(items: Change[], total = items.length): Promise<HTMLElement> {
     TestBed.configureTestingModule({
@@ -64,7 +67,10 @@ describe('HistoryTab', () => {
     expect(when).toContain('2026');
     expect(who).toBe('Demo Author');
     expect(kind).toBe('Cell set');
-    expect(what).toBe('Panoramic Roof, Sport in Europe: was Not offered, now Available');
+    expect(headings(element)).toEqual(['When', 'Who', 'Kind', 'What changed']);
+    expect(what).toBe(
+      'Panoramic Roof (ROOF_PANORAMIC), Sport in Europe: was Not offered, now Available',
+    );
   });
 
   it('says so when the catalog has no changes', async () => {
@@ -93,6 +99,48 @@ describe('HistoryTab', () => {
   });
 });
 
+describe('HistoryTab, when the history cannot be read', () => {
+  it('says so, stays on the page it shows, and reads again when asked to', async () => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    const backend = TestBed.inject(HttpTestingController);
+    const changesRequest = () =>
+      vi.waitFor(() => backend.expectOne((request) => request.url === '/api/catalogs/41/changes'));
+    const fixture = TestBed.createComponent(HistoryTab);
+    fixture.componentRef.setInput('catalogId', 41);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    (await changesRequest()).flush({ items: Array(25).fill(cellSet), total: 26 });
+    const next = await vi.waitFor(() => {
+      const found = element.querySelector<HTMLButtonElement>('button.p-paginator-next');
+      expect(found?.disabled).toBe(false);
+      return found!;
+    });
+
+    next.click();
+    (await changesRequest()).flush(null, { status: 503, statusText: 'Unavailable' });
+
+    const again = await vi.waitFor(() => {
+      const found = Array.from(element.querySelectorAll('button')).find(
+        (candidate) => candidate.textContent?.trim() === 'Try again',
+      );
+      expect(found).toBeDefined();
+      return found!;
+    });
+    expect(element.textContent).toContain('The change history could not be read.');
+    expect(element.querySelectorAll('tbody tr')).toHaveLength(25);
+
+    again.click();
+    const retried = await changesRequest();
+    expect(retried.request.params.get('page')).toBe('0');
+    retried.flush({ items: [cellSet], total: 1 });
+    await vi.waitFor(() =>
+      expect(element.textContent).not.toContain('The change history could not be read.'),
+    );
+  });
+});
+
 describe('kindInWords', () => {
   it('reads any kind as words', () => {
     expect(kindInWords('CELL_SET')).toBe('Cell set');
@@ -108,7 +156,9 @@ describe('changeInWords', () => {
     expect(changeInWords({ ...change, trim: 'Sport' })).toBe('Sport');
     expect(changeInWords({ ...change, region: 'Europe' })).toBe('Europe');
     expect(changeInWords({ ...change, trim: 'Sport', region: 'Europe' })).toBe('Sport in Europe');
-    expect(changeInWords({ ...change, featureName: 'Panoramic Roof' })).toBe('Panoramic Roof');
+    expect(
+      changeInWords({ ...change, featureName: 'Panoramic Roof', featureCode: 'ROOF_PANORAMIC' }),
+    ).toBe('Panoramic Roof (ROOF_PANORAMIC)');
   });
 
   it('says nothing about a change that names nothing', () => {

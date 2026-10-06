@@ -14,9 +14,9 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /**
- * Checks that a catalog's change history lists every change, newest first and a page at a time, in
- * words a person can read. Each test starts from the seeded catalogs and a working copy of Compact
- * SUV 2026 that Ana owns.
+ * Checks that a catalog's change history lists every change, newest first and a page at a time,
+ * with what each one touched named by its labels. Each test starts from the seeded catalogs and a
+ * working copy of Compact SUV 2026 that Ana owns.
  */
 class ChangeHistoryIT extends WorkingCopyTests {
   /** Ana's working copy, at revision 0. */
@@ -29,11 +29,16 @@ class ChangeHistoryIT extends WorkingCopyTests {
   }
 
   @Test
-  void aWorkingCopyJustCreatedFromAnApprovedVersionHasAnEmptyHistory() {
-    var history = changes(ana(), copy, "");
+  void aWorkingCopyTakesNoHistoryFromTheApprovedVersionItIsCopiedFrom() {
+    var approved = approved("COMPACT_SUV", 2026, 2);
+    recordManualSetOn(approved);
 
+    var created = workingCopy(ben(), "COMPACT_SUV", 2026);
+
+    var history = changes(ben(), created, "");
     assertThat(history).hasStatusOk().bodyJson().extractingPath("$.total").isEqualTo(0);
     assertThat(history).bodyJson().extractingPath("$.items").asArray().isEmpty();
+    assertThat(changes(ben(), approved, "")).bodyJson().extractingPath("$.total").isEqualTo(1);
   }
 
   @Test
@@ -120,6 +125,8 @@ class ChangeHistoryIT extends WorkingCopyTests {
 
   @Test
   void aWorkingCopyReadsWithTheLibrarysCurrentLabelsAndAnApprovedVersionWithItsOwn() {
+    var approved = approved("COMPACT_SUV", 2026, 2);
+    recordManualSetOn(approved);
     setCells(ana(), copy, "\"0\"", cell("TRANS_MANUAL", "Base", "NA", "A"));
     jdbc.sql("UPDATE trim SET name = 'Entry' WHERE name = 'Base'").update();
     jdbc.sql("UPDATE region SET name = 'Americas' WHERE code = 'NA'").update();
@@ -129,20 +136,8 @@ class ChangeHistoryIT extends WorkingCopyTests {
         .containsEntry("featureName", "Stick Shift")
         .containsEntry("trim", "Entry")
         .containsEntry("region", "Americas");
-
-    // Approval freezes the labels the catalog had; its history reads with them from then on.
-    jdbc.sql("UPDATE catalog_trim SET approved_name = 'Base' WHERE catalog_id = :id")
-        .param("id", copy)
-        .update();
-    jdbc.sql("UPDATE catalog_region SET approved_name = 'North America' WHERE catalog_id = :id")
-        .param("id", copy)
-        .update();
-    jdbc.sql(
-            "UPDATE catalog_feature SET approved_name = 'Manual Transmission' WHERE catalog_id = :id")
-        .param("id", copy)
-        .update();
-
-    assertThat(ApplicationIT.<Map<String, Object>>read(changes(ana(), copy, ""), "$.items[0]"))
+    assertThat(ApplicationIT.<Map<String, Object>>read(changes(ana(), approved, ""), "$.items[0]"))
+        .as("the labels frozen at approval")
         .containsEntry("featureName", "Manual Transmission")
         .containsEntry("trim", "Base")
         .containsEntry("region", "North America");
@@ -154,7 +149,8 @@ class ChangeHistoryIT extends WorkingCopyTests {
             """
             INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
             VALUES (:id, :ana, 'TRIM_REMOVED', jsonb_build_object('trimId', :trim)),
-                   (:id, :ana, 'SOMETHING_NEW', '{"note": "nothing the history knows"}')
+                   (:id, :ana, 'SOMETHING_NEW',
+                    '{"note": "nothing the history knows", "featureId": "no number"}')
             """)
         .param("id", copy)
         .param("ana", person("ana"))
@@ -176,6 +172,25 @@ class ChangeHistoryIT extends WorkingCopyTests {
         .containsEntry("kind", "TRIM_REMOVED")
         .containsEntry("trim", "Luxury")
         .containsEntry("featureName", null);
+  }
+
+  /**
+   * Gives the catalog a change entry as an edit would have written it: the manual transmission of
+   * Base in North America, set from Not offered to Available.
+   */
+  private void recordManualSetOn(long catalog) {
+    jdbc.sql(
+            """
+            INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
+            VALUES (:id, :ana, 'CELL_SET',
+                    jsonb_build_object('featureId', :feature, 'trimId', :trim, 'regionCode', 'NA',
+                                       'old', 'N', 'new', 'A'))
+            """)
+        .param("id", catalog)
+        .param("ana", person("ana"))
+        .param("feature", feature("TRANS_MANUAL"))
+        .param("trim", trim("Base"))
+        .update();
   }
 
   private MvcTestResult changes(RequestPostProcessor who, long catalog, String paging) {

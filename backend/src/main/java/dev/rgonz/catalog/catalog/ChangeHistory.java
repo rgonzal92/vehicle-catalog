@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -28,9 +29,9 @@ class ChangeHistory {
   /**
    * One page of the catalog's changes and how many there are in all. Pages are numbered from 0. A
    * page or size out of range is brought into it: a page holds between 1 and {@value #LARGEST_PAGE}
-   * changes.
+   * changes. Both are read from one view of the database, so they agree.
    */
-  @Transactional(readOnly = true)
+  @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
   ChangePage page(long catalogId, int page, int size) {
     var limit = Math.clamp(size, 1, LARGEST_PAGE);
     var items =
@@ -43,8 +44,10 @@ class ChangeHistory {
                        h.payload ->> 'old' AS old_value, h.payload ->> 'new' AS new_value
                 FROM catalog_change h
                 JOIN app_user a ON a.id = h.actor_id
-                LEFT JOIN feature f ON f.id = (h.payload ->> 'featureId')::bigint
-                LEFT JOIN trim t ON t.id = (h.payload ->> 'trimId')::bigint
+                -- Compared as JSON, so that a payload holding anything but a number matches nothing
+                -- where a cast would fail the whole page.
+                LEFT JOIN feature f ON to_jsonb(f.id) = h.payload -> 'featureId'
+                LEFT JOIN trim t ON to_jsonb(t.id) = h.payload -> 'trimId'
                 LEFT JOIN region r ON r.code = h.payload ->> 'regionCode'
                 LEFT JOIN catalog_feature cf
                     ON cf.catalog_id = h.catalog_id AND cf.feature_id = f.id
@@ -73,8 +76,8 @@ class ChangeHistory {
   record ChangePage(List<Change> items, long total) {}
 
   /**
-   * One change to a catalog, in words: who made it, when, its kind, and what it touched. A change
-   * names only what its kind is about, and the rest is null.
+   * One change to a catalog: who made it, when, its kind, and what it touched, named by its labels.
+   * A change names only what its kind is about, and the rest is null.
    *
    * @param oldValue what a cell was before a change of kind {@code CELL_SET}: S, A, or N
    * @param newValue what the cell was set to

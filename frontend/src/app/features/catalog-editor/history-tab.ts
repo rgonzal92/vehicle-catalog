@@ -1,5 +1,7 @@
 import { DatePipe } from '@angular/common';
 import { Component, inject, input, signal } from '@angular/core';
+import { Button } from 'primeng/button';
+import { Message } from 'primeng/message';
 import { TableModule } from 'primeng/table';
 import { Catalogs, Change, ChangePage } from '../../core/catalogs';
 import { Availability, AVAILABILITY_NAMES } from '../../shared/availability-matrix/matrix';
@@ -13,13 +15,15 @@ export function kindInWords(kind: string): string {
 
 /**
  * What a change touched, in words, with the value before and after where it has them: "Panoramic
- * Roof, Sport in Europe: was Not offered, now Available". It uses whatever the change names, so it
- * reads for every kind of change.
+ * Roof (ROOF_PANORAMIC), Sport in Europe: was Not offered, now Available". It uses whatever the
+ * change names, so it reads for every kind of change. A feature is named with its code, since two
+ * features can share a name.
  */
 export function changeInWords(change: Change): string {
-  const { featureName, trim, region, oldValue, newValue } = change;
+  const { featureCode, featureName, trim, region, oldValue, newValue } = change;
+  const feature = featureName && `${featureName} (${featureCode})`;
   const offering = trim && region ? `${trim} in ${region}` : (trim ?? region);
-  const touched = [featureName, offering].filter(Boolean).join(', ');
+  const touched = [feature, offering].filter(Boolean).join(', ');
   const values =
     oldValue !== null && newValue !== null
       ? `was ${availabilityName(oldValue)}, now ${availabilityName(newValue)}`
@@ -36,13 +40,26 @@ const availabilityName = (value: string) => AVAILABILITY_NAMES[value as Availabi
  * a cell had before is found. It is read afresh each time it is shown.
  */
 @Component({
-  imports: [DatePipe, TableModule],
+  imports: [DatePipe, Button, Message, TableModule],
   selector: 'app-history-tab',
   template: `
+    @if (failed()) {
+      <p-message class="mb-4 block" severity="error">
+        <span>The change history could not be read.</span>
+        <p-button
+          class="ml-4"
+          label="Try again"
+          severity="secondary"
+          size="small"
+          (onClick)="load()"
+        />
+      </p-message>
+    }
     <p-table
       class="block"
       size="small"
       [value]="page()?.items ?? []"
+      [loading]="loading()"
       [lazy]="true"
       [paginator]="true"
       [rows]="pageSize"
@@ -54,7 +71,7 @@ const availabilityName = (value: string) => AVAILABILITY_NAMES[value as Availabi
         <tr>
           <th scope="col">When</th>
           <th scope="col">Who</th>
-          <th scope="col">Change</th>
+          <th scope="col">Kind</th>
           <th scope="col">What changed</th>
         </tr>
       </ng-template>
@@ -87,26 +104,49 @@ export class HistoryTab {
   /** The page being shown, or null until the backend has answered. */
   protected readonly page = signal<ChangePage | null>(null);
 
+  /** Whether a page has been asked for and not yet answered. */
+  protected readonly loading = signal(true);
+
+  /** Whether the page last asked for could not be read. */
+  protected readonly failed = signal(false);
+
+  /** Where the page being shown starts, which is where the table goes back to after a failure. */
+  private shownFrom = 0;
+
   protected readonly kindInWords = kindInWords;
   protected readonly changeInWords = changeInWords;
 
   /** How many pages have been asked for, so that a slow answer to an earlier one is dropped. */
   private asked = 0;
 
-  /** Shows the page the table is on. The table asks for this on its first display and on paging. */
+  /**
+   * Shows the page the table is on. The table asks for this on its first display and on paging.
+   * When the page cannot be read, the table stays on the page it shows and the tab says so.
+   */
   protected async load(): Promise<void> {
     const mine = ++this.asked;
+    const from = this.first();
+    this.loading.set(true);
     try {
       const page = await this.catalogs.changes(
         this.catalogId(),
-        this.first() / this.pageSize,
+        from / this.pageSize,
         this.pageSize,
       );
       if (mine === this.asked) {
         this.page.set(page);
+        this.shownFrom = from;
+        this.failed.set(false);
       }
     } catch {
-      // The failure has already been shown as a message.
+      if (mine === this.asked) {
+        this.first.set(this.shownFrom);
+        this.failed.set(true);
+      }
+    } finally {
+      if (mine === this.asked) {
+        this.loading.set(false);
+      }
     }
   }
 }

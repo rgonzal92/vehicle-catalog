@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { signal } from '@angular/core';
+import { computed, signal } from '@angular/core';
 
 /**
  * How a save failed, which decides what the editor does next.
@@ -56,6 +56,12 @@ export class SaveQueue<Edit> {
   /** Why the queue has stopped, or null while it is sending. */
   readonly stopped = this.stop.asReadonly();
 
+  /** How many edits have been queued and not yet answered or dropped. */
+  private readonly waiting = signal(0);
+
+  /** Whether every edit queued so far has had its outcome. */
+  readonly idle = computed(() => this.waiting() === 0);
+
   /**
    * @param send saves one edit made from a revision, and answers with the revision it led to
    * @param revision the revision the catalog was read at
@@ -84,7 +90,10 @@ export class SaveQueue<Edit> {
         throw error;
       }
     });
-    this.last = saved.catch(() => undefined);
+    this.waiting.update((waiting) => waiting + 1);
+    this.last = saved
+      .catch(() => undefined)
+      .then(() => this.waiting.update((waiting) => waiting - 1));
 
     return saved;
   }

@@ -97,7 +97,7 @@ import { NotSent, SaveQueue, SaveStop } from './save-queue';
               />
             </p-tabpanel>
             <p-tabpanel value="history">
-              @if (tab() === 'history') {
+              @if (historyShown()) {
                 <app-history-tab [catalogId]="id" />
               }
             </p-tabpanel>
@@ -123,10 +123,7 @@ export class CatalogEditorPage {
 
   protected readonly statusNames = STATUS_NAMES;
 
-  /**
-   * The tab being shown. The History tab is drawn only while it is, so it reads the history afresh
-   * each time it is chosen.
-   */
+  /** The tab being shown. */
   protected readonly tab = signal<string | number | undefined>('features');
 
   /** The matrix, which is told how the save of each change it reported went. */
@@ -146,6 +143,14 @@ export class CatalogEditorPage {
     const catalog = this.catalog();
     return !!catalog?.owned && catalog.snapshot.status === 'DRAFT' && !this.saves()?.stopped();
   });
+
+  /**
+   * Whether the history is drawn: only while its tab is chosen, so that it is read afresh each
+   * time, and only once every change made so far has had its outcome, so that none is missing.
+   */
+  protected readonly historyShown = computed(
+    () => this.tab() === 'history' && (this.saves()?.idle() ?? true),
+  );
 
   /** What to tell the person while nothing more is saved until they reload, or null otherwise. */
   protected readonly reloadNeeded = computed(() => {
