@@ -3,20 +3,38 @@ package dev.rgonz.catalog.catalog;
 import dev.rgonz.catalog.catalog.Catalogs.CatalogView;
 import dev.rgonz.catalog.catalog.Catalogs.LineageSummary;
 import dev.rgonz.catalog.catalog.Catalogs.VersionSummary;
+import dev.rgonz.catalog.catalog.WorkingCopies.NewWorkingCopy;
+import dev.rgonz.catalog.catalog.WorkingCopies.StartPoint;
+import dev.rgonz.catalog.catalog.WorkingCopies.WorkingCopy;
 import dev.rgonz.catalog.core.ApiException;
+import dev.rgonz.catalog.user.AppUsers;
+import jakarta.validation.Valid;
 import java.util.List;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Shows everyone with a role the lineages, their Approved versions, and a catalog's contents. */
+/**
+ * Shows everyone with a role the lineages, their Approved versions, and a catalog's contents, and
+ * lets each of them create working copies of their own.
+ */
 @RestController
 class CatalogController {
   private final Catalogs catalogs;
+  private final WorkingCopies workingCopies;
+  private final AppUsers people;
 
-  CatalogController(Catalogs catalogs) {
+  CatalogController(Catalogs catalogs, WorkingCopies workingCopies, AppUsers people) {
     this.catalogs = catalogs;
+    this.workingCopies = workingCopies;
+    this.people = people;
   }
 
   /** The lineages that have an Approved version, each with its current one. */
@@ -33,10 +51,27 @@ class CatalogController {
     return catalogs.versions(id);
   }
 
+  /** The caller's working copies. */
+  @GetMapping(value = "/api/catalogs", params = "scope=mine")
+  List<WorkingCopy> mine(Authentication caller) {
+    return workingCopies.ownedBy(people.idOf(caller));
+  }
+
+  @GetMapping("/api/catalogs/start-point")
+  StartPoint startPoint(@RequestParam long vehicleLineId, @RequestParam int modelYear) {
+    return workingCopies.startPoint(vehicleLineId, modelYear);
+  }
+
+  @PostMapping("/api/catalogs")
+  @ResponseStatus(HttpStatus.CREATED)
+  WorkingCopy create(@Valid @RequestBody NewWorkingCopy given, Authentication caller) {
+    return workingCopies.create(people.idOf(caller), given);
+  }
+
   /** A catalog with its contents. Its revision is the entity tag, which later writes name. */
   @GetMapping("/api/catalogs/{id}")
-  ResponseEntity<CatalogView> catalog(@PathVariable long id) {
-    var catalog = catalogs.find(id).orElseThrow(ApiException::notFound);
+  ResponseEntity<CatalogView> catalog(@PathVariable long id, Authentication caller) {
+    var catalog = catalogs.find(id, people.idOf(caller)).orElseThrow(ApiException::notFound);
 
     return ResponseEntity.ok().eTag(String.valueOf(catalog.snapshot().revision())).body(catalog);
   }

@@ -132,6 +132,29 @@ public abstract class ApplicationIT {
     return oidcLogin().authorities(new SimpleGrantedAuthority(role.authority()));
   }
 
+  /**
+   * A signed-in person holding the role who is on record under the subject, as everyone is once
+   * they have signed in.
+   */
+  protected OidcLoginRequestPostProcessor signedInAs(Role role, String subject) {
+    person(subject);
+    return signedInAs(role).idToken(token -> token.subject(subject));
+  }
+
+  /** The id of the person on record under the subject, who is recorded first if need be. */
+  protected long person(String subject) {
+    return jdbc.sql(
+            """
+            INSERT INTO app_user (cognito_sub, username, display_name)
+            VALUES (:subject, :subject, :subject)
+            ON CONFLICT (cognito_sub) DO UPDATE SET cognito_sub = app_user.cognito_sub
+            RETURNING id
+            """)
+        .param("subject", subject)
+        .query(Long.class)
+        .single();
+  }
+
   /** Reads one value out of a JSON response. */
   protected static <T> T read(MvcTestResult result, String path) {
     try {

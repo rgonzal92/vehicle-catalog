@@ -4,7 +4,6 @@ import dev.rgonz.catalog.core.Role;
 import dev.rgonz.catalog.user.DemoAccounts.DemoAccount;
 import java.util.List;
 import org.springframework.security.access.hierarchicalroles.RoleHierarchy;
-import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -24,11 +23,7 @@ class UserController {
 
   @GetMapping("/api/me")
   Me me(Authentication authentication) {
-    var person =
-        users
-            .findBySubject(authentication.getName())
-            .orElseThrow(
-                () -> new AuthenticationCredentialsNotFoundException("No record of this person"));
+    var person = users.signedIn(authentication);
     return new Me(
         person.id(),
         person.displayName(),

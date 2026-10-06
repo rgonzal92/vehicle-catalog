@@ -41,6 +41,7 @@ describe('ApprovedPage', () => {
   const catalog = (version: (typeof versions)[number], featureRows: object[]) => ({
     name: version.name,
     versionNumber: version.versionNumber,
+    vehicleLineId: 2,
     vehicleLine: 'Compact SUV',
     modelYear: 2026,
     approvedBy: version.approvedBy,
@@ -113,6 +114,35 @@ describe('ApprovedPage', () => {
     expect(rows(element)[0]).toContain('Shown below');
     expect(rows(element)[1]).toContain('Launch content');
     expect(rows(element)[1]).toContain('Demo Manager');
+  });
+
+  it('opens the new catalog dialog for the lineage', async () => {
+    const element = await page(versions);
+    (await catalogRequest(12)).flush(catalog(versions[0], []));
+    const create = await vi.waitFor(() => {
+      const button = Array.from(element.querySelectorAll('button')).find(
+        (candidate) => candidate.textContent?.trim() === 'Create working copy',
+      );
+      expect(button).toBeDefined();
+      return button!;
+    });
+
+    create.click();
+    backend
+      .expectOne('/api/vehicle-lines')
+      .flush([
+        { id: 2, code: 'COMPACT_SUV', name: 'Compact SUV', vehicleTypeCode: 'SUV', active: true },
+      ]);
+
+    const asked = await vi.waitFor(() =>
+      backend.expectOne((request) => request.url === '/api/catalogs/start-point'),
+    );
+    expect(asked.request.params.get('vehicleLineId')).toBe('2');
+    expect(asked.request.params.get('modelYear')).toBe('2026');
+    asked.flush({ kind: 'COPY', modelYear: 2026, versionNumber: 2 });
+    await vi.waitFor(() =>
+      expect(document.querySelector('.p-dialog')?.textContent).toContain('Starts from Approved v2'),
+    );
   });
 
   it('shows another version when it is chosen from the list', async () => {

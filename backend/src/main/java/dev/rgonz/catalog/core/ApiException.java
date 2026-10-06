@@ -26,6 +26,11 @@ public final class ApiException extends ErrorResponseException {
     return new ApiException(HttpStatusCode.valueOf(422), "VALIDATION", reason);
   }
 
+  /** The request would take something past the most there can be of it. */
+  public static ApiException limitExceeded(String reason) {
+    return new ApiException(HttpStatusCode.valueOf(422), "LIMIT_EXCEEDED", reason);
+  }
+
   private static ProblemDetail problem(HttpStatusCode status, String code, String reason) {
     var problem = ProblemDetail.forStatusAndDetail(status, reason);
     problem.setProperty("code", code);

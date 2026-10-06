@@ -11,7 +11,7 @@ import { TableModule } from 'primeng/table';
 import { Tag } from 'primeng/tag';
 import { reasonOf } from '../../../shared/reason-of';
 import { FixedLists } from '../../../core/fixed-lists';
-import { VehicleLine, VehicleLines } from './vehicle-lines';
+import { VehicleLine, VehicleLines } from '../../../core/vehicle-lines';
 
 /** Where an admin adds, renames, retypes, activates, and deactivates vehicle lines. */
 @Component({

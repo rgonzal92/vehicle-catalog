@@ -2,11 +2,13 @@ package dev.rgonz.catalog.user;
 
 import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Repository;
 
 /** The local record of people who have signed in, keyed by their subject at the login provider. */
 @Repository
-class AppUsers {
+public class AppUsers {
   private static final String COLUMNS =
       "id, cognito_sub AS subject, username, email, display_name AS displayName";
 
@@ -36,6 +38,18 @@ class AppUsers {
         .param("displayName", displayName)
         .query(AppUser.class)
         .single();
+  }
+
+  /** The id of the signed-in person, which is what their catalogs name as their owner. */
+  public long idOf(Authentication signedIn) {
+    return signedIn(signedIn).id();
+  }
+
+  /** The signed-in person. A session whose person is not on record counts as no session. */
+  AppUser signedIn(Authentication signedIn) {
+    return findBySubject(signedIn.getName())
+        .orElseThrow(
+            () -> new AuthenticationCredentialsNotFoundException("No record of this person"));
   }
 
   Optional<AppUser> findBySubject(String subject) {

@@ -31,6 +31,15 @@ export const routes: Routes = [
       import('./features/approved/approved-page').then((page) => page.ApprovedPage),
   },
   {
+    path: 'catalogs/:id',
+    title: 'Catalog · Vehicle Catalog',
+    canActivate: [holding('author')],
+    loadComponent: () =>
+      import('./features/catalog-editor/catalog-editor-page').then(
+        (page) => page.CatalogEditorPage,
+      ),
+  },
+  {
     path: 'admin/vehicle-lines',
     title: 'Vehicle lines · Vehicle Catalog',
     canActivate: [holding('admin')],

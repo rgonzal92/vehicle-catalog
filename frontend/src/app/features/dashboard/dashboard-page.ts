@@ -4,12 +4,13 @@ import { RouterLink } from '@angular/router';
 import { Button } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { Tag } from 'primeng/tag';
-import { Catalogs, LineageSummary } from '../../core/catalogs';
+import { Catalogs, LineageSummary, STATUS_NAMES, WorkingCopy } from '../../core/catalogs';
 import { Session } from '../../core/session';
+import { NewCatalogDialog } from '../../shared/new-catalog-dialog/new-catalog-dialog';
 
 /** The first page a signed-in person sees, with a section for each thing their role can do. */
 @Component({
-  imports: [DatePipe, RouterLink, Button, TableModule, Tag],
+  imports: [DatePipe, RouterLink, Button, TableModule, Tag, NewCatalogDialog],
   selector: 'app-dashboard-page',
   template: `
     <main class="mx-auto max-w-5xl px-6 py-10">
@@ -23,8 +24,45 @@ import { Session } from '../../core/session';
       </header>
 
       <section class="mt-10" aria-labelledby="my-catalogs">
-        <h2 id="my-catalogs" class="text-xl font-semibold">My catalogs</h2>
-        <p class="mt-2 text-muted-color">You have no catalogs.</p>
+        <div class="flex items-center justify-between gap-4">
+          <h2 id="my-catalogs" class="text-xl font-semibold">My catalogs</h2>
+          <p-button label="New catalog" (onClick)="newCatalog.open()" />
+        </div>
+        @if (mine()?.length) {
+          <p-table class="mt-2 block" [value]="mine() ?? []">
+            <ng-template #header>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Vehicle line</th>
+                <th scope="col">Model year</th>
+                <th scope="col">Status</th>
+                <th scope="col">Last updated</th>
+                <th scope="col"><span class="sr-only">Actions</span></th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-catalog>
+              <tr>
+                <td>{{ catalog.name }}</td>
+                <td>{{ catalog.vehicleLine }}</td>
+                <td>{{ catalog.modelYear }}</td>
+                <td>{{ statusNames[catalog.status] }}</td>
+                <td>{{ catalog.updatedAt | date: 'medium' }}</td>
+                <td class="text-right">
+                  <a
+                    class="text-primary underline"
+                    [routerLink]="['/catalogs', catalog.id]"
+                    [attr.aria-label]="'Open ' + catalog.name"
+                  >
+                    Open
+                  </a>
+                </td>
+              </tr>
+            </ng-template>
+          </p-table>
+        } @else if (mine()) {
+          <p class="mt-2 text-muted-color">You have no catalogs.</p>
+        }
+        <app-new-catalog-dialog #newCatalog />
       </section>
 
       <section class="mt-10" aria-labelledby="approved-catalogs">
@@ -101,13 +139,20 @@ export class DashboardPage {
    */
   protected readonly lineages = signal<LineageSummary[] | null>(null);
 
+  /** The person's working copies, or null until the backend has answered. */
+  protected readonly mine = signal<WorkingCopy[] | null>(null);
+
+  protected readonly statusNames: Record<string, string> = STATUS_NAMES;
+
   constructor() {
-    void this.load(inject(Catalogs));
+    const catalogs = inject(Catalogs);
+    void this.load(() => catalogs.mine(), this.mine);
+    void this.load(() => catalogs.lineages(), this.lineages);
   }
 
-  private async load(catalogs: Catalogs): Promise<void> {
+  private async load<T>(read: () => Promise<T>, into: { set(value: T): void }): Promise<void> {
     try {
-      this.lineages.set(await catalogs.lineages());
+      into.set(await read());
     } catch {
       // The failure has already been shown as a message.
     }

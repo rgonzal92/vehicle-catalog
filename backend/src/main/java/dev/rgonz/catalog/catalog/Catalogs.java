@@ -63,23 +63,31 @@ class Catalogs {
   }
 
   /**
-   * A catalog with its contents: one query for the catalog itself and one for each content table.
-   * The queries share one view of the database, so the contents always belong to the revision.
+   * A catalog with its contents, if the viewer may open it: one query for the catalog itself and
+   * one for each content table. The queries share one view of the database, so the contents always
+   * belong to the revision.
+   *
+   * <p>Everyone opens an Approved version. A working copy is its owner's alone, and to anyone else
+   * it is as if it did not exist.
    */
   @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-  Optional<CatalogView> find(long id) {
+  Optional<CatalogView> find(long id, long viewerId) {
     return jdbc.sql(
             """
             SELECT c.id, c.lineage_id, c.status, c.revision, c.name, c.version_number,
-                   v.name AS vehicle_line, l.model_year, a.display_name AS approved_by,
-                   c.approved_at
+                   v.id AS vehicle_line_id, v.name AS vehicle_line, l.model_year,
+                   a.display_name AS approved_by, c.approved_at, b.id AS base_catalog_id,
+                   bl.model_year AS base_model_year, b.version_number AS base_version_number
             FROM catalog c
             JOIN lineage l ON l.id = c.lineage_id
             JOIN vehicle_line v ON v.id = l.vehicle_line_id
             LEFT JOIN app_user a ON a.id = c.approved_by
-            WHERE c.id = :id
+            LEFT JOIN catalog b ON b.id = c.base_catalog_id
+            LEFT JOIN lineage bl ON bl.id = b.lineage_id
+            WHERE c.id = :id AND (c.status = 'APPROVED' OR c.owner_id = :viewer)
             """)
         .param("id", id)
+        .param("viewer", viewerId)
         .query(Header.class)
         .optional()
         .map(
@@ -87,10 +95,17 @@ class Catalogs {
                 new CatalogView(
                     header.name(),
                     header.versionNumber(),
+                    header.vehicleLineId(),
                     header.vehicleLine(),
                     header.modelYear(),
                     header.approvedBy(),
                     header.approvedAt(),
+                    header.baseCatalogId() == null
+                        ? null
+                        : new Base(
+                            header.baseCatalogId(),
+                            header.baseModelYear(),
+                            header.baseVersionNumber()),
                     snapshot(header)));
   }
 
@@ -179,15 +194,24 @@ class Catalogs {
   record VersionSummary(
       long catalogId, int versionNumber, String name, String approvedBy, Instant approvedAt) {}
 
-  /** A catalog as the API shows it: what describes it, and its contents. */
+  /**
+   * A catalog as the API shows it: what describes it, and its contents.
+   *
+   * @param base the Approved version it was copied from, or null when it started empty
+   */
   record CatalogView(
       String name,
       Integer versionNumber,
+      long vehicleLineId,
       String vehicleLine,
       int modelYear,
       String approvedBy,
       Instant approvedAt,
+      Base base,
       CatalogSnapshot snapshot) {}
+
+  /** A catalog's base. After a carryover its model year is an earlier one than the catalog's. */
+  record Base(long catalogId, int modelYear, int versionNumber) {}
 
   /** The catalog's own row, joined with what names its lineage and its approver. */
   private record Header(
@@ -197,8 +221,12 @@ class Catalogs {
       long revision,
       String name,
       Integer versionNumber,
+      long vehicleLineId,
       String vehicleLine,
       int modelYear,
       String approvedBy,
-      Instant approvedAt) {}
+      Instant approvedAt,
+      Long baseCatalogId,
+      Integer baseModelYear,
+      Integer baseVersionNumber) {}
 }
