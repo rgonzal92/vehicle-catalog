@@ -38,6 +38,6 @@ class CatalogController {
   ResponseEntity<CatalogView> catalog(@PathVariable long id) {
     var catalog = catalogs.find(id).orElseThrow(ApiException::notFound);
 
-    return ResponseEntity.ok().eTag("\"" + catalog.snapshot().revision() + "\"").body(catalog);
+    return ResponseEntity.ok().eTag(String.valueOf(catalog.snapshot().revision())).body(catalog);
   }
 }

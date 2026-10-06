@@ -31,7 +31,7 @@ class Catalogs {
                    c.version_number, a.display_name AS approved_by, c.approved_at
             FROM lineage l
             JOIN vehicle_line v ON v.id = l.vehicle_line_id
-            JOIN catalog c ON c.id = l.current_catalog_id
+            JOIN catalog c ON c.id = l.current_catalog_id AND c.status = 'APPROVED'
             JOIN app_user a ON a.id = c.approved_by
             ORDER BY v.name, l.model_year
             """)

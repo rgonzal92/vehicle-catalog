@@ -74,6 +74,25 @@ describe('DashboardPage', () => {
     ).toContain('There are no Approved catalogs.');
   });
 
+  it('says nothing about Approved catalogs until the backend has answered', async () => {
+    TestBed.configureTestingModule({
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+    });
+    const backend = TestBed.inject(HttpTestingController);
+    const loading = TestBed.inject(Session).load();
+    backend.expectOne('/api/me').flush({ id: 7, name: 'Maya', email: null, roles: ['author'] });
+    await loading;
+
+    const fixture = TestBed.createComponent(DashboardPage);
+    await fixture.whenStable();
+    const section = (fixture.nativeElement as HTMLElement).querySelector(
+      'section[aria-labelledby="approved-catalogs"]',
+    );
+
+    expect(section?.textContent?.trim()).toBe('Approved catalogs');
+    backend.expectOne('/api/lineages').flush([]);
+  });
+
   it('adds the review queue for a manager', async () => {
     expect(headings(await dashboardFor(['manager', 'author']))).toEqual([
       'My catalogs',

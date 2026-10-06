@@ -10,7 +10,7 @@ import java.util.List;
  * @param regions in the library's order
  * @param cells only Standard and Available; a missing cell is Not offered
  */
-public record CatalogSnapshot(
+record CatalogSnapshot(
     long catalogId,
     long lineageId,
     Status status,
@@ -22,31 +22,31 @@ public record CatalogSnapshot(
     List<Cell> cells) {
 
   /** Whether a catalog is a working copy, in Draft or Submitted, or an Approved version. */
-  public enum Status {
+  enum Status {
     DRAFT,
     SUBMITTED,
     APPROVED
   }
 
   /** What a cell states: Standard, Available, or Not offered, which is never stored. */
-  public enum Availability {
+  enum Availability {
     S,
     A,
     N
   }
 
   /** A trim the catalog has added. */
-  public record Trim(long id, String name, int sortOrder) {}
+  record Trim(long id, String name, int sortOrder) {}
 
   /** A region the catalog has added. */
-  public record Region(String code, String name) {}
+  record Region(String code, String name) {}
 
   /** One trim sold in one region. */
-  public record Offering(long trimId, String regionCode) {}
+  record Offering(long trimId, String regionCode) {}
 
   /** A feature the catalog has added. Its code never changes, so it is no label. */
-  public record FeatureRow(long id, String code, String name, String categoryCode) {}
+  record FeatureRow(long id, String code, String name, String categoryCode) {}
 
   /** The availability of one feature in one offering. */
-  public record Cell(long featureId, long trimId, String regionCode, Availability availability) {}
+  record Cell(long featureId, long trimId, String regionCode, Availability availability) {}
 }

@@ -145,19 +145,26 @@ public abstract class ApplicationIT {
   @Autowired protected MockMvcTester mvc;
   @Autowired protected JdbcClient jdbc;
 
-  /** What the application runs once it has started, in order: the seeds. */
+  /**
+   * What the application runs once it has started, in order. Today that is the seeds, which are
+   * reached this way because each is private to its own package.
+   */
   @Autowired private List<ApplicationRunner> startup;
 
   /**
-   * Empties the library and removes every catalog. A test class does this before each test that
-   * needs a library of its own making, whatever the tests before it left behind.
+   * Empties the library and removes every catalog, and with them anything else that refers to
+   * either. A test class does this before each test that needs a library of its own making,
+   * whatever the tests before it left behind.
    */
   protected void emptyLibraryAndCatalogs() {
     jdbc.sql("TRUNCATE lineage, catalog, vehicle_line, trim, region, feature CASCADE").update();
   }
 
-  /** Puts the database in the state a first start leaves: the seeded library and catalogs. */
-  protected void startOnAFreshDatabase() throws Exception {
+  /**
+   * Leaves the library and the catalogs as a first start leaves them: the seeded ones and nothing
+   * else. People and their sessions stay as they are.
+   */
+  protected void seedLibraryAndCatalogs() throws Exception {
     emptyLibraryAndCatalogs();
     for (var runner : startup) {
       runner.run(new DefaultApplicationArguments());

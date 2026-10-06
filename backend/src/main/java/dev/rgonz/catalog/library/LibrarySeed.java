@@ -21,9 +21,9 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Gives an empty library its starting trims, regions, vehicle lines, and features, so the app is
- * usable the moment it runs. The entries come from the files under {@code seed/}, written as the
- * admin endpoints take them, and each is held to those endpoints' rules. It runs before the seed of
- * the catalogs, which are made of these entries.
+ * usable the moment it runs. The entries come from four files under {@code seed/}, one for each
+ * list, written as the admin endpoints take them, and each entry is held to those endpoints' rules.
+ * It runs before the seed of the catalogs, which are made of these entries.
  */
 @Component
 @Order(1)

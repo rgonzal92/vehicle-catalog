@@ -34,7 +34,10 @@ CREATE TABLE catalog (
     UNIQUE (lineage_id, version_number),
     -- A catalog has a version number exactly when it is Approved.
     CONSTRAINT catalog_approved_has_version
-        CHECK ((status = 'APPROVED') = (version_number IS NOT NULL))
+        CHECK ((status = 'APPROVED') = (version_number IS NOT NULL)),
+    -- An Approved catalog names who approved it and when.
+    CONSTRAINT catalog_approved_has_approver
+        CHECK (status <> 'APPROVED' OR (approved_by IS NOT NULL AND approved_at IS NOT NULL))
 );
 
 -- One owner cannot have two working copies whose names differ only by case.

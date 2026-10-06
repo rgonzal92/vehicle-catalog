@@ -1,6 +1,8 @@
 package dev.rgonz.catalog.user;
 
 import dev.rgonz.catalog.core.Role;
+import dev.rgonz.catalog.user.DemoAccounts.DemoAccount;
+import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -19,25 +21,29 @@ public class DemoPeople {
   }
 
   /**
-   * The person behind the role's demo account. They are recorded under the account's subject, so
-   * their first login finds the same record; someone who has signed in keeps their details.
+   * Records the person behind the role's demo account, unless they are on record already, and
+   * answers with their id. They are recorded under the account's subject, so their first login
+   * finds the same record; someone who has signed in keeps their details. An account that does not
+   * say who it is, with a subject, a username, and a display name, is not recorded.
    */
-  public long idOf(Role role) {
-    var account =
-        accounts.demoAccounts().stream()
-            .filter(candidate -> candidate.role() == role)
-            .filter(candidate -> candidate.subject() != null && candidate.displayName() != null)
-            .findFirst()
-            .orElseThrow(
-                () ->
-                    new IllegalStateException(
-                        "The %s demo account needs a subject and a display name in app.demo-accounts"
-                            .formatted(role.key())));
+  public Optional<Long> record(Role role) {
+    return accounts.demoAccounts().stream()
+        .filter(account -> account.role() == role)
+        .filter(
+            account ->
+                account.subject() != null
+                    && account.username() != null
+                    && account.displayName() != null)
+        .findFirst()
+        .map(this::record);
+  }
 
+  private long record(DemoAccount account) {
     return jdbc.sql(
             """
             INSERT INTO app_user (cognito_sub, username, display_name)
             VALUES (:subject, :username, :displayName)
+            -- Changes nothing; it is here so that a person already on record answers with their id.
             ON CONFLICT (cognito_sub) DO UPDATE SET cognito_sub = app_user.cognito_sub
             RETURNING id
             """)

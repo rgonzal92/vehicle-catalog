@@ -34,7 +34,7 @@ class CatalogsIT extends ApplicationIT {
 
   @BeforeAll
   void seededCatalogs() throws Exception {
-    startOnAFreshDatabase();
+    seedLibraryAndCatalogs();
   }
 
   @Test
@@ -115,7 +115,7 @@ class CatalogsIT extends ApplicationIT {
     assertThat(ApplicationIT.<List<Integer>>read(catalog, "$.snapshot.trims[*].sortOrder"))
         .containsExactly(1, 2, 3, 5);
     assertThat(ApplicationIT.<List<Object>>read(catalog, "$.snapshot.offerings")).hasSize(7);
-    assertThat(ApplicationIT.<List<Object>>read(catalog, "$.snapshot.featureRows")).hasSize(146);
+    assertThat(ApplicationIT.<List<Object>>read(catalog, "$.snapshot.featureRows")).hasSize(149);
     assertThat(
             ApplicationIT.<List<Map<String, Object>>>read(
                 catalog, "$.snapshot.featureRows[?(@.code == 'ROOF_PANORAMIC')]"))
@@ -158,7 +158,7 @@ class CatalogsIT extends ApplicationIT {
 
     assertThat(first).bodyJson().extractingPath("$.versionNumber").isEqualTo(1);
     assertThat(ApplicationIT.<List<String>>read(first, "$.snapshot.featureRows[*].code"))
-        .hasSize(142)
+        .hasSize(145)
         .doesNotContain("POWERTRAIN_HYBRID");
   }
 
@@ -256,14 +256,19 @@ class CatalogsIT extends ApplicationIT {
 
   @Test
   void startingAgainAddsNoCatalogs() {
+    var catalogs = count("catalog");
+    var lineages = count("lineage");
+    var cells = count("catalog_cell");
+
     seed.run(new DefaultApplicationArguments());
 
-    assertThat(jdbc.sql("SELECT count(*) FROM catalog").query(Long.class).single()).isEqualTo(2);
-    assertThat(jdbc.sql("SELECT count(*) FROM lineage").query(Long.class).single()).isEqualTo(1);
+    assertThat(count("catalog")).isEqualTo(catalogs).isPositive();
+    assertThat(count("lineage")).isEqualTo(lineages);
+    assertThat(count("catalog_cell")).isEqualTo(cells);
   }
 
   @Test
-  void theDatabaseRefusesContentsAndVersionsThatBreakACatalogsRules() {
+  void theDatabaseRefusesCellsOutsideTheirCatalogAndVersionNumbersThatDoNotFitTheStatus() {
     var catalog = version(2);
     var owner = jdbc.sql("SELECT owner_id FROM catalog LIMIT 1").query(Long.class).single();
     var base = id("trim", "name", "Base");
@@ -283,6 +288,8 @@ class CatalogsIT extends ApplicationIT {
             "an Approved catalog without a version number",
             "INSERT INTO catalog (lineage_id, name, owner_id, status)"
                 + " VALUES (%d, 'No number', %d, 'APPROVED')".formatted(lineage(), owner),
+            "an Approved catalog without an approver",
+            "UPDATE catalog SET approved_by = NULL WHERE id = %d".formatted(catalog),
             "a working copy with a version number",
             "INSERT INTO catalog (lineage_id, name, owner_id, status, version_number)"
                 + " VALUES (%d, 'Numbered draft', %d, 'DRAFT', 7)".formatted(lineage(), owner),
@@ -316,6 +323,8 @@ class CatalogsIT extends ApplicationIT {
 
     var sent =
         statements.list.stream()
+            // Other threads, such as the one that clears out expired sessions, log here too.
+            .filter(event -> event.getThreadName().equals(Thread.currentThread().getName()))
             .map(ILoggingEvent::getFormattedMessage)
             .filter(message -> message.startsWith("Executing prepared SQL statement"))
             .toList();
@@ -357,6 +366,10 @@ class CatalogsIT extends ApplicationIT {
         .param("number", number)
         .query(Long.class)
         .single();
+  }
+
+  private long count(String table) {
+    return jdbc.sql("SELECT count(*) FROM " + table).query(Long.class).single();
   }
 
   private long id(String table, String column, String value) {

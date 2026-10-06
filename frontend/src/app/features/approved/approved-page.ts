@@ -1,4 +1,5 @@
 import { DatePipe } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
 import { Component, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Button } from 'primeng/button';
@@ -21,7 +22,7 @@ import { AvailabilityMatrix } from '../../shared/availability-matrix/availabilit
       @if (catalog(); as catalog) {
         <header class="mt-4">
           <h1 class="text-2xl font-semibold">{{ catalog.vehicleLine }} {{ catalog.modelYear }}</h1>
-          <p class="mt-2" data-shown>
+          <p class="mt-2" aria-live="polite" data-shown>
             Approved version {{ catalog.versionNumber }}, "{{ catalog.name }}", approved by
             {{ catalog.approvedBy }} on {{ catalog.approvedAt | date: 'mediumDate' }}.
           </p>
@@ -97,8 +98,20 @@ export class ApprovedPage {
     void this.open();
   }
 
+  /** How many versions have been asked for, so that a slow answer to an earlier choice is dropped. */
+  private asked = 0;
+
+  /** Shows the version, or leaves the page as it is when the version cannot be read. */
   protected async show(version: VersionSummary): Promise<void> {
-    this.catalog.set(await this.catalogs.find(version.catalogId));
+    const mine = ++this.asked;
+    try {
+      const catalog = await this.catalogs.find(version.catalogId);
+      if (mine === this.asked) {
+        this.catalog.set(catalog);
+      }
+    } catch {
+      // The failure has already been shown as a message.
+    }
   }
 
   /** Shows the current Approved version, which is the first of the list. */
@@ -106,14 +119,14 @@ export class ApprovedPage {
     try {
       const versions = await this.catalogs.versions(this.lineageId);
       this.versions.set(versions);
+      this.missing.set(versions.length === 0);
       if (versions.length > 0) {
         await this.show(versions[0]);
-      } else {
-        this.missing.set(true);
       }
-    } catch {
-      // The backend knows no such lineage. Any other failure has been shown as a message.
-      this.missing.set(true);
+    } catch (error) {
+      // The backend refuses an address that names no lineage. Any other failure has been shown as
+      // a message.
+      this.missing.set(error instanceof HttpErrorResponse && [400, 404].includes(error.status));
     }
   }
 }

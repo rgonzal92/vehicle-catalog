@@ -1,6 +1,6 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { Component, input } from '@angular/core';
+import { ApplicationRef, Component, input } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { Named } from '../../core/fixed-lists';
@@ -154,5 +154,48 @@ describe('ApprovedPage', () => {
     await vi.waitFor(() =>
       expect(element.textContent).toContain('There is no Approved version at this address.'),
     );
+  });
+
+  it('shows the version chosen last, whichever answer arrives last', async () => {
+    const third = { ...versions[0], catalogId: 13, versionNumber: 3, name: 'Winter update' };
+    const element = await page([third, ...versions]);
+    (await catalogRequest(13)).flush(catalog(third, [{}]));
+    const show = (version: number) =>
+      vi.waitFor(() => {
+        const button = element.querySelector<HTMLButtonElement>(
+          `button[aria-label="Show version ${version}"]`,
+        );
+        expect(button).not.toBeNull();
+        return button!;
+      });
+
+    (await show(2)).click();
+    const slow = await catalogRequest(12);
+    (await show(1)).click();
+    const fast = await catalogRequest(11);
+    fast.flush(catalog(versions[1], [{}]));
+    slow.flush(catalog(versions[0], [{}, {}, {}]));
+    await TestBed.inject(ApplicationRef).whenStable();
+
+    expect(element.querySelector('[data-shown]')?.textContent).toContain('Approved version 1');
+  });
+
+  it('keeps showing a version when another one cannot be read', async () => {
+    const element = await page(versions);
+    (await catalogRequest(12)).flush(catalog(versions[0], [{}, {}, {}]));
+    const show = await vi.waitFor(() => {
+      const button = element.querySelector<HTMLButtonElement>(
+        'button[aria-label="Show version 1"]',
+      );
+      expect(button).not.toBeNull();
+      return button!;
+    });
+
+    show.click();
+    (await catalogRequest(11)).flush(null, { status: 503, statusText: 'Service Unavailable' });
+    await TestBed.inject(ApplicationRef).whenStable();
+
+    expect(element.querySelector('[data-shown]')?.textContent).toContain('Approved version 2');
+    expect(element.textContent).not.toContain('There is no Approved version at this address.');
   });
 });

@@ -29,8 +29,8 @@ import { Session } from '../../core/session';
 
       <section class="mt-10" aria-labelledby="approved-catalogs">
         <h2 id="approved-catalogs" class="text-xl font-semibold">Approved catalogs</h2>
-        @if (lineages().length > 0) {
-          <p-table class="mt-2 block" [value]="lineages()">
+        @if (lineages()?.length) {
+          <p-table class="mt-2 block" [value]="lineages() ?? []">
             <ng-template #header>
               <tr>
                 <th scope="col">Vehicle line</th>
@@ -58,7 +58,7 @@ import { Session } from '../../core/session';
               </tr>
             </ng-template>
           </p-table>
-        } @else {
+        } @else if (lineages()) {
           <p class="mt-2 text-muted-color">There are no Approved catalogs.</p>
         }
       </section>
@@ -95,8 +95,11 @@ import { Session } from '../../core/session';
 export class DashboardPage {
   protected readonly session = inject(Session);
 
-  /** The lineages that have an Approved version, each with its current one. */
-  protected readonly lineages = signal<LineageSummary[]>([]);
+  /**
+   * The lineages that have an Approved version, each with its current one, or null until the
+   * backend has answered.
+   */
+  protected readonly lineages = signal<LineageSummary[] | null>(null);
 
   constructor() {
     void this.load(inject(Catalogs));
