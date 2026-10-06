@@ -3,10 +3,14 @@ package dev.rgonz.catalog.catalog;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.rgonz.catalog.ApplicationIT;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.LongConsumer;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -23,37 +27,29 @@ import org.springframework.transaction.support.TransactionTemplate;
 class LargestCatalogIT extends WorkingCopyTests {
   private static final Logger log = LoggerFactory.getLogger(LargestCatalogIT.class);
 
-  /**
-   * What the copy function does, as the statements it is made of. They are sent one by one only
-   * here, to measure what the single call saves.
-   */
-  private static final List<String> COPY_STATEMENTS =
-      List.of(
-          """
-          INSERT INTO catalog_trim (catalog_id, trim_id)
-          SELECT :target, trim_id FROM catalog_trim WHERE catalog_id = :source
-          """,
-          """
-          INSERT INTO catalog_region (catalog_id, region_code)
-          SELECT :target, region_code FROM catalog_region WHERE catalog_id = :source
-          """,
-          """
-          INSERT INTO catalog_trim_region (catalog_id, trim_id, region_code)
-          SELECT :target, trim_id, region_code FROM catalog_trim_region WHERE catalog_id = :source
-          """,
-          """
-          INSERT INTO catalog_feature (catalog_id, feature_id)
-          SELECT :target, feature_id FROM catalog_feature WHERE catalog_id = :source
-          """,
-          """
-          INSERT INTO catalog_cell (catalog_id, feature_id, trim_id, region_code, availability)
-          SELECT :target, feature_id, trim_id, region_code, availability
-          FROM catalog_cell
-          WHERE catalog_id = :source
-          """);
-
   /** How many copies of each kind are timed, after two that are not. */
   private static final int TIMED = 9;
+
+  /**
+   * What the copy function does, as the statements it is made of, read from the migration that
+   * defines it. They are sent one by one only here, to measure what the single call saves.
+   */
+  private static List<String> copyStatements() {
+    try (var migration =
+        LargestCatalogIT.class.getResourceAsStream("/db/migration/R__copy_catalog.sql")) {
+      var function = new String(migration.readAllBytes(), StandardCharsets.UTF_8);
+      var body = function.substring(function.indexOf("BEGIN") + 5, function.lastIndexOf("END"));
+
+      return Stream.of(body.split(";"))
+          .map(String::strip)
+          .filter(statement -> !statement.isEmpty())
+          .map(statement -> statement.replace("source_id", ":source"))
+          .map(statement -> statement.replace("target_id", ":target"))
+          .toList();
+    } catch (IOException unreadable) {
+      throw new UncheckedIOException(unreadable);
+    }
+  }
 
   @Autowired LargestCatalog largest;
   @Autowired TransactionTemplate transactions;
@@ -66,7 +62,7 @@ class LargestCatalogIT extends WorkingCopyTests {
   @Test
   void aStartThatDoesNotAskForItHasNone() {
     assertThat(count("vehicle_line WHERE code = 'LARGEST_CATALOG'")).isZero();
-    assertThat(count("feature")).isEqualTo(330);
+    assertThat(count("feature WHERE code LIKE 'LARGEST%%'")).isZero();
   }
 
   @Test
@@ -111,14 +107,24 @@ class LargestCatalogIT extends WorkingCopyTests {
 
   @Test
   void askingForItAgainAnswersWithTheOneThatIsThere() {
+    var before = count("feature");
     var first = largest.create();
     var catalogs = count("catalog");
-    var features = count("feature");
 
     assertThat(largest.create()).isEqualTo(first);
 
     assertThat(count("catalog")).isEqualTo(catalogs);
-    assertThat(count("feature")).isEqualTo(features).isEqualTo(830);
+    assertThat(count("feature")).isEqualTo(before + 500);
+  }
+
+  @Test
+  void itIsStillFoundOnceItsVehicleLineHasWorkingCopiesInOtherModelYears() {
+    var first = largest.create();
+    // A working copy for a later model year is a carryover, in a lineage of its own.
+    workingCopy(ana(), "LARGEST_CATALOG", modelYear(first) + 1);
+    workingCopy(ana(), "LARGEST_CATALOG", modelYear(first));
+
+    assertThat(largest.create()).isEqualTo(first);
   }
 
   @Test
@@ -138,7 +144,8 @@ class LargestCatalogIT extends WorkingCopyTests {
   /**
    * Times a copy of the largest catalog as the one call the application makes and as the same
    * statements sent one by one, and writes the times to the log. The times are a measurement to be
-   * read, not a check: the test only makes sure that both ways copy the same rows.
+   * read, not a check: the test only makes sure that both ways copy as many rows of each kind as
+   * the catalog has.
    */
   @Test
   void aCopyIsTimedAsOneCallAndAsTheSameStatementsSentOneByOne() {
@@ -149,9 +156,11 @@ class LargestCatalogIT extends WorkingCopyTests {
                 .param("source", source)
                 .param("target", target)
                 .query(row -> {});
+    var statements = copyStatements();
+    assertThat(statements).as("a statement for each content table").hasSize(5);
     LongConsumer oneByOne =
         target ->
-            COPY_STATEMENTS.forEach(
+            statements.forEach(
                 statement ->
                     jdbc.sql(statement).param("source", source).param("target", target).update());
     var callTimes = new ArrayList<Double>();
@@ -172,7 +181,6 @@ class LargestCatalogIT extends WorkingCopyTests {
         TIMED,
         summary(callTimes),
         summary(statementTimes));
-    assertThat(callTimes).hasSize(TIMED);
   }
 
   /**
@@ -187,14 +195,15 @@ class LargestCatalogIT extends WorkingCopyTests {
             .query(String.class)
             .list();
     var times = new ArrayList<Double>();
+    var owner = ana();
 
     for (var save = -5; save < 60; save++) {
       var feature = "LARGEST_%03d".formatted(1 + Math.floorMod(save * 37, 500));
       var trim = trims.get(Math.floorMod(save, trims.size()));
-      var availability = save % 2 == 0 ? "S" : "A";
+      var cell = cell(feature, trim, "LARGEST1", save % 2 == 0 ? "S" : "A");
       var revision = "\"%d\"".formatted(revision(copy));
       var started = System.nanoTime();
-      var saved = setCells(ana(), copy, revision, cell(feature, trim, "LARGEST1", availability));
+      var saved = setCells(owner, copy, revision, cell);
       var took = (System.nanoTime() - started) / 1_000_000.0;
       assertThat(saved).hasStatusOk();
       if (save >= 0) {
@@ -207,7 +216,6 @@ class LargestCatalogIT extends WorkingCopyTests {
         times.size(),
         summary(times),
         times.stream().filter(time -> time > 50).count());
-    assertThat(times).hasSize(60);
   }
 
   /** The model year of the catalog's lineage. */

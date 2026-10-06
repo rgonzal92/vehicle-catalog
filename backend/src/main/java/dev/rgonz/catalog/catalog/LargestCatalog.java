@@ -17,9 +17,12 @@ import org.springframework.transaction.annotation.Transactional;
  * version of a vehicle line of its own, "Largest Catalog", made of library entries of its own, so
  * that a working copy of it is created and edited like any other.
  *
- * <p>It is made at startup only where {@code app.largest-catalog} is set to true, which no deployed
- * configuration does, and nothing a visitor can reach makes it. A test makes it by calling {@link
- * #create()}.
+ * <p>It is made at startup only where {@code app.largest-catalog} is true, which it is not unless
+ * it is set, and nothing a visitor can reach makes it. A test makes it by calling {@link
+ * #create()}. It runs after the seeds, each of which fills only what is still empty. Where it is
+ * asked for, the author and manager demo accounts have to say who they are, and the names it gives
+ * its library entries have to be free, or the application does not start. Its 12 trims, 8 regions,
+ * and 500 features stay in the library from then on.
  */
 @Component
 @Order(3)
@@ -59,45 +62,20 @@ class LargestCatalog implements ApplicationRunner {
     var existing =
         jdbc.sql(
                 """
-                SELECT l.current_catalog_id
-                FROM lineage l
+                SELECT c.id
+                FROM catalog c
+                JOIN lineage l ON l.id = c.lineage_id
                 JOIN vehicle_line v ON v.id = l.vehicle_line_id
-                WHERE v.code = 'LARGEST_CATALOG'
+                WHERE v.code = 'LARGEST_CATALOG' AND c.status = 'APPROVED'
+                ORDER BY c.id
+                LIMIT 1
                 """)
             .query(Long.class)
             .optional();
     if (existing.isPresent()) {
       return existing.get();
     }
-    var owner = demoPerson(Role.AUTHOR);
-    var approver = demoPerson(Role.MANAGER);
 
-    jdbc.sql(
-            """
-            INSERT INTO trim (name, sort_order)
-            SELECT 'Largest ' || to_char(n, 'FM00'), (SELECT COALESCE(max(sort_order), 0) FROM trim) + n
-            FROM generate_series(1, 12) AS n
-            """)
-        .update();
-    jdbc.sql(
-            """
-            INSERT INTO region (code, name, sort_order)
-            SELECT 'LARGEST' || n, 'Largest region ' || n,
-                   (SELECT COALESCE(max(sort_order), 0) FROM region) + n
-            FROM generate_series(1, 8) AS n
-            """)
-        .update();
-    // The features are spread over every category but Packages, which only packages are in.
-    jdbc.sql(
-            """
-            INSERT INTO feature (code, name, category_code, kind)
-            SELECT 'LARGEST_' || to_char(n, 'FM000'), 'Largest feature ' || to_char(n, 'FM000'),
-                   categories.codes[1 + n % cardinality(categories.codes)], 'FEATURE'
-            FROM generate_series(1, 500) AS n,
-                 (SELECT array_agg(code ORDER BY sort_order) AS codes
-                  FROM category WHERE code <> 'PACKAGES') AS categories
-            """)
-        .update();
     var lineage =
         jdbc.sql(
                 """
@@ -122,8 +100,8 @@ class LargestCatalog implements ApplicationRunner {
                 RETURNING id
                 """)
             .param("lineage", lineage)
-            .param("owner", owner)
-            .param("approver", approver)
+            .param("owner", demoPerson(Role.AUTHOR))
+            .param("approver", demoPerson(Role.MANAGER))
             .query(Long.class)
             .single();
     jdbc.sql("UPDATE lineage SET current_catalog_id = :catalog WHERE id = :lineage")
@@ -131,18 +109,53 @@ class LargestCatalog implements ApplicationRunner {
         .param("lineage", lineage)
         .update();
 
-    // An Approved version carries the labels it was approved with.
+    // Each kind of library entry is made and added to the catalog in one statement, so the catalog
+    // gets exactly the entries made for it. An Approved version carries the labels it was approved
+    // with.
     jdbc.sql(
             """
+            WITH made AS (
+                INSERT INTO trim (name, sort_order)
+                SELECT 'Largest ' || to_char(n, 'FM00'),
+                       (SELECT COALESCE(max(sort_order), 0) FROM trim) + n
+                FROM generate_series(1, 12) AS n
+                RETURNING id, name, sort_order
+            )
             INSERT INTO catalog_trim (catalog_id, trim_id, approved_name, approved_sort_order)
-            SELECT :catalog, id, name, sort_order FROM trim WHERE name LIKE 'Largest %'
+            SELECT :catalog, id, name, sort_order FROM made
             """)
         .param("catalog", catalog)
         .update();
     jdbc.sql(
             """
+            WITH made AS (
+                INSERT INTO region (code, name, sort_order)
+                SELECT 'LARGEST' || n, 'Largest region ' || n,
+                       (SELECT COALESCE(max(sort_order), 0) FROM region) + n
+                FROM generate_series(1, 8) AS n
+                RETURNING code, name
+            )
             INSERT INTO catalog_region (catalog_id, region_code, approved_name)
-            SELECT :catalog, code, name FROM region WHERE code LIKE 'LARGEST%'
+            SELECT :catalog, code, name FROM made
+            """)
+        .param("catalog", catalog)
+        .update();
+    // The features are spread over every category but Packages, which only packages are in.
+    jdbc.sql(
+            """
+            WITH made AS (
+                INSERT INTO feature (code, name, category_code, kind)
+                SELECT 'LARGEST_' || to_char(n, 'FM000'),
+                       'Largest feature ' || to_char(n, 'FM000'),
+                       categories.codes[1 + n % cardinality(categories.codes)], 'FEATURE'
+                FROM generate_series(1, 500) AS n,
+                     (SELECT array_agg(code ORDER BY sort_order) AS codes
+                      FROM category WHERE code <> 'PACKAGES') AS categories
+                RETURNING id, name, category_code
+            )
+            INSERT INTO catalog_feature
+                (catalog_id, feature_id, approved_name, approved_category_code)
+            SELECT :catalog, id, name, category_code FROM made
             """)
         .param("catalog", catalog)
         .update();
@@ -153,14 +166,6 @@ class LargestCatalog implements ApplicationRunner {
             FROM catalog_trim t
             JOIN catalog_region r ON r.catalog_id = t.catalog_id
             WHERE t.catalog_id = :catalog
-            """)
-        .param("catalog", catalog)
-        .update();
-    jdbc.sql(
-            """
-            INSERT INTO catalog_feature
-                (catalog_id, feature_id, approved_name, approved_category_code)
-            SELECT :catalog, id, name, category_code FROM feature WHERE code LIKE 'LARGEST\\_%'
             """)
         .param("catalog", catalog)
         .update();
