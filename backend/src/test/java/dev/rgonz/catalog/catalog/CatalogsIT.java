@@ -115,7 +115,7 @@ class CatalogsIT extends ApplicationIT {
     assertThat(ApplicationIT.<List<Integer>>read(catalog, "$.snapshot.trims[*].sortOrder"))
         .containsExactly(1, 2, 3, 5);
     assertThat(ApplicationIT.<List<Object>>read(catalog, "$.snapshot.offerings")).hasSize(7);
-    assertThat(ApplicationIT.<List<Object>>read(catalog, "$.snapshot.featureRows")).hasSize(149);
+    assertThat(ApplicationIT.<List<Object>>read(catalog, "$.snapshot.featureRows")).hasSize(151);
     assertThat(
             ApplicationIT.<List<Map<String, Object>>>read(
                 catalog, "$.snapshot.featureRows[?(@.code == 'ROOF_PANORAMIC')]"))
