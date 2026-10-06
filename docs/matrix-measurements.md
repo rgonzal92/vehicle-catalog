@@ -1,6 +1,6 @@
 # Matrix measurements at the largest catalog size
 
-How the matrix scrolls and edits at 500 feature rows by 96 offerings (12 trims sold in 8 regions). These are measurements under synthetic load, on generated data, taken to decide how the matrix is built. They say nothing certain about a real catalog.
+How the matrix scrolls and edits at 500 feature rows by 96 offerings (12 trims sold in 8 regions). These are measurements under synthetic load, on generated data, taken to decide how the matrix is built. They say nothing certain about a real catalog. How the whole app behaves at that size, with a backend and a database behind the matrix, is in [Measurements at the largest catalog size](largest-catalog-measurements.md).
 
 ## Results
 
