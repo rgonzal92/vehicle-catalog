@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import { MatrixContents } from '../shared/availability-matrix/matrix';
+import { Cell, MatrixContents } from '../shared/availability-matrix/matrix';
 
 /** A lineage with its current Approved version, as the dashboard lists it. */
 export interface LineageSummary {
@@ -44,6 +44,8 @@ export interface Catalog {
   modelYear: number;
   approvedBy: string | null;
   approvedAt: string | null;
+  /** Whether the signed-in person owns it, which lets them edit it while it is in status Draft. */
+  owned: boolean;
   /**
    * The Approved version it was copied from, or null when it started empty. After a carryover its
    * model year is an earlier one than the catalog's.
@@ -90,7 +92,10 @@ export function startPointInWords(start: StartPoint): string {
   }
 }
 
-/** Reads lineages, their Approved versions, and whole catalogs, and creates working copies. */
+/**
+ * Reads lineages, their Approved versions, and whole catalogs, and creates and edits working
+ * copies.
+ */
 @Injectable({ providedIn: 'root' })
 export class Catalogs {
   private readonly http = inject(HttpClient);
@@ -128,5 +133,19 @@ export class Catalogs {
   /** Creates a working copy that belongs to the signed-in person. */
   create(given: NewWorkingCopy): Promise<WorkingCopy> {
     return firstValueFrom(this.http.post<WorkingCopy>('/api/catalogs', given));
+  }
+
+  /**
+   * Sets cells of a working copy as an edit made from the revision, and answers with the revision
+   * the save led to. The backend refuses it when the catalog has changed since that revision.
+   */
+  async setCells(catalogId: number, revision: number, cells: Cell[]): Promise<number> {
+    const saved = await firstValueFrom(
+      this.http.put<{ revision: number }>(`/api/catalogs/${catalogId}/cells`, cells, {
+        headers: { 'If-Match': `"${revision}"` },
+      }),
+    );
+
+    return saved.revision;
   }
 }
