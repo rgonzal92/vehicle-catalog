@@ -117,7 +117,7 @@ class CatalogEdits {
                   .param("ids", ids)
                   .query()
                   .singleRow();
-          requireAddable(counted, ids.length, "trim", MOST_TRIMS);
+          requireAddable(counted, ids.length, "trim", "trims", MOST_TRIMS);
 
           jdbc.sql(
                   """
@@ -169,7 +169,7 @@ class CatalogEdits {
                   .param("codes", codes)
                   .query()
                   .singleRow();
-          requireAddable(counted, codes.length, "region", MOST_REGIONS);
+          requireAddable(counted, codes.length, "region", "regions", MOST_REGIONS);
 
           jdbc.sql(
                   """
@@ -286,7 +286,7 @@ class CatalogEdits {
                   .param("ids", ids)
                   .query()
                   .singleRow();
-          requireAddable(counted, ids.length, "feature", MOST_FEATURE_ROWS);
+          requireAddable(counted, ids.length, "feature", "feature rows", MOST_FEATURE_ROWS);
 
           jdbc.sql(
                   """
@@ -462,16 +462,18 @@ class CatalogEdits {
    *
    * @param counted how many of the entries asked for are active and not yet in the catalog, as
    *     {@code addable}, and how many entries of the kind the catalog has, as {@code had}
+   * @param entry what the library calls one such entry
+   * @param had what the catalog calls the ones it has added
    */
   private static void requireAddable(
-      Map<String, Object> counted, int asked, String entry, int most) {
+      Map<String, Object> counted, int asked, String entry, String had, int most) {
     if ((long) counted.get("addable") != asked) {
       throw ApiException.invalid(
           "Only an active %s of the library that the catalog does not have yet can be added."
               .formatted(entry));
     }
     if ((long) counted.get("had") + asked > most) {
-      throw ApiException.limitExceeded("A catalog has at most %d %ss.".formatted(most, entry));
+      throw ApiException.limitExceeded("A catalog has at most %d %s.".formatted(most, had));
     }
   }
 

@@ -1,5 +1,5 @@
 import { HttpClient } from '@angular/common/http';
-import { inject, Injectable, signal } from '@angular/core';
+import { computed, inject, Injectable, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 /** An entry of a fixed list: its code and the name shown for it. */
@@ -24,6 +24,12 @@ export class FixedLists {
 
   /** The categories in display order. */
   readonly categories = () => this.lists()?.categories ?? [];
+
+  /** What a filter on category offers: every category, or one of them. */
+  readonly categoryFilters = computed(() => [
+    { code: '', name: 'Every category' },
+    ...this.categories(),
+  ]);
 
   /** The model years a catalog can be made for. */
   readonly modelYears = () => this.lists()?.modelYears ?? [];

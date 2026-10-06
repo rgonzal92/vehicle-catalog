@@ -36,11 +36,13 @@ test('the owner adds feature rows from the library, narrows the matrix to them, 
   await choose(dialog, 'Kind', 'Package');
   await expect(dialog.getByRole('cell', { name: 'Exterior' })).toHaveCount(0);
   await dialog.getByRole('checkbox', { name: 'Add Heavy-Duty Tow Package' }).check();
-  await expect(dialog.getByText('2 features chosen')).toBeVisible();
+  await expect(dialog.getByText('2 features ticked')).toBeVisible();
   await search(dialog, 'ROOF_PANORAMIC');
   await choose(dialog, 'Category', 'Every category');
   await choose(dialog, 'Kind', 'Every kind');
-  await expect(dialog.getByRole('checkbox', { name: 'Add Panoramic Roof' })).toBeDisabled();
+  await expect(
+    dialog.getByRole('checkbox', { name: 'Panoramic Roof is already a feature row' }),
+  ).toBeDisabled();
   await expect(dialog.getByText('(already a row)')).toBeVisible();
   await expectAccessible(page);
   await dialog.getByRole('button', { name: 'Add', exact: true }).click();
@@ -95,7 +97,9 @@ test('the owner adds feature rows from the library, narrows the matrix to them, 
   await expectAccessible(page);
   await question.getByRole('button', { name: 'Keep' }).click();
   await expect(matrix.getByRole('row', { name: /ROOF_REMOVABLE/ })).toBeVisible();
-  await page.getByRole('button', { name: 'Remove Removable Roof' }).click();
+  // The focus is back on the button that asked, so the keyboard goes on from there.
+  await expect(page.getByRole('button', { name: 'Remove Removable Roof' })).toBeFocused();
+  await page.keyboard.press('Enter');
   await question.getByRole('button', { name: 'Remove', exact: true }).click();
   await expect(question).toBeHidden();
   await expect(shown).toHaveText('0 of 152 feature rows shown');
@@ -117,7 +121,7 @@ test('the owner adds feature rows from the library, narrows the matrix to them, 
   ]);
 });
 
-test('a retired feature is not on offer in the picker', async ({ page }) => {
+test('a retired feature is not listed in the picker', async ({ page }) => {
   const unique = Date.now();
   const code = `RETIRING_${unique}`;
   const name = `Retiring feature ${unique}`;
@@ -141,7 +145,7 @@ test('a retired feature is not on offer in the picker', async ({ page }) => {
   await expect(dialog.getByRole('checkbox', { name: `Add ${name}` })).toBeEnabled();
   await dialog.getByRole('button', { name: 'Cancel' }).click();
 
-  // Retired, it is no longer on offer.
+  // Retired, it is no longer listed.
   await page.goto('/admin/features');
   const filters = page.getByRole('search');
   await filters.getByLabel('Code or name').fill(code);

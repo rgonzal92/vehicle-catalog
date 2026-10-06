@@ -195,6 +195,70 @@ describe('AvailabilityMatrix', () => {
     expect(document.activeElement).toBe(cell(element, 1, 0));
   });
 
+  it('starts the keyboard at the first remove button when the matrix shows no offering', async () => {
+    const { fixture, element, host } = await matrix(true);
+    host.hiddenRegions.set(new Set(['NA', 'EU']));
+    await fixture.whenStable();
+    expect(element.querySelector('td[tabindex]')).toBeNull();
+    const tabStop = element.querySelector<HTMLElement>('[tabindex="0"]')!;
+    // The test page cannot tell a key press from a click; the focus here comes by keyboard.
+    vi.spyOn(tabStop, 'matches').mockReturnValue(true);
+
+    tabStop.focus();
+
+    expect(document.activeElement).toBe(
+      element.querySelector('button[aria-label="Remove 2.0L Turbo"]'),
+    );
+  });
+
+  it('names a feature row by its feature alone, whatever else its header holds', async () => {
+    const { element } = await matrix(true);
+
+    expect(
+      Array.from(element.querySelectorAll('[role="rowheader"]')).map((header) =>
+        header.getAttribute('aria-label'),
+      ),
+    ).toEqual(['2.0L Turbo', 'Panoramic Roof']);
+  });
+
+  it("puts the focus on a row's remove button when asked to, or where the keyboard starts", async () => {
+    const { fixture, element } = await matrix(true);
+    const theMatrixItself = theMatrix(fixture);
+
+    const removeRoof = element.querySelector<HTMLElement>(
+      'button[aria-label="Remove Panoramic Roof"]',
+    )!;
+    // The focus comes from outside the matrix and by keyboard, as it does after a dialog closes.
+    vi.spyOn(removeRoof, 'matches').mockReturnValue(true);
+
+    theMatrixItself.focusOn(contents.featureRows[0]);
+    expect(document.activeElement).toBe(removeRoof);
+
+    theMatrixItself.focusOn();
+    expect(document.activeElement).toBe(cell(element, 1, 0));
+  });
+
+  it('keeps a row with a marked cell in view whatever the filter', async () => {
+    const { fixture, element, host } = await matrix(true);
+    press(cell(element, 1, 0), 'a');
+    theMatrix(fixture).notSaved(host.changes[0], 'Not saved.');
+
+    host.featureFilter.set((feature) => feature.code.startsWith('ROOF'));
+    await fixture.whenStable();
+
+    expect(rows(element).map((row) => row[0])).toEqual([
+      'Powertrain',
+      'ENGINE_20T',
+      'Exterior',
+      'ROOF_PANORAMIC',
+    ]);
+
+    // Once the cell is set again the mark goes, and the row with it.
+    press(cell(element, 1, 0), 'a');
+    await fixture.whenStable();
+    expect(rows(element).map((row) => row[0])).toEqual(['Exterior', 'ROOF_PANORAMIC']);
+  });
+
   it('lists feature rows under category subheaders and shows each cell, a missing one as a dash', async () => {
     const { element } = await matrix(false);
 

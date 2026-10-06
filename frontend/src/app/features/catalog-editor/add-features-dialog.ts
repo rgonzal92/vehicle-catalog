@@ -8,15 +8,25 @@ import { Select } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { Catalog, CatalogEdit, Catalogs } from '../../core/catalogs';
 import { FixedLists } from '../../core/fixed-lists';
-import { FeatureKind, KIND_NAMES, Library, LibraryFeature } from '../../core/library';
+import {
+  FeatureKind,
+  FeaturePage,
+  KIND_FILTERS,
+  KIND_NAMES,
+  Library,
+  LibraryFeature,
+} from '../../core/library';
 import { reasonOf } from '../../shared/reason-of';
 import { counted } from './counted';
+
+/** What the table shows before the first answer to a search has come. */
+const NOTHING_FOUND: FeaturePage = { items: [], total: 0 };
 
 /**
  * Where the owner of a working copy picks library features to add as feature rows: a search by
  * code or name with filters on category and kind, a page at a time, and a box to tick for each
- * feature wanted. Only active features are on offer, and one that is a row already cannot be
- * picked again. What is ticked stays ticked from page to page and from search to search.
+ * feature wanted. Only active features are listed, and one that is a row already cannot be ticked
+ * again. What is ticked stays ticked from page to page and from search to search.
  */
 @Component({
   imports: [ReactiveFormsModule, Button, Dialog, InputText, Message, Select, TableModule],
@@ -52,7 +62,7 @@ import { counted } from './counted';
               optionLabel="name"
               optionValue="code"
               appendTo="body"
-              [options]="categories()"
+              [options]="fixedLists.categoryFilters()"
               (onChange)="search()"
             />
           </div>
@@ -65,7 +75,7 @@ import { counted } from './counted';
               optionLabel="name"
               optionValue="code"
               appendTo="body"
-              [options]="kinds"
+              [options]="kindFilters"
               (onChange)="search()"
             />
           </div>
@@ -98,10 +108,14 @@ import { counted } from './counted';
                 <input
                   type="checkbox"
                   class="size-4"
-                  [checked]="rows().has(feature.id) || chosen().has(feature.id)"
+                  [checked]="rows().has(feature.id) || ticked().has(feature.id)"
                   [disabled]="rows().has(feature.id)"
-                  [attr.aria-label]="'Add ' + feature.name"
-                  (change)="choose(feature.id, $any($event.target).checked)"
+                  [attr.aria-label]="
+                    rows().has(feature.id)
+                      ? feature.name + ' is already a feature row'
+                      : 'Add ' + feature.name
+                  "
+                  (change)="tick(feature.id, $any($event.target).checked)"
                 />
               </td>
               <td>{{ feature.code }}</td>
@@ -112,7 +126,7 @@ import { counted } from './counted';
                 }
               </td>
               <td>{{ fixedLists.categoryName(feature.categoryCode) }}</td>
-              <td>{{ kindNames[kindOf(feature)] }}</td>
+              <td>{{ kindName(feature) }}</td>
             </tr>
           </ng-template>
           <ng-template #emptymessage>
@@ -123,11 +137,11 @@ import { counted } from './counted';
         </p-table>
 
         <div class="flex items-center justify-end gap-4">
-          <span aria-live="polite" data-chosen>{{ chosenInWords() }}</span>
+          <span aria-live="polite" data-ticked>{{ tickedInWords() }}</span>
           <p-button label="Cancel" severity="secondary" (onClick)="visible.set(false)" />
           <p-button
             label="Add"
-            [disabled]="chosen().size === 0"
+            [disabled]="ticked().size === 0"
             [loading]="adding()"
             (onClick)="add()"
           />
@@ -168,13 +182,10 @@ export class AddFeaturesDialog {
   protected readonly first = signal(0);
 
   /** The page of the search being shown. */
-  protected readonly found = signal<{ items: LibraryFeature[]; total: number }>({
-    items: [],
-    total: 0,
-  });
+  protected readonly found = signal<FeaturePage>(NOTHING_FOUND);
 
   /** The ids of the features ticked so far, on whichever page or search. */
-  protected readonly chosen = signal<ReadonlySet<number>>(new Set());
+  protected readonly ticked = signal<ReadonlySet<number>>(new Set());
 
   protected readonly filters = inject(NonNullableFormBuilder).group({
     query: '',
@@ -182,23 +193,18 @@ export class AddFeaturesDialog {
     kind: '' as FeatureKind | '',
   });
 
-  protected readonly kindNames = KIND_NAMES;
-  protected readonly kinds = [
-    { code: '', name: 'Every kind' },
-    ...Object.entries(KIND_NAMES).map(([code, name]) => ({ code, name })),
-  ];
-  protected readonly categories = computed(() => [
-    { code: '', name: 'Every category' },
-    ...this.fixedLists.categories(),
-  ]);
+  protected readonly kindFilters = KIND_FILTERS;
+
+  /** The filters as they were when the search was last started, which paging goes on from. */
+  private sought = this.filters.getRawValue();
 
   /** The ids of the features that are rows of the catalog already. */
   protected readonly rows = computed(
     () => new Set(this.catalog().snapshot.featureRows.map(({ id }) => id)),
   );
 
-  protected readonly chosenInWords = computed(
-    () => `${counted(this.chosen().size, 'feature')} chosen`,
+  protected readonly tickedInWords = computed(
+    () => `${counted(this.ticked().size, 'feature')} ticked`,
   );
 
   /** How many searches have been sent, so that a slow answer to an earlier one is dropped. */
@@ -215,15 +221,17 @@ export class AddFeaturesDialog {
   /** Opens the dialog with nothing ticked, no filter set, and the first page of features. */
   open(): void {
     this.refusal.set('');
-    this.chosen.set(new Set());
+    this.ticked.set(new Set());
+    this.found.set(NOTHING_FOUND);
     this.filters.reset();
     this.visible.set(true);
     void this.fixedLists.load();
     this.search();
   }
 
-  /** Starts the search over from its first page. */
+  /** Starts the search over from its first page, with the filters as they now are. */
   protected search(): void {
+    this.sought = this.filters.getRawValue();
     this.first.set(0);
     void this.find();
   }
@@ -233,7 +241,7 @@ export class AddFeaturesDialog {
     const mine = ++this.asked;
     try {
       const found = await this.library.activeFeatures({
-        ...this.filters.getRawValue(),
+        ...this.sought,
         page: this.first() / this.pageSize,
         size: this.pageSize,
       });
@@ -245,15 +253,15 @@ export class AddFeaturesDialog {
     }
   }
 
-  protected kindOf(feature: LibraryFeature): FeatureKind {
-    return feature.kind;
+  protected kindName(feature: LibraryFeature): string {
+    return KIND_NAMES[feature.kind];
   }
 
   /** Ticks or unticks a feature. */
-  protected choose(featureId: number, chosen: boolean): void {
-    this.chosen.update((before) => {
+  protected tick(featureId: number, ticked: boolean): void {
+    this.ticked.update((before) => {
       const after = new Set(before);
-      if (chosen) {
+      if (ticked) {
         after.add(featureId);
       } else {
         after.delete(featureId);
@@ -264,7 +272,7 @@ export class AddFeaturesDialog {
 
   /** Adds the ticked features as feature rows and closes, or stays open with the refusal. */
   protected async add(): Promise<void> {
-    const featureIds = [...this.chosen()];
+    const featureIds = [...this.ticked()];
     if (featureIds.length === 0 || this.adding()) {
       return;
     }

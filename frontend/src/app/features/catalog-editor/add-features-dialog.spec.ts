@@ -110,8 +110,8 @@ describe('AddFeaturesDialog', () => {
       ['ROOF_REMOVABLE', 'Removable Roof', 'Exterior', 'Feature'],
       ['PACKAGE_TOW', 'Tow Package', 'Packages', 'Package'],
     ]);
-    expect(box('Add Panoramic Roof').disabled).toBe(true);
-    expect(box('Add Panoramic Roof').checked).toBe(true);
+    expect(box('Panoramic Roof is already a feature row').disabled).toBe(true);
+    expect(box('Panoramic Roof is already a feature row').checked).toBe(true);
     expect(box('Add Removable Roof').disabled).toBe(false);
     expect(box('Add Removable Roof').checked).toBe(false);
     expect(button('Add').disabled).toBe(true);
@@ -133,12 +133,58 @@ describe('AddFeaturesDialog', () => {
     await vi.waitFor(() => expect(dialog().querySelectorAll('tbody tr')).toHaveLength(1));
   });
 
+  it('filters by category and kind, and pages over the search as it was started', async () => {
+    // A dropdown asks how wide the screen is before it opens, which the test page cannot say.
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    await open([roof, removableRoof, tow], 30);
+    const choose = async (dropdown: string, option: string) => {
+      dialog().querySelector<HTMLElement>(`p-select[inputid="${dropdown}"]`)!.click();
+      const found = await vi.waitFor(() => {
+        const wanted = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]')).find(
+          (candidate) => candidate.textContent?.trim() === option,
+        );
+        expect(wanted).toBeDefined();
+        return wanted!;
+      });
+      found.click();
+    };
+
+    await choose('pick-kind', 'Package');
+    const byKind = await searchRequest();
+    expect(byKind.request.params.get('kind')).toBe('PACKAGE');
+    expect(byKind.request.params.has('category')).toBe(false);
+    byKind.flush({ items: [tow], total: 30 });
+
+    await choose('pick-category', 'Packages');
+    const byBoth = await searchRequest();
+    expect(byBoth.request.params.get('kind')).toBe('PACKAGE');
+    expect(byBoth.request.params.get('category')).toBe('PACKAGES');
+    byBoth.flush({ items: [tow], total: 30 });
+
+    // Text typed but not searched for takes no part in paging.
+    const query = dialog().querySelector<HTMLInputElement>('#pick-query')!;
+    query.value = 'not searched for';
+    query.dispatchEvent(new Event('input'));
+    const next = await vi.waitFor(() => {
+      const found = dialog().querySelector<HTMLButtonElement>('button.p-paginator-next');
+      expect(found?.disabled).toBe(false);
+      return found!;
+    });
+    next.click();
+    const second = await searchRequest();
+    expect(second.request.params.get('page')).toBe('1');
+    expect(second.request.params.get('category')).toBe('PACKAGES');
+    expect(second.request.params.has('query')).toBe(false);
+    second.flush({ items: [], total: 30 });
+    vi.unstubAllGlobals();
+  });
+
   it('keeps what is ticked from page to page, and adds it all as one edit', async () => {
     await open([roof, removableRoof], 11);
 
     box('Add Removable Roof').click();
     await vi.waitFor(() =>
-      expect(dialog().querySelector('[data-chosen]')?.textContent).toBe('1 feature chosen'),
+      expect(dialog().querySelector('[data-ticked]')?.textContent).toBe('1 feature ticked'),
     );
     const next = await vi.waitFor(() => {
       const found = dialog().querySelector<HTMLButtonElement>('button.p-paginator-next');
@@ -152,7 +198,7 @@ describe('AddFeaturesDialog', () => {
     await vi.waitFor(() => expect(box('Add Tow Package')).not.toBeNull());
     box('Add Tow Package').click();
     await vi.waitFor(() =>
-      expect(dialog().querySelector('[data-chosen]')?.textContent).toBe('2 features chosen'),
+      expect(dialog().querySelector('[data-ticked]')?.textContent).toBe('2 features ticked'),
     );
 
     button('Add').click();

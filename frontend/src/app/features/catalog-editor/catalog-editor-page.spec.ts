@@ -44,6 +44,10 @@ class MatrixStandIn {
     told.push(['saved', cell]);
   }
 
+  focusOn(feature?: FeatureRow): void {
+    focused.push(feature?.code ?? 'where the keyboard starts');
+  }
+
   notSaved(cell: Cell, reason: string): void {
     told.push(['not saved', cell, reason]);
   }
@@ -53,6 +57,9 @@ const manualAvailable: Cell = { featureId: 7, trimId: 1, regionCode: 'NA', avail
 
 /** What the matrix has been told about saves, in order. */
 let told: unknown[][];
+
+/** Where the matrix has been asked to put the focus, in order. */
+let focused: string[];
 
 describe('CatalogEditorPage', () => {
   let backend: HttpTestingController;
@@ -73,6 +80,7 @@ describe('CatalogEditorPage', () => {
   });
   beforeEach(() => {
     told = [];
+    focused = [];
   });
 
   const workingCopy = {
@@ -505,6 +513,8 @@ describe('CatalogEditorPage', () => {
 
       await vi.waitFor(() => expect(dialog()).toBeNull());
       backend.expectNone((request) => request.method !== 'GET');
+      // The focus goes back to the button that asked.
+      await vi.waitFor(() => expect(focused).toEqual(['ROOF_PANORAMIC']));
     });
 
     it('removes the row as an edit of the revision read, and reads the catalog again', async () => {
@@ -527,6 +537,27 @@ describe('CatalogEditorPage', () => {
       });
       await vi.waitFor(() => expect(dialog()).toBeNull());
       expect(matrixOf(element).textContent).toContain('PACKAGE_TOW of 1 feature rows');
+      expect(element.querySelector('[data-rows-shown]')?.textContent?.trim()).toBe(
+        '1 of 1 feature row shown',
+      );
+      // The matrix is asked for the row that was removed, and starts the keyboard over without it.
+      await vi.waitFor(() => expect(focused).toEqual(['ROOF_PANORAMIC']));
+    });
+
+    it('removes the row once, however often Remove is pressed', async () => {
+      await ask();
+
+      dialogButton('Remove').click();
+      dialogButton('Remove').click();
+
+      const removal = await vi.waitFor(() =>
+        backend.expectOne({ method: 'DELETE', url: '/api/catalogs/41/features/1' }),
+      );
+      await vi.waitFor(() => expect(dialogButton('Keep').disabled).toBe(true));
+      removal.flush({ revision: 5 });
+      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush(workingCopy);
+      await vi.waitFor(() => expect(dialog()).toBeNull());
+      backend.expectNone({ method: 'DELETE', url: '/api/catalogs/41/features/1' });
     });
 
     it('keeps the question open with the reason when the backend turns the removal down', async () => {

@@ -113,16 +113,23 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
         } @else {
           <tr [style.height.px]="rowHeight">
             <td pFrozenColumn [class]="codeCell">{{ row.feature.code }}</td>
-            <td pFrozenColumn role="rowheader" [class]="nameCell" [title]="row.feature.name">
+            <td
+              pFrozenColumn
+              role="rowheader"
+              [class]="nameCell"
+              [title]="row.feature.name"
+              [attr.aria-label]="row.feature.name"
+            >
               @if (editable()) {
                 <span class="flex items-center gap-1">
                   <span class="truncate">{{ row.feature.name }}</span>
                   <button
                     type="button"
                     tabindex="-1"
-                    data-remove
-                    class="ml-auto shrink-0 cursor-pointer rounded px-1 text-muted-color hover:text-red-700"
+                    class="ml-auto size-6 shrink-0 cursor-pointer rounded text-muted-color hover:text-red-700"
+                    [attr.data-remove]="row.feature.id"
                     [attr.aria-label]="'Remove ' + row.feature.name"
+                    [title]="'Remove ' + row.feature.name"
                     (click)="askToRemove(row.feature)"
                     (keydown)="onRemoveKey($event)"
                   >
@@ -266,9 +273,16 @@ export class AvailabilityMatrix {
     ),
   );
 
-  protected readonly rows = computed(() =>
-    matrixRows(this.contents().featureRows.filter(this.featureFilter()), this.categories()),
-  );
+  protected readonly rows = computed(() => {
+    const shown = this.featureFilter();
+    const marked = this.markedFeatures();
+
+    // A row with a marked cell is shown whatever the filter, so that the mark is not lost from view.
+    return matrixRows(
+      this.contents().featureRows.filter((feature) => shown(feature) || marked.has(feature.id)),
+      this.categories(),
+    );
+  });
 
   /** The Standard and Available cells of the contents by key. */
   private readonly given = computed(
@@ -330,6 +344,11 @@ export class AvailabilityMatrix {
     this.contents();
     return '';
   });
+
+  /** The ids of the feature rows that have a marked cell. */
+  private readonly markedFeatures = computed(
+    () => new Set(Array.from(this.failures().keys(), (key) => Number(key.split(':')[0]))),
+  );
 
   /** What the cell's mark says about the save that failed, or null when the cell is not marked. */
   protected whyNotSaved(feature: FeatureRow, offering: ShownOffering): string | null {
@@ -401,12 +420,38 @@ export class AvailabilityMatrix {
       this.lastFocused = cell;
       return;
     }
+    if (arrivedAt.closest('button[data-remove]')) {
+      // A row's remove button was given the focus on purpose, and keeps it.
+      return;
+    }
 
     const fromOutside = !this.host.contains(event.relatedTarget as Node | null);
     if (this.editable() && fromOutside && arrivedAt.matches(':focus-visible')) {
       const drawn = this.lastFocused?.isConnected ? this.lastFocused : null;
-      (drawn ?? this.host.querySelector<HTMLElement>('td[tabindex]'))?.focus();
+      (drawn ?? this.firstStop())?.focus();
     }
+  }
+
+  /**
+   * Puts the focus in the matrix: on the button that removes the feature row, when one is given and
+   * it is drawn, or else where the keyboard starts in the matrix.
+   */
+  focusOn(feature?: FeatureRow): void {
+    const button =
+      feature && this.host.querySelector<HTMLElement>(`button[data-remove="${feature.id}"]`);
+
+    (button || this.firstStop())?.focus();
+  }
+
+  /**
+   * Where the keyboard starts in an editable matrix: its first cell, or the first row's remove
+   * button when the matrix shows no offering and so has no cells.
+   */
+  private firstStop(): HTMLElement | null {
+    return (
+      this.host.querySelector<HTMLElement>('td[tabindex]') ??
+      this.host.querySelector<HTMLElement>('button[data-remove]')
+    );
   }
 
   /**
@@ -455,20 +500,14 @@ export class AvailabilityMatrix {
    * right arrow leads back, and up and down lead to the buttons of the rows above and below.
    */
   protected onRemoveKey(event: KeyboardEvent): void {
-    const button = event.currentTarget as HTMLElement;
-    const row = button.closest('tr');
-    let beside: Element | null | undefined;
+    const row = (event.currentTarget as HTMLElement).closest('tr');
+    const removeOf = (other: Element | null | undefined) =>
+      other?.querySelector('button[data-remove]');
+    const beside =
+      event.key === 'ArrowRight'
+        ? row?.querySelector('td[tabindex]')
+        : removeOf(rowBeside(row, event.key, (other) => !!removeOf(other)));
 
-    if (event.key === 'ArrowRight') {
-      beside = row?.querySelector('td[tabindex]');
-    } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-      const step = event.key === 'ArrowUp' ? 'previousElementSibling' : 'nextElementSibling';
-      let other = row?.[step];
-      while (other && !other.querySelector('button[data-remove]')) {
-        other = other[step];
-      }
-      beside = other?.querySelector('button[data-remove]');
-    }
     if (beside instanceof HTMLElement) {
       beside.focus();
       event.preventDefault();
@@ -546,6 +585,26 @@ const focusable = (cell: Element | null | undefined): cell is HTMLElement =>
   cell instanceof HTMLElement && cell.hasAttribute('tabindex');
 
 /**
+ * The nearest row above or below a row, as the up or the down arrow asks, that passes the test.
+ * Category subheaders lie between the feature rows and pass none.
+ */
+function rowBeside(
+  row: Element | null | undefined,
+  key: string,
+  wanted: (row: Element) => boolean,
+): Element | null {
+  if (key !== 'ArrowUp' && key !== 'ArrowDown') {
+    return null;
+  }
+  const step = key === 'ArrowUp' ? 'previousElementSibling' : 'nextElementSibling';
+  let other = row?.[step] ?? null;
+  while (other && !wanted(other)) {
+    other = other[step];
+  }
+  return other;
+}
+
+/**
  * Moves the focus from a cell to the one an arrow key points at, and says whether it did. Up and
  * down step over the category subheaders that lie between the feature rows.
  */
@@ -563,15 +622,10 @@ function focusBeside(cell: HTMLTableCellElement, key: string): boolean {
       beside = cell.nextElementSibling;
       break;
     case 'ArrowUp':
-    case 'ArrowDown': {
-      const step = key === 'ArrowUp' ? 'previousElementSibling' : 'nextElementSibling';
-      let row = cell.parentElement?.[step];
-      while (row && !focusable(row.children[cell.cellIndex])) {
-        row = row[step];
-      }
-      beside = row?.children[cell.cellIndex];
+    case 'ArrowDown':
+      beside = rowBeside(cell.parentElement, key, (row) => focusable(row.children[cell.cellIndex]))
+        ?.children[cell.cellIndex];
       break;
-    }
   }
 
   if (!focusable(beside)) {
