@@ -1,0 +1,8 @@
+[
+  {"name": "Base"},
+  {"name": "Sport"},
+  {"name": "Touring"},
+  {"name": "Luxury"},
+  {"name": "Off-Road"},
+  {"name": "Performance"}
+]

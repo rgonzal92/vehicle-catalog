@@ -16,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
  * never deleted.
  */
 @Service
-class VehicleLines {
+public class VehicleLines {
   private final VehicleLineRepository repository;
   private final FixedLists fixedLists;
 
@@ -31,7 +31,7 @@ class VehicleLines {
   }
 
   @Transactional
-  VehicleLine add(NewVehicleLine given) {
+  public VehicleLine add(NewVehicleLine given) {
     requireVehicleType(given.vehicleTypeCode());
 
     return save(new VehicleLine(given.code(), given.name(), given.vehicleTypeCode()));
@@ -63,7 +63,7 @@ class VehicleLines {
   }
 
   /** What an admin gives to add a vehicle line. Its code cannot change afterwards. */
-  record NewVehicleLine(
+  public record NewVehicleLine(
       @NotNull(message = "Enter a code.")
           @Pattern(
               regexp = "[A-Z][A-Z0-9_]{1,39}",
@@ -75,7 +75,7 @@ class VehicleLines {
           @Size(max = 80, message = "Keep the name to 80 characters or fewer.")
           String name,
       @NotBlank(message = "Choose a vehicle type.") String vehicleTypeCode) {
-    NewVehicleLine {
+    public NewVehicleLine {
       name = name == null ? null : name.strip();
     }
   }
