@@ -71,7 +71,7 @@ The largest catalog is made on request and is the same every time: a vehicle lin
 - For development, run `LARGEST_CATALOG=true docker compose up --build -d` and `npm start` in `frontend/`.
 - In a test, `LargestCatalog.create()` makes it.
 
-The backend makes the catalog at startup where `app.largest-catalog` is true, unless it is there already. It is false unless set, and nothing a visitor can reach makes the catalog. Its trims, regions, and features stay in the library, where every catalog can add them; removing them means removing the database's data.
+The backend makes the catalog at startup where `app.largest-catalog` is true, unless it is there already. It is false unless set, and nothing a visitor can reach makes the catalog. Its trims, regions, and features are in the library, where every catalog can add them. The demo reset makes the catalog and its library entries anew; to be rid of them, start without the setting on a database whose data has been removed.
 
 ### In the catalog editor
 

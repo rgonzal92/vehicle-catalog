@@ -84,13 +84,18 @@ class AccountClassesTest {
   }
 
   @Test
-  void aSandboxAccountWithoutASubjectStopsTheStart() {
-    var unnamed =
-        new SandboxSettings(
-            List.of(new SandboxAccount(null, "visitor", null, Role.AUTHOR)), List.of());
+  void aSandboxAccountThatDoesNotSayWhoItIsOrWhichRoleItGoesBackToStopsTheStart() {
+    for (var incomplete :
+        List.of(
+            new SandboxAccount(null, "visitor", null, Role.AUTHOR),
+            new SandboxAccount("sub-visitor", null, null, Role.AUTHOR),
+            new SandboxAccount("sub-visitor", "visitor", null, null))) {
+      var settings = new SandboxSettings(List.of(incomplete), List.of());
 
-    assertThatThrownBy(() -> new AccountClasses(DEMO, unnamed, provider))
-        .isInstanceOf(IllegalStateException.class)
-        .hasMessageContaining("visitor");
+      assertThatThrownBy(() -> new AccountClasses(DEMO, settings, provider))
+          .as(incomplete.toString())
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("app.sandbox-accounts");
+    }
   }
 }

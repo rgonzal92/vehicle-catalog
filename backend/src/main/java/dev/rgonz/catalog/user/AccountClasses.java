@@ -32,9 +32,11 @@ class AccountClasses {
       }
     }
     for (SandboxAccount account : settings.sandboxAccounts()) {
-      if (account.subject() == null) {
+      // Its subject says which account it is, and its username and role are what the demo reset
+      // puts it back to.
+      if (account.subject() == null || account.username() == null || account.role() == null) {
         throw new IllegalStateException(
-            "The sandbox account %s needs its subject in app.sandbox-accounts"
+            "The sandbox account %s needs a subject, a username, and a role in app.sandbox-accounts"
                 .formatted(account.username()));
       }
       requireTheSameAccount(administration, account.username(), account.subject());

@@ -8,8 +8,6 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import org.springframework.security.core.Authentication;
-import org.springframework.session.FindByIndexNameSessionRepository;
-import org.springframework.session.Session;
 import org.springframework.stereotype.Service;
 
 /**
@@ -22,13 +20,13 @@ class AdminUsers {
   private final UserAdministration administration;
   private final AccountClasses classes;
   private final AppUsers users;
-  private final FindByIndexNameSessionRepository<? extends Session> sessions;
+  private final Sessions sessions;
 
   AdminUsers(
       UserAdministration administration,
       AccountClasses classes,
       AppUsers users,
-      FindByIndexNameSessionRepository<? extends Session> sessions) {
+      Sessions sessions) {
     this.administration = administration;
     this.classes = classes;
     this.users = users;
@@ -66,7 +64,7 @@ class AdminUsers {
 
     // By the username the provider answered with, which is not always what it was asked for by.
     administration.setRole(account.username(), role);
-    sessions.findByPrincipalName(account.subject()).keySet().forEach(sessions::deleteById);
+    sessions.endOf(account.subject());
 
     return listed(account.holding(role), users.lastLogins().get(account.subject()));
   }

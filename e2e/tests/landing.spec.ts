@@ -11,6 +11,9 @@ test('the landing page offers sign-in and lists the demo accounts', async ({ pag
   await expect(page.getByRole('heading', { name: 'Vehicle Catalog' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
   await expect(demoAccountRows(page)).toHaveText([/author/, /manager/, /admin/]);
+  await expect(page.getByRole('region', { name: 'Demo accounts' })).toContainText(
+    'Everything visitors do here is deleted every day at 03:00 UTC',
+  );
 });
 
 test('the landing page is accessible', async ({ page }) => {
