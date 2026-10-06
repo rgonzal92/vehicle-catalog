@@ -39,9 +39,6 @@ class CatalogEdits {
   /** The most regions a catalog has. */
   private static final int MOST_REGIONS = 8;
 
-  /** The most characters a catalog's name has. */
-  private static final int LONGEST_NAME = 80;
-
   /** The most feature rows a catalog has. */
   private static final int MOST_FEATURE_ROWS = 500;
 
@@ -273,9 +270,11 @@ class CatalogEdits {
         ifMatch,
         () -> {
           var wanted = name == null ? "" : name.strip();
-          if (wanted.isEmpty() || wanted.length() > LONGEST_NAME) {
-            throw ApiException.invalid(
-                "Enter a name of %d characters or fewer.".formatted(LONGEST_NAME));
+          if (wanted.isEmpty()) {
+            throw ApiException.invalid(WorkingCopies.NAME_MISSING);
+          }
+          if (wanted.length() > WorkingCopies.LONGEST_NAME) {
+            throw ApiException.invalid(WorkingCopies.NAME_TOO_LONG);
           }
           var had =
               jdbc.sql("SELECT name FROM catalog WHERE id = :id")
@@ -291,9 +290,7 @@ class CatalogEdits {
                 .param("id", catalogId)
                 .update();
           } catch (DuplicateKeyException taken) {
-            // The database keeps an owner's working copy names apart whatever their case.
-            throw ApiException.conflict(
-                "NAME_TAKEN", "Another of your working copies already has this name.");
+            throw WorkingCopies.nameTaken();
           }
           jdbc.sql(
                   """
@@ -318,13 +315,19 @@ class CatalogEdits {
     transactions.executeWithoutResult(
         transaction -> {
           lockToEdit(catalogId, actorId, ifMatch);
-          // Offerings and cells go with the trims, regions, and feature rows they belong to.
-          for (var table :
-              List.of("catalog_feature", "catalog_trim", "catalog_region", "catalog_change")) {
-            jdbc.sql("DELETE FROM " + table + " WHERE catalog_id = :id")
-                .param("id", catalogId)
-                .update();
-          }
+          // Cells go with their feature rows, and offerings with their trims.
+          jdbc.sql("DELETE FROM catalog_feature WHERE catalog_id = :id")
+              .param("id", catalogId)
+              .update();
+          jdbc.sql("DELETE FROM catalog_trim WHERE catalog_id = :id")
+              .param("id", catalogId)
+              .update();
+          jdbc.sql("DELETE FROM catalog_region WHERE catalog_id = :id")
+              .param("id", catalogId)
+              .update();
+          jdbc.sql("DELETE FROM catalog_change WHERE catalog_id = :id")
+              .param("id", catalogId)
+              .update();
           jdbc.sql("DELETE FROM catalog WHERE id = :id").param("id", catalogId).update();
         });
   }

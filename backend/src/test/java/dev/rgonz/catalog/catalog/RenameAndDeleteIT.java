@@ -6,6 +6,7 @@ import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.core.Role;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
@@ -17,17 +18,6 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  * working copy of Compact SUV 2026 that Ana owns, named "COMPACT_SUV 2026".
  */
 class RenameAndDeleteIT extends WorkingCopyTests {
-  /** Every table that holds something of a catalog, and the column that names the catalog. */
-  private static final Map<String, String> HOLDS =
-      Map.of(
-          "catalog", "id",
-          "catalog_trim", "catalog_id",
-          "catalog_region", "catalog_id",
-          "catalog_trim_region", "catalog_id",
-          "catalog_feature", "catalog_id",
-          "catalog_cell", "catalog_id",
-          "catalog_change", "catalog_id");
-
   /** Ana's working copy, at revision 0. */
   private long copy;
 
@@ -56,6 +46,7 @@ class RenameAndDeleteIT extends WorkingCopyTests {
 
   @Test
   void aNameIsOneToEightyCharactersAndNoOtherWorkingCopyOfTheOwnersHasIt() {
+    anaOwnsTheApprovedVersions();
     workingCopy(ana(), "SPORTS_COUPE", 2026);
     idOf(create(ben(), "Ben's own", line("SEDAN"), 2027));
 
@@ -83,7 +74,7 @@ class RenameAndDeleteIT extends WorkingCopyTests {
         .as("another owner's name is free")
         .hasStatusOk();
     assertThat(rename(ana(), copy, "\"1\"", "Hybrid and autumn update"))
-        .as("so is the name of an Approved version")
+        .as("so is the name of an Approved version, though it is hers")
         .hasStatusOk();
     assertThat(rename(ana(), copy, "\"2\"", "x".repeat(80))).hasStatusOk();
   }
@@ -109,9 +100,14 @@ class RenameAndDeleteIT extends WorkingCopyTests {
   void theOwnerDeletesAWorkingCopyWithItsContentsAndItsChangeHistory() {
     setCells(ana(), copy, "\"0\"", cell("TRANS_MANUAL", "Base", "NA", "A"));
     var approved = approved("COMPACT_SUV", 2026, 2);
-    var lineages = count("lineage");
+    var sibling = workingCopy(ben(), "COMPACT_SUV", 2026);
+    var lineages = jdbc.sql("SELECT * FROM lineage ORDER BY id").query().listOfRows();
     var approvedRows = rowsOf(approved);
-    assertThat(rowsOf(copy).values()).allMatch(rows -> rows > 0);
+    var siblingRows = rowsOf(sibling);
+    assertThat(rowsOf(copy))
+        .as("every table that holds something of a catalog holds something of this one")
+        .containsKeys("catalog", "catalog_cell", "catalog_change")
+        .allSatisfy((table, rows) -> assertThat(rows).as(table).isPositive());
 
     var deleted = delete(ana(), copy, "\"1\"");
 
@@ -120,7 +116,10 @@ class RenameAndDeleteIT extends WorkingCopyTests {
     assertThat(rowsOf(approved))
         .as("the Approved version it was copied from")
         .isEqualTo(approvedRows);
-    assertThat(count("lineage")).isEqualTo(lineages);
+    assertThat(rowsOf(sibling)).as("another working copy of the lineage").isEqualTo(siblingRows);
+    assertThat(jdbc.sql("SELECT * FROM lineage ORDER BY id").query().listOfRows())
+        .as("the lineages, each still pointing at its current Approved version")
+        .isEqualTo(lineages);
     assertThat(open(ana(), copy)).hasStatus(404);
     assertThat(mvc.get().uri("/api/catalogs?scope=mine").with(ana()))
         .bodyJson()
@@ -192,6 +191,17 @@ class RenameAndDeleteIT extends WorkingCopyTests {
     assertThat(rowsOf(approved).get("catalog")).isEqualTo(1);
   }
 
+  @Test
+  void aWorkingCopyThatHasLeftStatusDraftIsNeitherRenamedNorDeleted() {
+    jdbc.sql("UPDATE catalog SET status = 'SUBMITTED' WHERE id = :id").param("id", copy).update();
+
+    for (var refused :
+        List.of(rename(ana(), copy, "\"0\"", "Another name"), delete(ana(), copy, "\"0\""))) {
+      assertThat(refused).hasStatus(409).bodyJson().extractingPath("$.code").isEqualTo("NOT_DRAFT");
+    }
+    assertThat(open(ana(), copy)).bodyJson().extractingPath("$.name").isEqualTo("COMPACT_SUV 2026");
+  }
+
   /** One of the two, sent by a person to a catalog as an edit of a revision. */
   private interface Edit {
     MvcTestResult send(RequestPostProcessor who, long catalog, String revision);
@@ -210,12 +220,21 @@ class RenameAndDeleteIT extends WorkingCopyTests {
     return edit(who, mvc.delete().uri("/api/catalogs/{id}", catalog), revision, null);
   }
 
-  /** How many rows each table holds of the catalog. */
+  /**
+   * How many rows each table holds of the catalog: the catalog's own row, and the rows of every
+   * table that names a catalog as theirs, whichever tables those are by now.
+   */
   private Map<String, Long> rowsOf(long catalog) {
-    return HOLDS.entrySet().stream()
-        .collect(
-            java.util.stream.Collectors.toMap(
-                Map.Entry::getKey,
-                table -> count("%s WHERE %s = %d", table.getKey(), table.getValue(), catalog)));
+    var rows = new TreeMap<String, Long>();
+    rows.put("catalog", count("catalog WHERE id = %d", catalog));
+    jdbc.sql(
+            """
+            SELECT table_name FROM information_schema.columns
+            WHERE table_schema = current_schema() AND column_name = 'catalog_id'
+            """)
+        .query(String.class)
+        .list()
+        .forEach(table -> rows.put(table, count("%s WHERE catalog_id = %d", table, catalog)));
+    return rows;
   }
 }

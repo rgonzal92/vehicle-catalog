@@ -20,7 +20,13 @@ import { Message } from 'primeng/message';
 import { Select } from 'primeng/select';
 import { Tab, TabList, TabPanel, TabPanels, Tabs } from 'primeng/tabs';
 import { Tag } from 'primeng/tag';
-import { Catalog, CatalogEdit, Catalogs, STATUS_NAMES } from '../../core/catalogs';
+import {
+  Catalog,
+  CatalogEdit,
+  Catalogs,
+  LONGEST_CATALOG_NAME,
+  STATUS_NAMES,
+} from '../../core/catalogs';
 import { FixedLists } from '../../core/fixed-lists';
 import { FeatureKind, KIND_FILTERS } from '../../core/library';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
@@ -80,6 +86,7 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
               class="flex flex-wrap items-center gap-2"
               [formGroup]="newName"
               (ngSubmit)="rename()"
+              (keydown.escape)="stopRenaming()"
             >
               <label class="sr-only" for="catalog-name">Name</label>
               <input
@@ -89,9 +96,13 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
                 class="w-96 max-w-full"
                 autocomplete="off"
                 formControlName="name"
-                (keydown.escape)="stopRenaming()"
               />
-              <p-button type="submit" label="Save" [disabled]="newName.invalid" />
+              <p-button
+                type="submit"
+                label="Save"
+                [disabled]="newName.invalid"
+                [loading]="renamingNow()"
+              />
               <p-button label="Cancel" severity="secondary" (onClick)="stopRenaming()" />
             </form>
             @if (renameRefusal()) {
@@ -368,8 +379,15 @@ export class CatalogEditorPage {
 
   /** The name being typed while the catalog is renamed. */
   protected readonly newName = inject(NonNullableFormBuilder).group({
-    name: ['', [Validators.required, Validators.maxLength(80)]],
+    // A name is judged without the spaces around it, so one of spaces alone is no name.
+    name: [
+      '',
+      [Validators.required, Validators.pattern(/\S/), Validators.maxLength(LONGEST_CATALOG_NAME)],
+    ],
   });
+
+  /** Whether the new name is on its way, so that a second Enter saves nothing more. */
+  protected readonly renamingNow = signal(false);
 
   /** Why the backend refused the new name, shown under it. */
   protected readonly renameRefusal = signal('');
@@ -544,7 +562,14 @@ export class CatalogEditorPage {
     this.newName.setValue({ name: catalog.name });
     this.renameRefusal.set('');
     this.renaming.set(true);
-    afterNextRender(() => this.nameBox()?.nativeElement.select(), { injector: this.injector });
+    afterNextRender(
+      () => {
+        const box = this.nameBox()?.nativeElement;
+        box?.focus();
+        box?.select();
+      },
+      { injector: this.injector },
+    );
   }
 
   /** Turns the box back into the name, and puts the focus back on the button that opened it. */
@@ -563,10 +588,11 @@ export class CatalogEditorPage {
   protected async rename(): Promise<void> {
     const saves = this.saves();
     const name = this.newName.getRawValue().name.trim();
-    if (!saves || !name || this.newName.invalid) {
+    if (!saves || this.newName.invalid || this.renamingNow()) {
       return;
     }
 
+    this.renamingNow.set(true);
     try {
       const changed = await saves.add((revision) => this.catalogs.rename(this.id, revision, name));
       if (changed) {
@@ -576,7 +602,7 @@ export class CatalogEditorPage {
       }
       this.stopRenaming();
     } catch (error) {
-      if (!(error instanceof NotSent) && failureOf(error) === 'rejected') {
+      if (failureOf(error) === 'rejected') {
         this.renameRefusal.set(reasonOf(error));
         return;
       }
@@ -585,6 +611,8 @@ export class CatalogEditorPage {
       if (saves.stopped() === 'closed') {
         await this.closed(reasonOf(error));
       }
+    } finally {
+      this.renamingNow.set(false);
     }
   }
 

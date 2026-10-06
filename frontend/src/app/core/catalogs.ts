@@ -86,7 +86,10 @@ export interface Change {
   featureName: string | null;
   trim: string | null;
   region: string | null;
-  /** What a cell was before the change, and what it was set to: S, A, or N. */
+  /**
+   * What the change replaced, and what it was replaced with: a cell's availability (S, A, or N), or
+   * a catalog's name.
+   */
   oldValue: string | null;
   newValue: string | null;
 }
@@ -113,6 +116,9 @@ export type StartPoint =
  * itself and answers with the revision it led to.
  */
 export type CatalogEdit = (revision: number) => Promise<number>;
+
+/** The most characters a catalog's name has. */
+export const LONGEST_CATALOG_NAME = 80;
 
 /** How long, in milliseconds, an edit may go unanswered before its outcome counts as unknown. */
 export const SAVE_PATIENCE = 20_000;
@@ -189,11 +195,7 @@ export class Catalogs {
    * backend refuses when the catalog has changed since that revision.
    */
   async delete(catalogId: number, revision: number): Promise<void> {
-    await firstValueFrom(
-      this.http.delete(`/api/catalogs/${catalogId}`, {
-        headers: { 'If-Match': `"${revision}"` },
-      }),
-    );
+    await this.send('DELETE', `/api/catalogs/${catalogId}`, revision);
   }
 
   /** Sets cells of a working copy. Setting a cell to Not offered removes it. */
@@ -254,15 +256,22 @@ export class Catalogs {
     revision: number,
     body?: unknown,
   ): Promise<number> {
-    const saved = await firstValueFrom(
-      this.http
-        .request<{ revision: number }>(method, address, {
-          body,
-          headers: { 'If-Match': `"${revision}"` },
-        })
-        .pipe(timeout(SAVE_PATIENCE)),
-    );
+    const saved = await this.send<{ revision: number }>(method, address, revision, body);
 
     return saved.revision;
+  }
+
+  /** Sends a request about a working copy as one made from the revision, and gives up in time. */
+  private send<Answer>(
+    method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    address: string,
+    revision: number,
+    body?: unknown,
+  ): Promise<Answer> {
+    return firstValueFrom(
+      this.http
+        .request<Answer>(method, address, { body, headers: { 'If-Match': `"${revision}"` } })
+        .pipe(timeout(SAVE_PATIENCE)),
+    );
   }
 }

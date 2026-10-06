@@ -1,6 +1,8 @@
 import { DatePipe } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
 import { Component, ElementRef, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { MessageService } from 'primeng/api';
 import { Button } from 'primeng/button';
 import { Dialog } from 'primeng/dialog';
 import { Message } from 'primeng/message';
@@ -66,6 +68,7 @@ import { reasonOf } from '../../shared/reason-of';
                       size="small"
                       [text]="true"
                       [ariaLabel]="'Delete ' + catalog.name"
+                      [attr.data-delete]="catalog.id"
                       (onClick)="askToDelete(catalog)"
                     />
                   }
@@ -180,6 +183,7 @@ export class DashboardPage {
   protected readonly session = inject(Session);
   private readonly host: HTMLElement = inject(ElementRef).nativeElement;
   private readonly catalogs = inject(Catalogs);
+  private readonly messages = inject(MessageService);
 
   /**
    * The lineages that have an Approved version, each with its current one, or null until the
@@ -218,20 +222,21 @@ export class DashboardPage {
 
   /**
    * Puts the focus back once the question has gone from the page: on the working copy's delete
-   * button when it is still listed, or on the section's heading when it is gone.
+   * button when it still has one, or on the section's heading.
    */
   protected focusAfterQuestion(): void {
-    const list = this.host.querySelector<HTMLElement>('section[aria-labelledby="my-catalogs"]');
-    const button = Array.from(list?.querySelectorAll('button') ?? []).find(
-      (candidate) => candidate.getAttribute('aria-label') === `Delete ${this.lastAsked?.name}`,
+    const button = this.host.querySelector<HTMLElement>(
+      `[data-delete="${this.lastAsked?.id}"] button`,
     );
 
-    (button ?? list?.querySelector<HTMLElement>('h2'))?.focus();
+    (button ?? this.host.querySelector<HTMLElement>('#my-catalogs'))?.focus();
   }
 
   /**
-   * Deletes the working copy as the list shows it. When the backend refuses, the question stays
-   * open with the reason, about the working copy as the list shows it then.
+   * Deletes the working copy as the list shows it, and reads the list again. When the backend
+   * refuses and the working copy can still be deleted, the question stays open with the reason,
+   * about the working copy as the list shows it then. When it no longer can, the reason is shown as
+   * a message.
    */
   protected async delete(catalog: WorkingCopy): Promise<void> {
     if (this.deletingNow()) {
@@ -243,11 +248,20 @@ export class DashboardPage {
     try {
       await this.catalogs.delete(catalog.id, catalog.revision);
     } catch (error) {
-      refusal = reasonOf(error);
+      // A revision conflict asks for a reload, which the list has had by the time this is read.
+      refusal =
+        error instanceof HttpErrorResponse && error.status === 412
+          ? 'This working copy was changed after the list was read. The list shows it as it is now.'
+          : reasonOf(error);
     }
     await this.readMine();
+    const listed = this.mine()?.find(({ id }) => id === catalog.id);
+    const deletable = !!refusal && listed?.status === 'DRAFT';
+    if (refusal && !deletable) {
+      this.messages.add({ severity: 'error', summary: 'Not deleted', detail: refusal });
+    }
     this.deletionRefusal.set(refusal);
-    this.deleting.set(refusal ? (this.mine()?.find(({ id }) => id === catalog.id) ?? null) : null);
+    this.deleting.set(deletable ? listed : null);
     this.deletingNow.set(false);
   }
 

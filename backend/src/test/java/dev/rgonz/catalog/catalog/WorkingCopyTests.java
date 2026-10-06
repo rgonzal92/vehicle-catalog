@@ -23,6 +23,16 @@ abstract class WorkingCopyTests extends ApplicationIT {
     return signedInAs(Role.AUTHOR, "ben");
   }
 
+  /**
+   * Makes Ana the owner of every Approved version. They count neither towards the names her working
+   * copies may have nor towards how many she may own.
+   */
+  protected void anaOwnsTheApprovedVersions() {
+    jdbc.sql("UPDATE catalog SET owner_id = :ana WHERE status = 'APPROVED'")
+        .param("ana", person("ana"))
+        .update();
+  }
+
   protected MvcTestResult create(
       RequestPostProcessor who, String name, long vehicleLineId, int modelYear) {
     return mvc.post()

@@ -520,6 +520,45 @@ describe('CatalogEditorPage', () => {
       await vi.waitFor(() => expect(document.activeElement).toBe(button(element, 'Rename')));
     });
 
+    it('saves once, however often Enter is pressed, and says so when the name is the one it has', async () => {
+      const element = await page(workingCopy);
+      const shown = vi.spyOn(TestBed.inject(MessageService), 'add');
+
+      await renameTo(element, 'Winter update');
+      button(element, 'Save')!.click();
+
+      // The backend answers with the revision the rename was made from: nothing changed.
+      (await renameRequest()).flush({ revision: 4 });
+      await vi.waitFor(() =>
+        expect(shown).toHaveBeenCalledWith(expect.objectContaining({ summary: 'No new changes' })),
+      );
+      backend.expectNone({ method: 'PATCH', url: '/api/catalogs/41' });
+      await vi.waitFor(() =>
+        expect(element.querySelector('h1')?.textContent).toBe('Winter update'),
+      );
+    });
+
+    it('leaves the name as it is when Escape is pressed', async () => {
+      const element = await page(workingCopy);
+      button(element, 'Rename')!.click();
+      const box = await vi.waitFor(() => {
+        const found = element.querySelector<HTMLInputElement>('#catalog-name');
+        expect(found).not.toBeNull();
+        return found!;
+      });
+      // The box takes the focus, with the name ready to be typed over.
+      await vi.waitFor(() => expect(document.activeElement).toBe(box));
+
+      box.value = 'Typed and dropped';
+      box.dispatchEvent(new Event('input'));
+      box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+      await vi.waitFor(() =>
+        expect(element.querySelector('h1')?.textContent).toBe('Winter update'),
+      );
+      backend.expectNone({ method: 'PATCH', url: '/api/catalogs/41' });
+    });
+
     it('cannot save an empty name', async () => {
       const element = await page(workingCopy);
 
@@ -529,10 +568,14 @@ describe('CatalogEditorPage', () => {
         expect(found).not.toBeNull();
         return found!;
       });
-      box.value = '';
-      box.dispatchEvent(new Event('input'));
-
-      await vi.waitFor(() => expect(button(element, 'Save')!.disabled).toBe(true));
+      for (const noName of ['', '   ']) {
+        box.value = 'A name';
+        box.dispatchEvent(new Event('input'));
+        await vi.waitFor(() => expect(button(element, 'Save')!.disabled).toBe(false));
+        box.value = noName;
+        box.dispatchEvent(new Event('input'));
+        await vi.waitFor(() => expect(button(element, 'Save')!.disabled).toBe(true));
+      }
     });
   });
 

@@ -165,6 +165,18 @@ describe('changeInWords', () => {
     expect(changeInWords({ ...cellSet, ...nothingNamed })).toBe('');
   });
 
+  it('reads the values of anything but a cell as they are, such as a name that looks like one', () => {
+    const renamed = {
+      ...cellSet,
+      ...nothingNamed,
+      kind: 'RENAMED',
+      oldValue: 'S',
+      newValue: 'toString',
+    };
+
+    expect(changeInWords(renamed)).toBe('was S, now toString');
+  });
+
   it('shows a value it has no name for as it is', () => {
     expect(changeInWords({ ...cellSet, ...nothingNamed, oldValue: 'X', newValue: 'S' })).toBe(
       'was X, now Standard',

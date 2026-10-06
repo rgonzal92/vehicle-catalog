@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import { MessageService } from 'primeng/api';
 import { Role, Session } from '../../core/session';
 import { DashboardPage } from './dashboard-page';
 
@@ -26,7 +27,12 @@ describe('DashboardPage', () => {
     mine: object[] = [],
   ): Promise<HTMLElement> {
     TestBed.configureTestingModule({
-      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        MessageService,
+      ],
     });
     const backend = TestBed.inject(HttpTestingController);
     const loading = TestBed.inject(Session).load();
@@ -189,6 +195,32 @@ describe('DashboardPage', () => {
       );
     });
 
+    it('closes the question and gives the reason when the working copy has left status Draft', async () => {
+      const page = await ask();
+      const shown = vi.spyOn(TestBed.inject(MessageService), 'add');
+
+      dialogButton('Delete').click();
+      backend()
+        .expectOne({ method: 'DELETE', url: '/api/catalogs/41' })
+        .flush(
+          { code: 'NOT_DRAFT', detail: 'Only a catalog in status Draft can be edited.' },
+          { status: 409, statusText: 'Conflict' },
+        );
+      (await vi.waitFor(() => backend().expectOne('/api/catalogs?scope=mine'))).flush([
+        { ...winterUpdate, status: 'SUBMITTED' },
+        submitted,
+      ]);
+
+      await vi.waitFor(() => expect(dialog()).toBeNull());
+      expect(shown).toHaveBeenCalledWith(
+        expect.objectContaining({
+          summary: 'Not deleted',
+          detail: 'Only a catalog in status Draft can be edited.',
+        }),
+      );
+      expect(page.querySelector('button[aria-label="Delete Winter update"]')).toBeNull();
+    });
+
     it('keeps the question open with the reason when the backend refuses, about the list as it then is', async () => {
       await ask();
 
@@ -205,7 +237,9 @@ describe('DashboardPage', () => {
       ]);
 
       await vi.waitFor(() =>
-        expect(dialog()?.textContent).toContain('This catalog was changed somewhere else.'),
+        expect(dialog()?.textContent).toContain(
+          'This working copy was changed after the list was read. The list shows it as it is now.',
+        ),
       );
       dialogButton('Delete').click();
       const again = backend().expectOne({ method: 'DELETE', url: '/api/catalogs/41' });
@@ -251,7 +285,12 @@ describe('DashboardPage', () => {
 
   it('says nothing about Approved catalogs until the backend has answered', async () => {
     TestBed.configureTestingModule({
-      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        MessageService,
+      ],
     });
     const backend = TestBed.inject(HttpTestingController);
     const loading = TestBed.inject(Session).load();

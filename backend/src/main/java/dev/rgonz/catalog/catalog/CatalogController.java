@@ -30,8 +30,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Shows everyone with a role the lineages, their Approved versions, and a catalog's contents, and
- * lets each of them create and edit working copies of their own and read a catalog's change
- * history.
+ * lets each of them create, edit, rename, and delete working copies of their own and read a
+ * catalog's change history.
  */
 @RestController
 class CatalogController {

@@ -7,7 +7,7 @@ import { Dialog } from 'primeng/dialog';
 import { InputText } from 'primeng/inputtext';
 import { Message } from 'primeng/message';
 import { Select } from 'primeng/select';
-import { Catalogs, startPointInWords } from '../../core/catalogs';
+import { Catalogs, LONGEST_CATALOG_NAME, startPointInWords } from '../../core/catalogs';
 import { FixedLists } from '../../core/fixed-lists';
 import { VehicleLines } from '../../core/vehicle-lines';
 import { reasonOf } from '../reason-of';
@@ -107,7 +107,7 @@ export class NewCatalogDialog {
   protected readonly creating = signal(false);
 
   protected readonly form = inject(FormBuilder).group({
-    name: ['', [Validators.required, Validators.maxLength(80)]],
+    name: ['', [Validators.required, Validators.maxLength(LONGEST_CATALOG_NAME)]],
     vehicleTypeCode: [''],
     vehicleLineId: [null as number | null, Validators.required],
     modelYear: [null as number | null, Validators.required],
