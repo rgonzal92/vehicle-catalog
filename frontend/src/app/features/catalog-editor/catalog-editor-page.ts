@@ -3,6 +3,7 @@ import { Component, computed, inject, signal, viewChild } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { Button } from 'primeng/button';
+import { Message } from 'primeng/message';
 import { Tab, TabList, TabPanel, TabPanels, Tabs } from 'primeng/tabs';
 import { Tag } from 'primeng/tag';
 import { Catalog, Catalogs, STATUS_NAMES } from '../../core/catalogs';
@@ -10,7 +11,7 @@ import { FixedLists } from '../../core/fixed-lists';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
 import { Cell } from '../../shared/availability-matrix/matrix';
 import { reasonOf } from '../../shared/reason-of';
-import { failureOf, NotSent, SaveQueue } from './save-queue';
+import { NotSent, SaveQueue, SaveStop } from './save-queue';
 
 /**
  * A catalog as its owner works on it: what describes it, and its matrix on the Features tab. A
@@ -25,7 +26,18 @@ import { failureOf, NotSent, SaveQueue } from './save-queue';
  * in status Draft is reloaded at once, read-only.
  */
 @Component({
-  imports: [RouterLink, Button, Tab, TabList, TabPanel, TabPanels, Tabs, Tag, AvailabilityMatrix],
+  imports: [
+    RouterLink,
+    Button,
+    Message,
+    Tab,
+    TabList,
+    TabPanel,
+    TabPanels,
+    Tabs,
+    Tag,
+    AvailabilityMatrix,
+  ],
   selector: 'app-catalog-editor-page',
   template: `
     <main class="px-6 py-10">
@@ -54,13 +66,16 @@ import { failureOf, NotSent, SaveQueue } from './save-queue';
         </header>
 
         @if (reloadNeeded(); as why) {
-          <div
-            class="mt-4 flex items-center gap-4 rounded border border-red-300 bg-red-50 px-4 py-3 text-red-900"
-            role="alert"
-          >
+          <p-message class="mt-4 block" severity="error">
             <span>{{ why }}</span>
-            <p-button label="Reload" severity="secondary" size="small" (onClick)="reload()" />
-          </div>
+            <p-button
+              class="ml-4"
+              label="Reload"
+              severity="secondary"
+              size="small"
+              (onClick)="reload()"
+            />
+          </p-message>
         }
 
         <p-tabs class="mt-6 block" value="features">
@@ -100,6 +115,7 @@ export class CatalogEditorPage {
 
   protected readonly statusNames = STATUS_NAMES;
 
+  /** The matrix, which is told how the save of each change it reported went. */
   private readonly matrix = viewChild<AvailabilityMatrix>('matrix');
 
   /**
@@ -119,14 +135,8 @@ export class CatalogEditorPage {
 
   /** What to tell the person while nothing more is saved until they reload, or null otherwise. */
   protected readonly reloadNeeded = computed(() => {
-    switch (this.saves()?.stopped()) {
-      case 'conflict':
-        return CONFLICT;
-      case 'uncertain':
-        return UNCERTAIN;
-      default:
-        return null;
-    }
+    const stopped = this.saves()?.stopped();
+    return stopped ? STOPPED[stopped] : null;
   });
 
   constructor() {
@@ -156,27 +166,23 @@ export class CatalogEditorPage {
 
     try {
       await saves.add(cell);
-      if (saves === this.saves()) {
-        this.matrix()?.saved(cell);
-      }
+      this.matrix()?.saved(cell);
     } catch (error) {
-      if (saves !== this.saves()) {
-        // The catalog has been read again since; what the matrix shows now is what was saved.
+      if (error instanceof NotSent) {
+        this.matrix()?.notSaved(cell, NOT_SENT);
         return;
       }
-      const failure = error instanceof NotSent ? null : failureOf(error);
+
+      const stopped = saves.stopped();
+      const reason = reasonOf(error);
       this.matrix()?.notSaved(
         cell,
-        error instanceof NotSent
-          ? error.message
-          : failure === 'uncertain'
-            ? UNCERTAIN
-            : reasonOf(error),
+        stopped === 'uncertain' ? OUTCOME_UNKNOWN : `Not saved: ${reason}`,
       );
-      if (failure === 'refused') {
-        this.messages.add({ severity: 'error', summary: 'Not saved', detail: reasonOf(error) });
-      } else if (failure === 'closed') {
-        this.messages.add({ severity: 'warn', summary: 'Not saved', detail: reasonOf(error) });
+      if (!stopped) {
+        this.messages.add({ severity: 'error', summary: 'Not saved', detail: reason });
+      } else if (stopped === 'closed') {
+        this.messages.add({ severity: 'warn', summary: 'Not saved', detail: reason });
         await this.open();
       }
     }
@@ -208,8 +214,17 @@ export class CatalogEditorPage {
   }
 }
 
-const CONFLICT =
-  'This catalog was changed somewhere else after you opened it, so your last change was not saved. Reload the catalog to go on.';
+/** What the banner says for each way a failed save stops the editor. */
+const STOPPED: Record<SaveStop, string> = {
+  conflict:
+    'This catalog was changed somewhere else after you opened it, so your changes since were not saved. Reload the catalog to go on.',
+  uncertain:
+    'No answer says whether a change of yours was saved. Reload the catalog to see, and to go on.',
+  closed: 'This catalog can no longer be edited. Reload it to see it as it is now.',
+};
 
-const UNCERTAIN =
-  'No answer says whether your last change was saved. Reload the catalog to see, and to go on.';
+/** What the mark says on a cell whose change was never sent. */
+const NOT_SENT = 'Not sent, because an earlier change was not saved.';
+
+/** What the mark says on a cell whose change may or may not have been saved. */
+const OUTCOME_UNKNOWN = 'No answer says whether this change was saved.';

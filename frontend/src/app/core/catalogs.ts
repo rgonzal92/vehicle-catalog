@@ -1,6 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, timeout } from 'rxjs';
 import { Cell, MatrixContents } from '../shared/availability-matrix/matrix';
 
 /** A lineage with its current Approved version, as the dashboard lists it. */
@@ -80,6 +80,9 @@ export type StartPoint =
   | { kind: 'COPY' | 'CARRYOVER'; modelYear: number; versionNumber: number }
   | { kind: 'EMPTY' };
 
+/** How long, in milliseconds, an edit may go unanswered before its outcome counts as unknown. */
+export const SAVE_PATIENCE = 20_000;
+
 /** A starting point in the words the new catalog dialog shows. */
 export function startPointInWords(start: StartPoint): string {
   switch (start.kind) {
@@ -137,13 +140,16 @@ export class Catalogs {
 
   /**
    * Sets cells of a working copy as an edit made from the revision, and answers with the revision
-   * the save led to. The backend refuses it when the catalog has changed since that revision.
+   * the save led to. The backend refuses it when the catalog has changed since that revision. A
+   * save that has gone unanswered for {@link SAVE_PATIENCE} is given up and fails.
    */
   async setCells(catalogId: number, revision: number, cells: Cell[]): Promise<number> {
     const saved = await firstValueFrom(
-      this.http.put<{ revision: number }>(`/api/catalogs/${catalogId}/cells`, cells, {
-        headers: { 'If-Match': `"${revision}"` },
-      }),
+      this.http
+        .put<{ revision: number }>(`/api/catalogs/${catalogId}/cells`, cells, {
+          headers: { 'If-Match': `"${revision}"` },
+        })
+        .pipe(timeout(SAVE_PATIENCE)),
     );
 
     return saved.revision;

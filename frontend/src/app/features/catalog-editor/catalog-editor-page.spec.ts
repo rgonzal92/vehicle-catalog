@@ -43,9 +43,6 @@ let told: unknown[][];
 describe('CatalogEditorPage', () => {
   let backend: HttpTestingController;
 
-  beforeEach(() => {
-    told = [];
-  });
   beforeAll(() => {
     // The tabs watch their own width with an observer the test page lacks.
     vi.stubGlobal(
@@ -59,6 +56,9 @@ describe('CatalogEditorPage', () => {
   });
   afterAll(() => {
     vi.unstubAllGlobals();
+  });
+  beforeEach(() => {
+    told = [];
   });
 
   const workingCopy = {
@@ -126,6 +126,27 @@ describe('CatalogEditorPage', () => {
       ]),
     );
 
+  /** What the backend says of a cell that is none of the catalog's. */
+  const NOT_THE_CATALOGS =
+    'A cell can be set only for a feature row and an offering of this catalog.';
+
+  const matrixOf = (element: HTMLElement) =>
+    element.querySelector<HTMLElement>('app-availability-matrix')!;
+
+  const saveRequest = () =>
+    vi.waitFor(() => backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/cells' }));
+
+  const refuse = (status: number, code: string, detail: string) =>
+    [
+      { code, detail },
+      { status, statusText: 'Refused' },
+    ] as const;
+
+  const button = (element: HTMLElement, label: string) =>
+    Array.from(element.querySelectorAll('button')).find(
+      (candidate) => candidate.textContent?.trim() === label,
+    );
+
   it('describes the catalog and shows its matrix on the Features tab', async () => {
     const element = await page(workingCopy);
 
@@ -156,7 +177,7 @@ describe('CatalogEditorPage', () => {
   it('saves a cell as soon as it is set, as an edit of the revision it has read', async () => {
     const element = await page(workingCopy);
 
-    element.querySelector<HTMLElement>('app-availability-matrix')!.click();
+    matrixOf(element).click();
 
     const save = await vi.waitFor(() =>
       backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/cells' }),
@@ -165,23 +186,6 @@ describe('CatalogEditorPage', () => {
     expect(save.request.body).toEqual([manualAvailable]);
     save.flush({ revision: 5 });
   });
-
-  const matrixOf = (element: HTMLElement) =>
-    element.querySelector<HTMLElement>('app-availability-matrix')!;
-
-  const saveRequest = () =>
-    vi.waitFor(() => backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/cells' }));
-
-  const refuse = (status: number, code: string, detail: string) =>
-    [
-      { code, detail },
-      { status, statusText: 'Refused' },
-    ] as const;
-
-  const button = (element: HTMLElement, label: string) =>
-    Array.from(element.querySelectorAll('button')).find(
-      (candidate) => candidate.textContent?.trim() === label,
-    );
 
   it('tells the matrix when a cell has been saved', async () => {
     const element = await page(workingCopy);
@@ -192,33 +196,18 @@ describe('CatalogEditorPage', () => {
     await vi.waitFor(() => expect(told).toEqual([['saved', manualAvailable]]));
   });
 
-  it('gives the reason a save was refused, puts the cell back, and goes on editing', async () => {
+  it('gives the reason a save was turned down, puts the cell back, and goes on editing', async () => {
     const element = await page(workingCopy);
     const shown = vi.spyOn(TestBed.inject(MessageService), 'add');
 
     matrixOf(element).click();
-    (await saveRequest()).flush(
-      ...refuse(
-        422,
-        'VALIDATION',
-        'A cell can be set only for a feature row and an offering of this catalog.',
-      ),
-    );
+    (await saveRequest()).flush(...refuse(422, 'VALIDATION', NOT_THE_CATALOGS));
 
     await vi.waitFor(() =>
-      expect(told).toEqual([
-        [
-          'not saved',
-          manualAvailable,
-          'A cell can be set only for a feature row and an offering of this catalog.',
-        ],
-      ]),
+      expect(told).toEqual([['not saved', manualAvailable, `Not saved: ${NOT_THE_CATALOGS}`]]),
     );
     expect(shown).toHaveBeenCalledWith(
-      expect.objectContaining({
-        summary: 'Not saved',
-        detail: 'A cell can be set only for a feature row and an offering of this catalog.',
-      }),
+      expect.objectContaining({ summary: 'Not saved', detail: NOT_THE_CATALOGS }),
     );
     expect(element.querySelector('[role="alert"]')).toBeNull();
     expect(matrixOf(element).textContent).toContain('editable: true');
@@ -240,12 +229,8 @@ describe('CatalogEditorPage', () => {
     // Both changes go back: the one refused, and the one behind it, which is never sent.
     await vi.waitFor(() =>
       expect(told).toEqual([
-        ['not saved', manualAvailable, 'Changed somewhere else.'],
-        [
-          'not saved',
-          manualAvailable,
-          'An earlier change was not saved, so this one was not sent.',
-        ],
+        ['not saved', manualAvailable, 'Not saved: Changed somewhere else.'],
+        ['not saved', manualAvailable, 'Not sent, because an earlier change was not saved.'],
       ]),
     );
     backend.expectNone({ method: 'PUT', url: '/api/catalogs/41/cells' });
@@ -278,37 +263,94 @@ describe('CatalogEditorPage', () => {
 
     await vi.waitFor(() =>
       expect(element.querySelector('[role="alert"]')?.textContent).toContain(
-        'No answer says whether your last change was saved.',
+        'No answer says whether a change of yours was saved.',
       ),
     );
     expect(told).toEqual([
-      [
-        'not saved',
-        manualAvailable,
-        'No answer says whether your last change was saved. Reload the catalog to see, and to go on.',
-      ],
+      ['not saved', manualAvailable, 'No answer says whether this change was saved.'],
     ]);
     expect(matrixOf(element).textContent).toContain('editable: false');
     backend.expectNone({ method: 'PUT', url: '/api/catalogs/41/cells' });
     expect(button(element, 'Reload')).toBeDefined();
   });
 
-  it('reloads the catalog read-only when it is no longer in status Draft', async () => {
-    const element = await page(workingCopy);
-    const shown = vi.spyOn(TestBed.inject(MessageService), 'add');
+  describe('when the catalog is no longer in status Draft', () => {
+    const NOT_DRAFT = 'Only a catalog in status Draft can be edited.';
 
-    matrixOf(element).click();
-    (await saveRequest()).flush(
-      ...refuse(409, 'NOT_DRAFT', 'Only a catalog in status Draft can be edited.'),
-    );
+    /** Sets a cell of the catalog, which the backend refuses because the catalog is closed. */
+    async function editClosed(): Promise<HTMLElement> {
+      const element = await page(workingCopy);
+      matrixOf(element).click();
+      (await saveRequest()).flush(...refuse(409, 'NOT_DRAFT', NOT_DRAFT));
 
-    const reread = await vi.waitFor(() => backend.expectOne('/api/catalogs/41'));
-    reread.flush({ ...workingCopy, snapshot: { ...workingCopy.snapshot, status: 'SUBMITTED' } });
-    await vi.waitFor(() => expect(described(element).Status).toBe('Submitted'));
-    expect(matrixOf(element).textContent).toContain('editable: false');
-    expect(shown).toHaveBeenCalledWith(
-      expect.objectContaining({ detail: 'Only a catalog in status Draft can be edited.' }),
-    );
-    expect(element.querySelector('[role="alert"]')).toBeNull();
+      return element;
+    }
+
+    const reread = () => vi.waitFor(() => backend.expectOne('/api/catalogs/41'));
+
+    it('reloads it at once, read-only, and gives the reason', async () => {
+      const shown = vi.spyOn(MessageService.prototype, 'add');
+      const element = await editClosed();
+
+      (await reread()).flush({
+        ...workingCopy,
+        snapshot: { ...workingCopy.snapshot, status: 'SUBMITTED' },
+      });
+
+      await vi.waitFor(() => expect(described(element).Status).toBe('Submitted'));
+      expect(matrixOf(element).textContent).toContain('editable: false');
+      expect(shown).toHaveBeenCalledWith(expect.objectContaining({ detail: NOT_DRAFT }));
+      expect(element.querySelector('[role="alert"]')).toBeNull();
+    });
+
+    it('asks for a reload when it could not be read again', async () => {
+      const element = await editClosed();
+
+      (await reread()).flush(null, { status: 503, statusText: 'Unavailable' });
+
+      await vi.waitFor(() =>
+        expect(element.querySelector('[role="alert"]')?.textContent).toContain(
+          'This catalog can no longer be edited.',
+        ),
+      );
+      expect(matrixOf(element).textContent).toContain('editable: false');
+      button(element, 'Reload')?.click();
+      (await reread()).flush({
+        ...workingCopy,
+        snapshot: { ...workingCopy.snapshot, status: 'SUBMITTED' },
+      });
+      await vi.waitFor(() => expect(element.querySelector('[role="alert"]')).toBeNull());
+    });
+
+    it('says so when it is no longer there', async () => {
+      const element = await editClosed();
+
+      (await reread()).flush({ code: 'NOT_FOUND' }, { status: 404, statusText: 'Not Found' });
+
+      await vi.waitFor(() =>
+        expect(element.textContent).toContain('There is no catalog at this address.'),
+      );
+      expect(element.querySelector('app-availability-matrix')).toBeNull();
+    });
+  });
+
+  it('names the earlier model year of a base that was carried over', async () => {
+    const element = await page({
+      ...workingCopy,
+      base: { catalogId: 9, modelYear: 2026, versionNumber: 2 },
+    });
+
+    expect(described(element).Base).toBe('2026 Approved v2 (carryover)');
+  });
+
+  it('says when the catalog started empty', async () => {
+    expect(described(await page({ ...workingCopy, base: null })).Base).toBe('None (started empty)');
+  });
+
+  it('says so when the address names no catalog the person may open', async () => {
+    const element = await page(404);
+
+    expect(element.textContent).toContain('There is no catalog at this address.');
+    expect(element.querySelector('app-availability-matrix')).toBeNull();
   });
 });

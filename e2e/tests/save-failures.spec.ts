@@ -1,29 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createWorkingCopy, expectAccessible, signIn } from './support';
-
-/** The cells of the 2.0L turbo's row, after its code: four offerings in North America, three in Europe. */
-const turboOf = (page: Page) =>
-  page
-    .locator('app-availability-matrix')
-    .getByRole('row', { name: /ENGINE_20T_I4/ })
-    .getByRole('cell');
-
-/** Resolves once the next save of cells has been answered, with the status it was answered with. */
-const nextSave = (page: Page) =>
-  page
-    .waitForResponse(
-      (response) => response.request().method() === 'PUT' && response.url().endsWith('/cells'),
-    )
-    .then((response) => response.status());
+import { createWorkingCopy, expectAccessible, nextSave, onSave, signIn, turboOf } from './support';
 
 /** Counts the saves of cells the page sends from now on. */
 function countSaves(page: Page): () => number {
   let saves = 0;
-  page.on('request', (request) => {
-    if (request.method() === 'PUT' && request.url().endsWith('/cells')) {
-      saves++;
-    }
-  });
+  onSave(page, () => saves++);
   return () => saves;
 }
 
@@ -53,7 +34,7 @@ test('a tab that is behind another one stops, asks for a reload, and goes on aft
   await expect(second.getByRole('alert')).toContainText(
     'This catalog was changed somewhere else after you opened it',
   );
-  await expect(turboOf(second).nth(2)).toHaveText('A (not saved)');
+  await expect(turboOf(second).nth(2)).toHaveText(/^\s*A !/);
   await expect(turboOf(second).nth(2)).toHaveAttribute('title', /^Not saved: /);
   await expectAccessible(second);
 
@@ -95,9 +76,9 @@ test('a refused save puts the cell back with the reason, and editing goes on', a
   await turbo.nth(1).focus();
   await page.keyboard.press('s');
 
-  await expect(turbo.nth(1)).toHaveText('- (not saved)');
+  await expect(turbo.nth(1)).toHaveText(/^\s*- !/);
   await expect(turbo.nth(1)).toHaveAttribute('title', 'Not saved: This cell cannot be set.');
-  await expect(page.getByText('This cell cannot be set.')).toBeVisible();
+  await expect(page.locator('p-toast').getByText('This cell cannot be set.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Reload' })).toHaveCount(0);
 
   const saved = nextSave(page);
@@ -117,11 +98,15 @@ test('a save that gets no answer stops the editor and is not sent again', async 
   await page.keyboard.press('s');
 
   await expect(page.getByRole('alert').filter({ hasText: 'Reload' })).toContainText(
-    'No answer says whether your last change was saved.',
+    'No answer says whether a change of yours was saved.',
   );
-  await expect(turbo.nth(1)).toHaveText('- (not saved)');
+  await expect(turbo.nth(1)).toHaveText(/^\s*- !/);
+  await expect(turbo.nth(1)).toHaveAttribute(
+    'title',
+    'No answer says whether this change was saved.',
+  );
   await page.keyboard.press('a');
-  await expect(turbo.nth(1)).toHaveText('- (not saved)');
+  await expect(turbo.nth(1)).toHaveText(/^\s*- !/);
   expect(saves()).toBe(1);
 
   // Reloading shows what was saved, which is nothing, and lets editing go on.

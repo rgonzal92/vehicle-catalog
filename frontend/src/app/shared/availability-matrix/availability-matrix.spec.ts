@@ -281,16 +281,21 @@ describe('AvailabilityMatrix', () => {
     expect(document.activeElement).toBe(start);
   });
 
-  it('puts a cell whose save failed back to what it was, and marks it as not saved', async () => {
+  it('puts a cell whose save failed back to what it was, and marks it with the reason', async () => {
     const { fixture, element, host } = await matrix(true);
     const baseTurbo = cell(element, 1, 0);
 
     press(baseTurbo, 'a');
     await vi.waitFor(() => expect(baseTurbo.textContent?.trim()).toBe('A'));
-    theMatrix(fixture).notSaved(host.changes[0], 'The catalog changed.');
+    theMatrix(fixture).notSaved(host.changes[0], 'Not saved: the catalog changed.');
 
-    await vi.waitFor(() => expect(baseTurbo.textContent?.trim()).toBe('S (not saved)'));
-    expect(baseTurbo.title).toBe('Not saved: The catalog changed.');
+    await vi.waitFor(() => expect(baseTurbo.title).toBe('Not saved: the catalog changed.'));
+    expect(baseTurbo.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'S !Not saved: the catalog changed.',
+    );
+    expect(baseTurbo.querySelector('.sr-only')?.textContent).toBe(
+      'Not saved: the catalog changed.',
+    );
     expect(baseTurbo.className).toContain('bg-red-100');
     expect(cell(element, 1, 1).title).toBe('');
   });
@@ -303,9 +308,38 @@ describe('AvailabilityMatrix', () => {
     theMatrix(fixture).saved(host.changes[0]);
     press(baseTurbo, '-');
     await vi.waitFor(() => expect(baseTurbo.textContent?.trim()).toBe('-'));
-    theMatrix(fixture).notSaved(host.changes[1], 'The catalog changed.');
+    theMatrix(fixture).notSaved(host.changes[1], 'Not saved.');
 
-    await vi.waitFor(() => expect(baseTurbo.textContent?.trim()).toBe('A (not saved)'));
+    await vi.waitFor(() => expect(baseTurbo.textContent).toContain('A'));
+    expect(baseTurbo.title).toBe('Not saved.');
+  });
+
+  it('leaves a cell alone when a save of it fails while a later change of it is on its way', async () => {
+    const { fixture, element, host } = await matrix(true);
+    const baseTurbo = cell(element, 1, 0);
+
+    press(baseTurbo, 'a');
+    press(baseTurbo, '-');
+    theMatrix(fixture).notSaved(host.changes[0], 'Not saved.');
+    theMatrix(fixture).saved(host.changes[1]);
+    await fixture.whenStable();
+
+    // The later change was saved, so the cell shows it, unmarked.
+    expect(baseTurbo.textContent?.trim()).toBe('-');
+    expect(baseTurbo.title).toBe('');
+  });
+
+  it('puts a cell back once, to what was saved, when every change of it failed', async () => {
+    const { fixture, element, host } = await matrix(true);
+    const baseTurbo = cell(element, 1, 0);
+
+    press(baseTurbo, 'a');
+    press(baseTurbo, '-');
+    theMatrix(fixture).notSaved(host.changes[0], 'Not saved.');
+    theMatrix(fixture).notSaved(host.changes[1], 'Not sent.');
+
+    await vi.waitFor(() => expect(baseTurbo.title).toBe('Not sent.'));
+    expect(baseTurbo.textContent).toContain('S');
   });
 
   it('drops the mark from a cell once it is set again', async () => {
@@ -313,7 +347,7 @@ describe('AvailabilityMatrix', () => {
     const baseTurbo = cell(element, 1, 0);
 
     press(baseTurbo, 'a');
-    theMatrix(fixture).notSaved(host.changes[0], 'The catalog changed.');
+    theMatrix(fixture).notSaved(host.changes[0], 'Not saved.');
     await vi.waitFor(() => expect(baseTurbo.title).not.toBe(''));
     press(baseTurbo, 'a');
 

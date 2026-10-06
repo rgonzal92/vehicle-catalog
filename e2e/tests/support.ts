@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect, type Locator, type Page, type Request } from '@playwright/test';
 
 /** Signs in from the landing page as one of the login server's accounts. */
 export async function signIn(page: Page, username: string): Promise<void> {
@@ -78,4 +78,33 @@ export async function createWorkingCopy(
   await dialog.getByLabel('Name').fill(name);
   await dialog.getByRole('button', { name: 'Create' }).click();
   await expect(page.getByRole('heading', { name })).toBeVisible();
+}
+
+/**
+ * The cells of the 2.0L turbo's row in the matrix: its code, then four offerings in North America
+ * (Base, Sport, Touring, Off-Road) and three in Europe (Base, Sport, Touring) for Compact SUV 2026.
+ */
+export const turboOf = (page: Page) =>
+  page
+    .locator('app-availability-matrix')
+    .getByRole('row', { name: /ENGINE_20T_I4/ })
+    .getByRole('cell');
+
+/** Whether the request is a save of cells. */
+const savesCells = (request: Request) =>
+  request.method() === 'PUT' && request.url().endsWith('/cells');
+
+/** Resolves once the next save of cells has been answered, with the status it was answered with. */
+export const nextSave = (page: Page) =>
+  page
+    .waitForResponse((response) => savesCells(response.request()))
+    .then((response) => response.status());
+
+/** Calls back with every save of cells the page sends from now on. */
+export function onSave(page: Page, heard: (request: Request) => void): void {
+  page.on('request', (request) => {
+    if (savesCells(request)) {
+      heard(request);
+    }
+  });
 }

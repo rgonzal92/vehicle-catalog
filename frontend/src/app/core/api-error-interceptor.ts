@@ -26,7 +26,7 @@ export const apiErrorInterceptor: HttpInterceptorFn = (request, next) => {
           messages.add({
             severity: 'error',
             summary: 'Something went wrong',
-            detail: 'The request could not be completed. Try again.',
+            detail: 'The request could not be completed.',
           });
         } else if (error.status === 401 && !request.url.endsWith('/api/me')) {
           // Asking who is signed in answers 401 without a session; that is not an ended session.

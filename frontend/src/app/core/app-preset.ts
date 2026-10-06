@@ -2,8 +2,9 @@ import { definePreset } from '@primeuix/themes';
 import Aura from '@primeuix/themes/aura';
 
 /**
- * Aura with a darker primary color. White text on Aura's own primary falls short of the 4.5:1
- * contrast WCAG AA requires; on this one it passes.
+ * Aura with a darker primary color and darker text in error messages. White text on Aura's own
+ * primary, and its red text on an error message's background, fall short of the 4.5:1 contrast
+ * WCAG AA requires; these pass.
  */
 export const AppPreset = definePreset(Aura, {
   semantic: {
@@ -15,6 +16,13 @@ export const AppPreset = definePreset(Aura, {
           hoverColor: '{primary.800}',
           activeColor: '{primary.900}',
         },
+      },
+    },
+  },
+  components: {
+    message: {
+      error: {
+        color: 'light-dark({red.700}, {red.500})',
       },
     },
   },

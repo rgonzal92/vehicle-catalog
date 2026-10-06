@@ -58,7 +58,7 @@ describe('SaveQueue', () => {
     ]);
   });
 
-  it('drops an edit the backend refuses and goes on from the same revision', async () => {
+  it('drops an edit the backend turns down and goes on from the same revision', async () => {
     const first = queue.add('first');
     const second = queue.add('second');
     await settled();
@@ -111,28 +111,6 @@ describe('SaveQueue', () => {
     await expect(first).rejects.toBeInstanceOf(HttpErrorResponse);
     expect(queue.stopped()).toBe('closed');
   });
-
-  describe('when no answer arrives', () => {
-    beforeEach(() => vi.useFakeTimers());
-    afterEach(() => vi.useRealTimers());
-
-    it('stops once the save has gone unanswered for too long, and a late answer changes nothing', async () => {
-      const first = queue.add('first');
-      const second = queue.add('second');
-      const outcomes = Promise.allSettled([first, second]);
-      await vi.advanceTimersByTimeAsync(19_999);
-      expect(queue.stopped()).toBeNull();
-
-      await vi.advanceTimersByTimeAsync(1);
-
-      expect(queue.stopped()).toBe('uncertain');
-      sent[0].answer(5);
-      const [firstOutcome, secondOutcome] = await outcomes;
-      expect(firstOutcome.status).toBe('rejected');
-      expect((secondOutcome as PromiseRejectedResult).reason).toBeInstanceOf(NotSent);
-      expect(sent).toHaveLength(1);
-    });
-  });
 });
 
 describe('failureOf', () => {
@@ -140,17 +118,20 @@ describe('failureOf', () => {
     [412, 'conflict'],
     [409, 'closed'],
     [404, 'closed'],
-    [422, 'refused'],
-    [400, 'refused'],
-    [428, 'refused'],
+    [422, 'rejected'],
+    [400, 'rejected'],
+    [403, 'rejected'],
+    [428, 'rejected'],
     [0, 'uncertain'],
     [500, 'uncertain'],
     [503, 'uncertain'],
+    // An answer that says the edit was saved, but cannot be read.
+    [200, 'uncertain'],
   ])('reads a response with status %i as %s', (status, failure) => {
     expect(failureOf(new HttpErrorResponse({ status }))).toBe(failure);
   });
 
-  it('reads anything that is no response as uncertain', () => {
-    expect(failureOf(new Error('The connection was lost.'))).toBe('uncertain');
+  it('reads anything that is no response, such as a save given up on, as uncertain', () => {
+    expect(failureOf(new Error('No answer came in time.'))).toBe('uncertain');
   });
 });

@@ -1,13 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
-import { createWorkingCopy, expectAccessible, signIn } from './support';
-
-/** Resolves once the next save of cells has been answered, with the status it was answered with. */
-const nextSave = (page: Page) =>
-  page
-    .waitForResponse(
-      (response) => response.request().method() === 'PUT' && response.url().endsWith('/cells'),
-    )
-    .then((response) => response.status());
+import { expect, test } from '@playwright/test';
+import { createWorkingCopy, expectAccessible, nextSave, onSave, signIn, turboOf } from './support';
 
 test('the owner sets cells with the dropdown and the keyboard, and each is saved at once', async ({
   page,
@@ -15,9 +7,7 @@ test('the owner sets cells with the dropdown and the keyboard, and each is saved
   await signIn(page, 'author');
   await createWorkingCopy(page, 'SUV', 'Compact SUV', '2026');
   const matrix = page.locator('app-availability-matrix');
-  // The 2.0L turbo across North America (Base, Sport, Touring, Off-Road) and Europe (Base, Sport,
-  // Touring), after its code.
-  const turbo = matrix.getByRole('row', { name: /ENGINE_20T_I4/ }).getByRole('cell');
+  const turbo = turboOf(page);
   await expect(turbo).toHaveText(['ENGINE_20T_I4', '-', 'A', 'S', 'S', '-', '-', 'A']);
 
   // With the dropdown: Base in North America becomes Standard.
@@ -51,14 +41,9 @@ test('cells set in quick succession are all saved, in the order they were set', 
 }) => {
   await signIn(page, 'author');
   await createWorkingCopy(page, 'SUV', 'Compact SUV', '2026');
-  const matrix = page.locator('app-availability-matrix');
-  const turbo = matrix.getByRole('row', { name: /ENGINE_20T_I4/ }).getByRole('cell');
+  const turbo = turboOf(page);
   const revisions: string[] = [];
-  page.on('request', (request) => {
-    if (request.method() === 'PUT' && request.url().endsWith('/cells')) {
-      revisions.push(request.headers()['if-match']);
-    }
-  });
+  onSave(page, (request) => revisions.push(request.headers()['if-match']));
 
   // One cell is set four times over without waiting, and the arrow keys take the last to its
   // neighbour.
