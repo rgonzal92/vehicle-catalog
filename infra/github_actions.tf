@@ -55,8 +55,15 @@ resource "aws_iam_role_policy" "plan" {
         Sid    = "ReadWhatIsManaged"
         Effect = "Allow"
         Action = [
+          "acm:DescribeCertificate",
+          "acm:ListTagsForCertificate",
           "budgets:ListTagsForResource",
           "budgets:ViewBudget",
+          "cloudfront:DescribeFunction",
+          "cloudfront:GetDistribution",
+          "cloudfront:GetFunction",
+          "cloudfront:GetOriginAccessControl",
+          "cloudfront:ListTagsForResource",
           "iam:GetOpenIDConnectProvider",
           "iam:GetRole",
           "iam:GetRolePolicy",
@@ -64,6 +71,30 @@ resource "aws_iam_role_policy" "plan" {
           "iam:ListRolePolicies",
         ]
         Resource = "*"
+      },
+      {
+        # How the bucket is set up, and that it is there. Without the listing, Terraform takes the
+        # bucket for gone and plans to make it again.
+        Sid    = "ReadTheFrontendBucket"
+        Effect = "Allow"
+        Action = [
+          "s3:GetAccelerateConfiguration",
+          "s3:GetBucketAcl",
+          "s3:GetBucketCORS",
+          "s3:GetBucketLogging",
+          "s3:GetBucketObjectLockConfiguration",
+          "s3:GetBucketPolicy",
+          "s3:GetBucketPublicAccessBlock",
+          "s3:GetBucketRequestPayment",
+          "s3:GetBucketVersioning",
+          "s3:GetBucketWebsite",
+          "s3:GetEncryptionConfiguration",
+          "s3:GetLifecycleConfiguration",
+          "s3:GetReplicationConfiguration",
+          "s3:ListBucket",
+          "s3:ListTagsForResource",
+        ]
+        Resource = aws_s3_bucket.frontend.arn
       },
       {
         Sid      = "ReadTheState"
@@ -93,8 +124,8 @@ resource "aws_iam_role_policy_attachments_exclusive" "plan" {
   policy_arns = []
 }
 
-# Deploys from the main branch, and from nowhere else. It is allowed nothing: whatever deploys
-# something grants this role what that needs.
+# Deploys from the main branch, and from nowhere else. Whatever deploys something grants this role
+# what that needs, in a policy of its own beside what it deploys.
 resource "aws_iam_role" "deploy" {
   name        = "vehicle-catalog-deploy"
   description = "Deploys from the main branch."
@@ -113,4 +144,16 @@ resource "aws_iam_role" "deploy" {
       }
     }]
   })
+}
+
+# Those policies are all the deploy role has. An apply removes any other policy given to it, in a
+# file here or by hand.
+resource "aws_iam_role_policies_exclusive" "deploy" {
+  role_name    = aws_iam_role.deploy.name
+  policy_names = [aws_iam_role_policy.deploy_frontend.name]
+}
+
+resource "aws_iam_role_policy_attachments_exclusive" "deploy" {
+  role_name   = aws_iam_role.deploy.name
+  policy_arns = []
 }

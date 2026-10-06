@@ -1,6 +1,8 @@
 # Who may take on each of the pipeline's roles, and what the plan role may do. Nothing here reaches
 # AWS: the provider is a stand-in.
-mock_provider "aws" {}
+mock_provider "aws" {
+  source = "./tests/mocks"
+}
 
 variables {
   budget_notification_email = "someone@example.com"
@@ -50,10 +52,10 @@ run "the_plan_role_only_reads" {
   assert {
     condition = alltrue([
       for statement in jsondecode(aws_iam_role_policy.plan.policy).Statement : statement.Effect == "Allow" && alltrue([
-        for action in statement.Action : can(regex("^[a-z0-9-]+:(Get|List|View)", action))
+        for action in statement.Action : can(regex("^[a-z0-9-]+:(Describe|Get|List|View)", action))
       ])
     ])
-    error_message = "Every action the plan role is allowed starts with Get, List, or View."
+    error_message = "Every action the plan role is allowed starts with Describe, Get, List, or View."
   }
 
   assert {
