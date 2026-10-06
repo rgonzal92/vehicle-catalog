@@ -1,7 +1,9 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal, viewChild } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { MessageService } from 'primeng/api';
+import { Button } from 'primeng/button';
+import { Message } from 'primeng/message';
 import { Tab, TabList, TabPanel, TabPanels, Tabs } from 'primeng/tabs';
 import { Tag } from 'primeng/tag';
 import { Catalog, Catalogs, STATUS_NAMES } from '../../core/catalogs';
@@ -9,7 +11,7 @@ import { FixedLists } from '../../core/fixed-lists';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
 import { Cell } from '../../shared/availability-matrix/matrix';
 import { reasonOf } from '../../shared/reason-of';
-import { SaveQueue } from './save-queue';
+import { NotSent, SaveQueue, SaveStop } from './save-queue';
 
 /**
  * A catalog as its owner works on it: what describes it, and its matrix on the Features tab. A
@@ -17,9 +19,25 @@ import { SaveQueue } from './save-queue';
  *
  * The owner of a working copy in status Draft sets its cells, and each change is saved at once,
  * with no save button. Anyone else, and any other status, gets the matrix read-only.
+ *
+ * A change that is not saved goes back to what the cell was, marked with the reason. After a
+ * revision conflict, or when no answer says whether a change was saved, the editor sends nothing
+ * more and takes no further change until the catalog has been reloaded. A catalog that is no longer
+ * in status Draft is reloaded at once, read-only.
  */
 @Component({
-  imports: [RouterLink, Tab, TabList, TabPanel, TabPanels, Tabs, Tag, AvailabilityMatrix],
+  imports: [
+    RouterLink,
+    Button,
+    Message,
+    Tab,
+    TabList,
+    TabPanel,
+    TabPanels,
+    Tabs,
+    Tag,
+    AvailabilityMatrix,
+  ],
   selector: 'app-catalog-editor-page',
   template: `
     <main class="px-6 py-10">
@@ -47,6 +65,19 @@ import { SaveQueue } from './save-queue';
           </dl>
         </header>
 
+        @if (reloadNeeded(); as why) {
+          <p-message class="mt-4 block" severity="error">
+            <span>{{ why }}</span>
+            <p-button
+              class="ml-4"
+              label="Reload"
+              severity="secondary"
+              size="small"
+              (onClick)="reload()"
+            />
+          </p-message>
+        }
+
         <p-tabs class="mt-6 block" value="features">
           <p-tablist>
             <p-tab value="features">Features</p-tab>
@@ -54,6 +85,7 @@ import { SaveQueue } from './save-queue';
           <p-tabpanels>
             <p-tabpanel value="features">
               <app-availability-matrix
+                #matrix
                 class="h-[70vh] min-h-96"
                 [contents]="catalog.snapshot"
                 [categories]="fixedLists.categories()"
@@ -83,14 +115,29 @@ export class CatalogEditorPage {
 
   protected readonly statusNames = STATUS_NAMES;
 
-  /** Whether the person may set cells: the catalog is theirs and in status Draft. */
+  /** The matrix, which is told how the save of each change it reported went. */
+  private readonly matrix = viewChild<AvailabilityMatrix>('matrix');
+
+  /**
+   * Sends this page's edits in the order they were made, one at a time. Each time the catalog is
+   * read, it gets a new one that starts from the revision read.
+   */
+  private readonly saves = signal<SaveQueue<Cell> | null>(null);
+
+  /**
+   * Whether the person may set cells: the catalog is theirs and in status Draft, and no failed save
+   * has stopped the editor.
+   */
   protected readonly editable = computed(() => {
     const catalog = this.catalog();
-    return !!catalog?.owned && catalog.snapshot.status === 'DRAFT';
+    return !!catalog?.owned && catalog.snapshot.status === 'DRAFT' && !this.saves()?.stopped();
   });
 
-  /** Sends this tab's edits in the order they were made, one at a time. */
-  private saves?: SaveQueue<Cell>;
+  /** What to tell the person while nothing more is saved until they reload, or null otherwise. */
+  protected readonly reloadNeeded = computed(() => {
+    const stopped = this.saves()?.stopped();
+    return stopped ? STOPPED[stopped] : null;
+  });
 
   constructor() {
     void this.fixedLists.load();
@@ -107,27 +154,77 @@ export class CatalogEditorPage {
       : `${base.modelYear} Approved v${base.versionNumber} (carryover)`;
   }
 
-  /** Saves a cell the person just set, behind the saves still on their way. */
+  /**
+   * Saves a cell the person just set, behind the saves still on their way, and tells the matrix how
+   * it went. The editor never sends a change a second time.
+   */
   protected async save(cell: Cell): Promise<void> {
-    try {
-      await this.saves?.add(cell);
-    } catch (error) {
-      this.messages.add({ severity: 'error', summary: 'Not saved', detail: reasonOf(error) });
+    const saves = this.saves();
+    if (!saves) {
+      return;
     }
+
+    try {
+      await saves.add(cell);
+      this.matrix()?.saved(cell);
+    } catch (error) {
+      if (error instanceof NotSent) {
+        this.matrix()?.notSaved(cell, NOT_SENT);
+        return;
+      }
+
+      const stopped = saves.stopped();
+      const reason = reasonOf(error);
+      this.matrix()?.notSaved(
+        cell,
+        stopped === 'uncertain' ? OUTCOME_UNKNOWN : `Not saved: ${reason}`,
+      );
+      if (!stopped) {
+        this.messages.add({ severity: 'error', summary: 'Not saved', detail: reason });
+      } else if (stopped === 'closed') {
+        this.messages.add({ severity: 'warn', summary: 'Not saved', detail: reason });
+        await this.open();
+      }
+    }
+  }
+
+  /** Reads the catalog again, which shows what was saved and lets editing go on. */
+  protected reload(): void {
+    void this.open();
   }
 
   private async open(): Promise<void> {
     try {
       const catalog = await this.catalogs.find(this.id);
-      this.saves = new SaveQueue(
-        (cell, revision) => this.catalogs.setCells(this.id, revision, [cell]),
-        catalog.snapshot.revision,
+      this.saves.set(
+        new SaveQueue(
+          (cell, revision) => this.catalogs.setCells(this.id, revision, [cell]),
+          catalog.snapshot.revision,
+        ),
       );
       this.catalog.set(catalog);
     } catch (error) {
       // The backend refuses an address that names no catalog the person may open. Any other failure
       // has been shown as a message.
-      this.missing.set(error instanceof HttpErrorResponse && [400, 404].includes(error.status));
+      if (error instanceof HttpErrorResponse && [400, 404].includes(error.status)) {
+        this.catalog.set(null);
+        this.missing.set(true);
+      }
     }
   }
 }
+
+/** What the banner says for each way a failed save stops the editor. */
+const STOPPED: Record<SaveStop, string> = {
+  conflict:
+    'This catalog was changed somewhere else after you opened it, so your changes since were not saved. Reload the catalog to go on.',
+  uncertain:
+    'No answer says whether a change of yours was saved. Reload the catalog to see, and to go on.',
+  closed: 'This catalog can no longer be edited. Reload it to see it as it is now.',
+};
+
+/** What the mark says on a cell whose change was never sent. */
+const NOT_SENT = 'Not sent, because an earlier change was not saved.';
+
+/** What the mark says on a cell whose change may or may not have been saved. */
+const OUTCOME_UNKNOWN = 'No answer says whether this change was saved.';
