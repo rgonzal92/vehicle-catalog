@@ -71,6 +71,7 @@ describe('matrixRows', () => {
     id,
     code,
     name: code.toLowerCase(),
+    kind: 'FEATURE' as const,
     categoryCode,
   });
 

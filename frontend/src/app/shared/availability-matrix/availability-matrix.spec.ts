@@ -2,7 +2,7 @@ import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { AvailabilityMatrix } from './availability-matrix';
-import { Cell, MatrixContents } from './matrix';
+import { Cell, FeatureRow, MatrixContents } from './matrix';
 
 const contents: MatrixContents = {
   trims: [
@@ -19,8 +19,14 @@ const contents: MatrixContents = {
     { trimId: 2, regionCode: 'EU' },
   ],
   featureRows: [
-    { id: 10, code: 'ROOF_PANORAMIC', name: 'Panoramic Roof', categoryCode: 'EXTERIOR' },
-    { id: 11, code: 'ENGINE_20T', name: '2.0L Turbo', categoryCode: 'POWERTRAIN' },
+    {
+      id: 10,
+      code: 'ROOF_PANORAMIC',
+      kind: 'FEATURE',
+      name: 'Panoramic Roof',
+      categoryCode: 'EXTERIOR',
+    },
+    { id: 11, code: 'ENGINE_20T', kind: 'FEATURE', name: '2.0L Turbo', categoryCode: 'POWERTRAIN' },
   ],
   cells: [
     { featureId: 10, trimId: 2, regionCode: 'NA', availability: 'A' },
@@ -40,7 +46,9 @@ const categories = [
       [categories]="categories"
       [editable]="editable()"
       [hiddenRegions]="hiddenRegions()"
+      [featureFilter]="featureFilter()"
       (cellChange)="changes.push($event)"
+      (featureRemove)="removals.push($event)"
     />
   `,
 })
@@ -49,7 +57,9 @@ class Host {
   readonly categories = categories;
   readonly editable = signal(false);
   readonly hiddenRegions = signal(new Set<string>());
+  readonly featureFilter = signal<(feature: FeatureRow) => boolean>(() => true);
   readonly changes: Cell[] = [];
+  readonly removals: { feature: FeatureRow; cells: number }[] = [];
 }
 
 describe('AvailabilityMatrix', () => {
@@ -87,8 +97,9 @@ describe('AvailabilityMatrix', () => {
     fixture.debugElement.query(By.directive(AvailabilityMatrix))
       .componentInstance as AvailabilityMatrix;
 
+  /** What each cell says. Of a feature's name cell, that is the name, without its remove button. */
   const texts = (cells: Iterable<Element>) =>
-    Array.from(cells).map((cell) => cell.textContent?.trim());
+    Array.from(cells).map((cell) => (cell.querySelector('.truncate') ?? cell).textContent?.trim());
 
   const rows = (element: HTMLElement) =>
     Array.from(element.querySelectorAll('tbody tr')).map((row) => texts(row.children));
@@ -125,6 +136,127 @@ describe('AvailabilityMatrix', () => {
     host.hiddenRegions.set(new Set());
     await fixture.whenStable();
     expect(rows(element)[1]).toEqual(['ENGINE_20T', '2.0L Turbo', 'S', '-', 'A']);
+  });
+
+  it('shows only the feature rows the filter lets through, and keeps what was set in the others', async () => {
+    const { fixture, element, host } = await matrix(true);
+    press(cell(element, 1, 2), 'a');
+
+    host.featureFilter.set((feature) => feature.code.startsWith('ROOF'));
+    await fixture.whenStable();
+
+    // A category with no row left has no subheader either.
+    expect(rows(element).map((row) => row[0])).toEqual(['Exterior', 'ROOF_PANORAMIC']);
+
+    host.featureFilter.set(() => true);
+    await fixture.whenStable();
+    expect(rows(element)[1].slice(2)).toEqual(['S', '-', 'A']);
+  });
+
+  it('asks for a feature row to be removed, saying how many cells it has, only when editable', async () => {
+    const readOnly = await matrix(false);
+    expect(readOnly.element.querySelector('button[data-remove]')).toBeNull();
+    TestBed.resetTestingModule();
+
+    const { element, host } = await matrix(true);
+    press(cell(element, 1, 2), 'a');
+    const remove = element.querySelector<HTMLButtonElement>(
+      'button[aria-label="Remove 2.0L Turbo"]',
+    )!;
+    // The Tab key still stops at the matrix once.
+    expect(remove.tabIndex).toBe(-1);
+
+    remove.click();
+
+    expect(host.removals).toEqual([{ feature: contents.featureRows[1], cells: 2 }]);
+    expect(rows(element)).toHaveLength(4);
+  });
+
+  it('reaches the button that removes a row with the left arrow, and leaves it with the others', async () => {
+    const { element } = await matrix(true);
+    const removeTurbo = element.querySelector<HTMLElement>(
+      'button[aria-label="Remove 2.0L Turbo"]',
+    )!;
+    const removeRoof = element.querySelector<HTMLElement>(
+      'button[aria-label="Remove Panoramic Roof"]',
+    )!;
+
+    cell(element, 1, 0).focus();
+    press(cell(element, 1, 0), 'ArrowLeft');
+    expect(document.activeElement).toBe(removeTurbo);
+
+    // Down steps over the subheader to the next feature row's button, and up comes back.
+    press(removeTurbo, 'ArrowDown');
+    expect(document.activeElement).toBe(removeRoof);
+    press(removeRoof, 'ArrowUp');
+    expect(document.activeElement).toBe(removeTurbo);
+
+    press(removeTurbo, 'ArrowRight');
+    expect(document.activeElement).toBe(cell(element, 1, 0));
+  });
+
+  it('starts the keyboard at the first remove button when the matrix shows no offering', async () => {
+    const { fixture, element, host } = await matrix(true);
+    host.hiddenRegions.set(new Set(['NA', 'EU']));
+    await fixture.whenStable();
+    expect(element.querySelector('td[tabindex]')).toBeNull();
+    const tabStop = element.querySelector<HTMLElement>('[tabindex="0"]')!;
+    // The test page cannot tell a key press from a click; the focus here comes by keyboard.
+    vi.spyOn(tabStop, 'matches').mockReturnValue(true);
+
+    tabStop.focus();
+
+    expect(document.activeElement).toBe(
+      element.querySelector('button[aria-label="Remove 2.0L Turbo"]'),
+    );
+  });
+
+  it('names a feature row by its feature alone, whatever else its header holds', async () => {
+    const { element } = await matrix(true);
+
+    expect(
+      Array.from(element.querySelectorAll('[role="rowheader"]')).map((header) =>
+        header.getAttribute('aria-label'),
+      ),
+    ).toEqual(['2.0L Turbo', 'Panoramic Roof']);
+  });
+
+  it("puts the focus on a row's remove button when asked to, or where the keyboard starts", async () => {
+    const { fixture, element } = await matrix(true);
+    const theMatrixItself = theMatrix(fixture);
+
+    const removeRoof = element.querySelector<HTMLElement>(
+      'button[aria-label="Remove Panoramic Roof"]',
+    )!;
+    // The focus comes from outside the matrix and by keyboard, as it does after a dialog closes.
+    vi.spyOn(removeRoof, 'matches').mockReturnValue(true);
+
+    theMatrixItself.focusOn(contents.featureRows[0]);
+    expect(document.activeElement).toBe(removeRoof);
+
+    theMatrixItself.focusOn();
+    expect(document.activeElement).toBe(cell(element, 1, 0));
+  });
+
+  it('keeps a row with a marked cell in view whatever the filter', async () => {
+    const { fixture, element, host } = await matrix(true);
+    press(cell(element, 1, 0), 'a');
+    theMatrix(fixture).notSaved(host.changes[0], 'Not saved.');
+
+    host.featureFilter.set((feature) => feature.code.startsWith('ROOF'));
+    await fixture.whenStable();
+
+    expect(rows(element).map((row) => row[0])).toEqual([
+      'Powertrain',
+      'ENGINE_20T',
+      'Exterior',
+      'ROOF_PANORAMIC',
+    ]);
+
+    // Once the cell is set again the mark goes, and the row with it.
+    press(cell(element, 1, 0), 'a');
+    await fixture.whenStable();
+    expect(rows(element).map((row) => row[0])).toEqual(['Exterior', 'ROOF_PANORAMIC']);
   });
 
   it('lists feature rows under category subheaders and shows each cell, a missing one as a dash', async () => {

@@ -1,27 +1,36 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, signal, viewChild } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { NonNullableFormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { Button } from 'primeng/button';
+import { Dialog } from 'primeng/dialog';
+import { InputText } from 'primeng/inputtext';
 import { Message } from 'primeng/message';
+import { Select } from 'primeng/select';
 import { Tab, TabList, TabPanel, TabPanels, Tabs } from 'primeng/tabs';
 import { Tag } from 'primeng/tag';
 import { Catalog, CatalogEdit, Catalogs, STATUS_NAMES } from '../../core/catalogs';
 import { FixedLists } from '../../core/fixed-lists';
+import { FeatureKind, KIND_FILTERS } from '../../core/library';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
-import { Cell } from '../../shared/availability-matrix/matrix';
+import { Cell, FeatureRow } from '../../shared/availability-matrix/matrix';
 import { reasonOf } from '../../shared/reason-of';
+import { AddFeaturesDialog } from './add-features-dialog';
+import { counted, sentence } from './counted';
 import { HistoryTab } from './history-tab';
 import { ManageOfferingsDialog } from './manage-offerings-dialog';
-import { NotSent, SaveQueue, SaveStop } from './save-queue';
+import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
 
 /**
  * A catalog as its owner works on it: what describes it, its matrix on the Features tab, and its
  * change history on the History tab. A working copy shows the library's current labels.
  *
- * The owner of a working copy in status Draft sets its cells and manages its trims, regions, and
- * offerings, and each change is saved at once, with no save button. Anyone else, and any other
- * status, gets the matrix read-only. Whole regions can be hidden to keep the matrix narrow.
+ * The owner of a working copy in status Draft sets its cells, adds and removes feature rows, and
+ * manages its trims, regions, and offerings, and each change is saved at once, with no save
+ * button. Anyone else, and any other status, gets the matrix read-only. Whole regions can be hidden to keep the matrix narrow, and
+ * its feature rows narrowed to the ones being worked on.
  *
  * A change that is not saved goes back to what the cell was, marked with the reason. After a
  * revision conflict, or when no answer says whether a change was saved, the editor sends nothing
@@ -30,9 +39,13 @@ import { NotSent, SaveQueue, SaveStop } from './save-queue';
  */
 @Component({
   imports: [
+    ReactiveFormsModule,
     RouterLink,
     Button,
+    Dialog,
+    InputText,
     Message,
+    Select,
     Tab,
     TabList,
     TabPanel,
@@ -40,6 +53,7 @@ import { NotSent, SaveQueue, SaveStop } from './save-queue';
     Tabs,
     Tag,
     AvailabilityMatrix,
+    AddFeaturesDialog,
     HistoryTab,
     ManageOfferingsDialog,
   ],
@@ -112,14 +126,58 @@ import { NotSent, SaveQueue, SaveStop } from './save-queue';
                   }
                 </div>
                 @if (editable() || managing()) {
-                  <p-button
-                    label="Manage trims and regions"
-                    severity="secondary"
-                    [disabled]="managing()"
-                    (onClick)="manage(offerings)"
-                  />
+                  <div class="flex flex-wrap gap-2">
+                    <p-button
+                      label="Add features"
+                      severity="secondary"
+                      [disabled]="managing()"
+                      (onClick)="adding.open()"
+                    />
+                    <p-button
+                      label="Manage trims and regions"
+                      severity="secondary"
+                      [disabled]="managing()"
+                      (onClick)="manage(offerings)"
+                    />
+                  </div>
                 }
               </div>
+              <form
+                class="mb-2 flex flex-wrap items-end gap-4"
+                role="search"
+                aria-label="Feature rows shown"
+                [formGroup]="rowFilters"
+              >
+                <div class="grid gap-1">
+                  <label for="row-query">Code or name</label>
+                  <input pInputText id="row-query" type="search" formControlName="query" />
+                </div>
+                <div class="grid gap-1">
+                  <label id="row-category-label" for="row-category">Category</label>
+                  <p-select
+                    inputId="row-category"
+                    ariaLabelledBy="row-category-label"
+                    formControlName="category"
+                    optionLabel="name"
+                    optionValue="code"
+                    [options]="fixedLists.categoryFilters()"
+                  />
+                </div>
+                <div class="grid gap-1">
+                  <label id="row-kind-label" for="row-kind">Kind</label>
+                  <p-select
+                    inputId="row-kind"
+                    ariaLabelledBy="row-kind-label"
+                    formControlName="kind"
+                    optionLabel="name"
+                    optionValue="code"
+                    [options]="kindFilters"
+                  />
+                </div>
+                <p class="pb-2 text-sm text-muted-color" aria-live="polite" data-rows-shown>
+                  {{ rowsShownInWords() }}
+                </p>
+              </form>
               <app-availability-matrix
                 #matrix
                 class="h-[70vh] min-h-96"
@@ -127,8 +185,52 @@ import { NotSent, SaveQueue, SaveStop } from './save-queue';
                 [categories]="fixedLists.categories()"
                 [editable]="editable()"
                 [hiddenRegions]="hiddenRegions()"
+                [featureFilter]="featureFilter()"
                 (cellChange)="save($event)"
+                (featureRemove)="askToRemove($event)"
               />
+              <app-add-features-dialog
+                #adding
+                [catalog]="catalog"
+                [run]="restructure"
+                [editable]="editable()"
+              />
+              <p-dialog
+                header="Remove feature row"
+                closeAriaLabel="Close"
+                [modal]="true"
+                [style]="{ width: '30rem' }"
+                [closable]="!removingNow()"
+                [visible]="removing() !== null"
+                (visibleChange)="removing.set(null)"
+                (onHide)="matrix.focusOn(lastAsked)"
+              >
+                @if (removing(); as asked) {
+                  <div class="grid gap-4">
+                    @if (removalRefusal()) {
+                      <p-message severity="error">{{ removalRefusal() }}</p-message>
+                    }
+                    <p data-question>
+                      Remove {{ asked.feature.name }} ({{ asked.feature.code }}) from this catalog?
+                      {{ cellsGoing(asked.cells) }}
+                    </p>
+                    <div class="flex justify-end gap-2">
+                      <p-button
+                        label="Keep"
+                        severity="secondary"
+                        [autofocus]="true"
+                        [disabled]="removingNow()"
+                        (onClick)="removing.set(null)"
+                      />
+                      <p-button
+                        label="Remove"
+                        [loading]="removingNow()"
+                        (onClick)="removeFeature(asked.feature)"
+                      />
+                    </div>
+                  </div>
+                }
+              </p-dialog>
               <app-manage-offerings-dialog
                 #offerings
                 [catalog]="catalog"
@@ -176,6 +278,59 @@ export class CatalogEditorPage {
   private readonly saves = signal<SaveQueue<CatalogEdit> | null>(null);
 
   /**
+   * What narrows the matrix to the feature rows the person is working on: part of a code or a
+   * name, a category, and a kind. It is a way of looking at the catalog and changes nothing in it.
+   */
+  protected readonly rowFilters = inject(NonNullableFormBuilder).group({
+    query: '',
+    category: '',
+    kind: '' as FeatureKind | '',
+  });
+
+  private readonly rowFilter = toSignal(this.rowFilters.valueChanges, {
+    initialValue: this.rowFilters.getRawValue(),
+  });
+
+  /** Whether a feature row gets through what the person has narrowed the matrix to. */
+  protected readonly featureFilter = computed(() => {
+    const { query = '', category, kind } = this.rowFilter();
+    const sought = query.trim().toLowerCase();
+
+    return (feature: FeatureRow) =>
+      (!sought ||
+        feature.code.toLowerCase().includes(sought) ||
+        feature.name.toLowerCase().includes(sought)) &&
+      (!category || feature.categoryCode === category) &&
+      (!kind || feature.kind === kind);
+  });
+
+  /** How many of the catalog's feature rows get through what the matrix is narrowed to. */
+  protected readonly rowsShownInWords = computed(() => {
+    const rows = this.catalog()?.snapshot.featureRows ?? [];
+    const shown = rows.filter(this.featureFilter()).length;
+
+    return `${shown} of ${rows.length} feature ${rows.length === 1 ? 'row' : 'rows'} shown`;
+  });
+
+  protected readonly kindFilters = KIND_FILTERS;
+
+  /** The feature row the person is asked to confirm the removal of, or null while there is none. */
+  protected readonly removing = signal<{ feature: FeatureRow; cells: number } | null>(null);
+
+  /** Why the backend refused to remove the feature row, shown with the question. */
+  protected readonly removalRefusal = signal('');
+
+  /** Whether the removal is on its way, so that a second click removes nothing more. */
+  protected readonly removingNow = signal(false);
+
+  /**
+   * The feature row the person was last asked about. Once the question has gone from the page, the
+   * focus goes back to the row's remove button, or to where the keyboard starts in the matrix when
+   * the row is gone.
+   */
+  protected lastAsked?: FeatureRow;
+
+  /**
    * The codes of the regions the person has hidden from the matrix. It is a way of looking at the
    * catalog and changes nothing in it.
    */
@@ -188,8 +343,8 @@ export class CatalogEditorPage {
   protected readonly managing = signal(false);
 
   /**
-   * Whether the catalog could not be read again after a change of its trims, regions, or offerings
-   * was saved. What the page shows is then behind what is saved.
+   * Whether the catalog could not be read again after a change of what its matrix is made of (its
+   * feature rows, trims, regions, or offerings) was saved. What the page shows is then behind what is saved.
    */
   private readonly behind = signal(false);
 
@@ -276,7 +431,8 @@ export class CatalogEditorPage {
   }
 
   /**
-   * Sends a change of the catalog's trims, regions, or offerings behind the saves on their way, and
+   * Sends a change of the catalog's feature rows, trims, regions, or offerings behind the saves on
+   * their way, and
    * reads the catalog again once it is saved, since such a change alters what the matrix is made
    * of. It fails with the backend's refusal when the change is not saved.
    */
@@ -318,6 +474,42 @@ export class CatalogEditorPage {
       this.managing.set(false);
     }
     await dialog.open();
+  }
+
+  /** Asks the person to confirm the removal of a feature row, which takes its cells along. */
+  protected askToRemove(asked: { feature: FeatureRow; cells: number }): void {
+    this.removalRefusal.set('');
+    this.lastAsked = asked.feature;
+    this.removing.set(asked);
+  }
+
+  /** What the question says about the cells that go with a feature row. */
+  protected cellsGoing(cells: number): string {
+    return `${sentence(counted(cells, 'cell'))} ${cells === 1 ? 'goes' : 'go'} with it.`;
+  }
+
+  /** Removes the feature row the person confirmed, or keeps the question open with the refusal. */
+  protected async removeFeature(feature: FeatureRow): Promise<void> {
+    if (this.removingNow()) {
+      return;
+    }
+
+    this.removingNow.set(true);
+    try {
+      await this.restructure((revision) =>
+        this.catalogs.removeFeature(this.id, revision, feature.id),
+      );
+      this.removing.set(null);
+    } catch (error) {
+      if (failureOf(error) === 'rejected') {
+        this.removalRefusal.set(reasonOf(error));
+      } else {
+        // The editor has stopped or read the catalog again, and says so itself.
+        this.removing.set(null);
+      }
+    } finally {
+      this.removingNow.set(false);
+    }
   }
 
   /** Shows or hides a region's offerings in the matrix. */

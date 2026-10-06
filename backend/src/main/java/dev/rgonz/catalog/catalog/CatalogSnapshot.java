@@ -44,8 +44,14 @@ record CatalogSnapshot(
   /** One trim sold in one region. */
   record Offering(long trimId, String regionCode) {}
 
-  /** A feature the catalog has added. Its code never changes, so it is no label. */
-  record FeatureRow(long id, String code, String name, String categoryCode) {}
+  /** Whether a feature stands alone or is a package, which brings other features with it. */
+  enum Kind {
+    FEATURE,
+    PACKAGE
+  }
+
+  /** A feature the catalog has added. Its code and its kind never change, so they are no labels. */
+  record FeatureRow(long id, String code, Kind kind, String name, String categoryCode) {}
 
   /** The availability of one feature in one offering. */
   record Cell(long featureId, long trimId, String regionCode, Availability availability) {}

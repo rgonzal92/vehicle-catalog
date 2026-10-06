@@ -196,7 +196,7 @@ test('a catalog follows the library: a trim renamed there is renamed in the matr
   await dialog.getByRole('button', { name: 'Remove', exact: true }).click();
   await expect(dialog.getByText('This catalog has no trims yet.')).toBeVisible();
 
-  // Once removed, it is not on offer.
+  // Once removed, it cannot be added again.
   await dialog.getByLabel('Add a trim').click();
   await expect(page.getByRole('option', { name: 'Base', exact: true })).toBeVisible();
   await expect(page.getByRole('option', { name: renamed, exact: true })).toHaveCount(0);

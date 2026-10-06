@@ -21,10 +21,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Edits working copies: their cells, the library trims and regions they have added, and where each
- * trim is sold. Only a catalog in status Draft can be edited, and only by its owner. Every edit
- * names the revision it was made from and runs in one transaction that locks the catalog, so edits
- * of one catalog happen one after another and none overwrites a change it has not seen.
+ * Edits working copies: their cells, the library trims, regions, and features they have added, and
+ * where each trim is sold. Only a catalog in status Draft can be edited, and only by its owner.
+ * Every edit names the revision it was made from and runs in one transaction that locks the
+ * catalog, so edits of one catalog happen one after another and none overwrites a change it has not
+ * seen.
  */
 @Service
 class CatalogEdits {
@@ -36,6 +37,9 @@ class CatalogEdits {
 
   /** The most regions a catalog has. */
   private static final int MOST_REGIONS = 8;
+
+  /** The most feature rows a catalog has. */
+  private static final int MOST_FEATURE_ROWS = 500;
 
   /** What a save may set a cell to: S, A, or N. */
   private static final Set<String> AVAILABILITIES =
@@ -113,7 +117,7 @@ class CatalogEdits {
                   .param("ids", ids)
                   .query()
                   .singleRow();
-          requireAddable(counted, ids.length, "trim", MOST_TRIMS);
+          requireAddable(counted, ids.length, "trim", "trims", MOST_TRIMS);
 
           jdbc.sql(
                   """
@@ -165,7 +169,7 @@ class CatalogEdits {
                   .param("codes", codes)
                   .query()
                   .singleRow();
-          requireAddable(counted, codes.length, "region", MOST_REGIONS);
+          requireAddable(counted, codes.length, "region", "regions", MOST_REGIONS);
 
           jdbc.sql(
                   """
@@ -249,6 +253,92 @@ class CatalogEdits {
               .param("catalog", catalogId)
               .param("actor", actorId)
               .param("region", regionCode)
+              .update();
+          return true;
+        });
+  }
+
+  /**
+   * Adds library features to the catalog as feature rows. Only an active feature that is no row yet
+   * can be added, and a catalog has at most {@value #MOST_FEATURE_ROWS}. A new row has no cells,
+   * which is every cell Not offered.
+   */
+  long addFeatures(long catalogId, long actorId, String ifMatch, List<Long> featureIds) {
+    return edit(
+        catalogId,
+        actorId,
+        ifMatch,
+        () -> {
+          var ids = eachOnce(featureIds, "feature").toArray(Long[]::new);
+          var counted =
+              jdbc.sql(
+                      """
+                      SELECT (SELECT count(*) FROM feature f
+                              WHERE f.id = ANY (:ids::bigint[]) AND f.status = 'ACTIVE'
+                                AND NOT EXISTS (
+                                    SELECT 1 FROM catalog_feature c
+                                    WHERE c.catalog_id = :catalog AND c.feature_id = f.id))
+                                 AS addable,
+                             (SELECT count(*) FROM catalog_feature WHERE catalog_id = :catalog)
+                                 AS had
+                      """)
+                  .param("catalog", catalogId)
+                  .param("ids", ids)
+                  .query()
+                  .singleRow();
+          requireAddable(counted, ids.length, "feature", "feature rows", MOST_FEATURE_ROWS);
+
+          jdbc.sql(
+                  """
+                  INSERT INTO catalog_feature (catalog_id, feature_id)
+                  SELECT :catalog, id FROM unnest(:ids::bigint[]) AS added (id)
+                  """)
+              .param("catalog", catalogId)
+              .param("ids", ids)
+              .update();
+          jdbc.sql(
+                  """
+                  INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
+                  SELECT :catalog, :actor, 'FEATURE_ADDED', jsonb_build_object('featureId', id)
+                  FROM unnest(:ids::bigint[]) WITH ORDINALITY AS added (id, place)
+                  ORDER BY place
+                  """)
+              .param("catalog", catalogId)
+              .param("actor", actorId)
+              .param("ids", ids)
+              .update();
+          return true;
+        });
+  }
+
+  /** Removes a feature row from the catalog, and with it its cells, which the database sees to. */
+  long removeFeature(long catalogId, long actorId, String ifMatch, long featureId) {
+    return edit(
+        catalogId,
+        actorId,
+        ifMatch,
+        () -> {
+          var removed =
+              jdbc.sql(
+                      """
+                      DELETE FROM catalog_feature
+                      WHERE catalog_id = :catalog AND feature_id = :feature
+                      """)
+                  .param("catalog", catalogId)
+                  .param("feature", featureId)
+                  .update();
+          if (removed == 0) {
+            throw ApiException.notFound();
+          }
+          jdbc.sql(
+                  """
+                  INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
+                  VALUES (:catalog, :actor, 'FEATURE_REMOVED',
+                          jsonb_build_object('featureId', :feature))
+                  """)
+              .param("catalog", catalogId)
+              .param("actor", actorId)
+              .param("feature", featureId)
               .update();
           return true;
         });
@@ -372,16 +462,18 @@ class CatalogEdits {
    *
    * @param counted how many of the entries asked for are active and not yet in the catalog, as
    *     {@code addable}, and how many entries of the kind the catalog has, as {@code had}
+   * @param entry what the library calls one such entry
+   * @param had what the catalog calls the ones it has added
    */
   private static void requireAddable(
-      Map<String, Object> counted, int asked, String entry, int most) {
+      Map<String, Object> counted, int asked, String entry, String had, int most) {
     if ((long) counted.get("addable") != asked) {
       throw ApiException.invalid(
           "Only an active %s of the library that the catalog does not have yet can be added."
               .formatted(entry));
     }
     if ((long) counted.get("had") + asked > most) {
-      throw ApiException.limitExceeded("A catalog has at most %d %ss.".formatted(most, entry));
+      throw ApiException.limitExceeded("A catalog has at most %d %s.".formatted(most, had));
     }
   }
 

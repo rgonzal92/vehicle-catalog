@@ -12,13 +12,13 @@ import { TableModule } from 'primeng/table';
 import { Tag } from 'primeng/tag';
 import { Textarea } from 'primeng/textarea';
 import { FixedLists } from '../../../core/fixed-lists';
+import { FeatureKind, KIND_FILTERS, KIND_NAMES } from '../../../core/library';
 import { reasonOf } from '../../../shared/reason-of';
-import { Feature, FeatureKind, FeatureLibrary, FeatureStatus } from './feature-library';
+import { Feature, FeatureLibrary, FeatureStatus } from './feature-library';
 
 /** The category every package belongs to, and no other feature. */
 const PACKAGES = 'PACKAGES';
 
-const KIND_NAMES: Record<FeatureKind, string> = { FEATURE: 'Feature', PACKAGE: 'Package' };
 const STATUS_NAMES: Record<FeatureStatus, string> = { ACTIVE: 'Active', RETIRED: 'Retired' };
 
 /** Where an admin searches the feature library and adds, edits, retires, and reactivates features. */
@@ -231,15 +231,12 @@ export class FeatureLibraryPage {
   protected readonly kinds = namedCodes(KIND_NAMES);
 
   /** Each filter starts with the choice that lets every feature through. */
-  protected readonly kindFilters = [{ code: '', name: 'Every kind' }, ...this.kinds];
+  protected readonly kindFilters = KIND_FILTERS;
   protected readonly statusFilters = [
     { code: '', name: 'Every status' },
     ...namedCodes(STATUS_NAMES),
   ];
-  protected readonly categoryFilters = computed(() => [
-    { code: '', name: 'Every category' },
-    ...this.fixedLists.categories(),
-  ]);
+  protected readonly categoryFilters = this.fixedLists.categoryFilters;
 
   /** The categories a feature that is not a package can be in. */
   protected readonly featureCategories = computed(() =>

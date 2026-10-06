@@ -150,6 +150,26 @@ class CatalogController {
     return saved(edits.sellIn(id, people.idOf(caller), ifMatch, trimId, given.regionCodes()));
   }
 
+  /** Adds library features to the caller's working copy as feature rows. */
+  @PostMapping("/api/catalogs/{id}/features")
+  ResponseEntity<Edited> addFeatures(
+      @PathVariable long id,
+      @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+      @RequestBody FeaturesToAdd given,
+      Authentication caller) {
+    return saved(edits.addFeatures(id, people.idOf(caller), ifMatch, given.featureIds()));
+  }
+
+  /** Removes a feature row from the caller's working copy, with its cells. */
+  @DeleteMapping("/api/catalogs/{id}/features/{featureId}")
+  ResponseEntity<Edited> removeFeature(
+      @PathVariable long id,
+      @PathVariable long featureId,
+      @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+      Authentication caller) {
+    return saved(edits.removeFeature(id, people.idOf(caller), ifMatch, featureId));
+  }
+
   /**
    * An edit answers with the revision the catalog is at afterwards, which is also the entity tag.
    * It is the revision the edit was made from when the edit changed nothing.
@@ -160,6 +180,9 @@ class CatalogController {
 
   /** The library trims to add to a catalog, by their identities and nothing else. */
   record TrimsToAdd(List<Long> trimIds) {}
+
+  /** The library features to add to a catalog as feature rows, by their identities. */
+  record FeaturesToAdd(List<Long> featureIds) {}
 
   /** Regions, by their codes and nothing else. */
   record RegionCodes(List<String> regionCodes) {}

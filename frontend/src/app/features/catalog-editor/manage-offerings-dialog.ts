@@ -19,13 +19,7 @@ import { Catalog, CatalogEdit, Catalogs } from '../../core/catalogs';
 import { Library, LibraryRegion, LibraryTrim } from '../../core/library';
 import { Cell, MatrixRegion, MatrixTrim } from '../../shared/availability-matrix/matrix';
 import { reasonOf } from '../../shared/reason-of';
-
-/** A number of things in words: "no cells", "1 cell", "120 cells". */
-const counted = (count: number, thing: string) =>
-  `${count === 0 ? 'no' : count} ${thing}${count === 1 ? '' : 's'}`;
-
-/** The words with a capital first letter, to start a sentence with. */
-const sentence = (words: string) => words.charAt(0).toUpperCase() + words.slice(1);
+import { counted, sentence } from './counted';
 
 /** A removal waiting for the owner to confirm it, with what it would take along. */
 interface Question {

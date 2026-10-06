@@ -162,7 +162,7 @@ class Catalogs {
     var featureRows =
         content(
             """
-            SELECT c.feature_id AS id, f.code, COALESCE(c.approved_name, f.name) AS name,
+            SELECT c.feature_id AS id, f.code, f.kind, COALESCE(c.approved_name, f.name) AS name,
                    COALESCE(c.approved_category_code, f.category_code) AS category_code
             FROM catalog_feature c
             JOIN feature f ON f.id = c.feature_id

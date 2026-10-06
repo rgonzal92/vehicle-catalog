@@ -1,9 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { firstValueFrom, Observable } from 'rxjs';
-
-/** Whether a feature stands alone or is a package, which brings other features with it. */
-export type FeatureKind = 'FEATURE' | 'PACKAGE';
+import { FeatureKind } from '../../../core/library';
 
 /** A retired feature can no longer be added to catalogs or rules. */
 export type FeatureStatus = 'ACTIVE' | 'RETIRED';

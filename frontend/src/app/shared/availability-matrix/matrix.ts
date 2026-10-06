@@ -1,4 +1,5 @@
 import { Named } from '../../core/fixed-lists';
+import { FeatureKind } from '../../core/library';
 
 /** What a cell states: Standard, Available, or Not offered. */
 export type Availability = 'S' | 'A' | 'N';
@@ -33,6 +34,7 @@ export interface Offering {
 export interface FeatureRow {
   id: number;
   code: string;
+  kind: FeatureKind;
   name: string;
   categoryCode: string;
 }
