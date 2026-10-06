@@ -1,0 +1,47 @@
+# Makes the host run the stack: Docker and Compose if they are not there yet, then the stack's
+# files as the repository has them, the secret the distribution sends, and the stack itself.
+# Systems Manager runs this on the host as root, when the host first reports in and again
+# whenever a line of it changes. What Terraform fills in is written the way bash writes a
+# variable, so the file can be checked as bash before it is filled in.
+set -euo pipefail
+
+if ! command -v docker >/dev/null; then
+  dnf install --assumeyes docker
+fi
+systemctl enable --now docker
+
+# Compose is not among Amazon Linux's packages, so it comes from Docker's own release, and is
+# used only if it is the file that release published.
+plugin=/usr/local/lib/docker/cli-plugins/docker-compose
+if ! echo "${compose_sha256}  $plugin" | sha256sum --check --status 2>/dev/null; then
+  install -d "$(dirname "$plugin")"
+  curl --fail --silent --show-error --location --output "$plugin.new" \
+    "https://github.com/docker/compose/releases/download/${compose_version}/docker-compose-linux-aarch64"
+  echo "${compose_sha256}  $plugin.new" | sha256sum --check --status
+  chmod 755 "$plugin.new"
+  mv "$plugin.new" "$plugin"
+fi
+
+# The new files are written beside the ones in use and take their place only once Caddy accepts
+# them, so a mistake in them leaves the stack running as it was.
+install -d -m 700 /opt/vehicle-catalog /opt/vehicle-catalog/next
+cd /opt/vehicle-catalog/next
+cat > compose.yaml <<'COMPOSE_FILE'
+${compose_file}
+COMPOSE_FILE
+cat > Caddyfile <<'CADDY_FILE'
+${caddy_file}
+CADDY_FILE
+
+# The secret goes into a file that only root can read, which Compose reads beside its own. It is
+# asked for by its version, so a new secret changes this script and so reaches the host.
+umask 077
+secret="$(aws ssm get-parameter --region ${region} --name '${secret_name}:${secret_version}' \
+  --with-decryption --query Parameter.Value --output text)"
+printf 'ORIGIN_SECRET=%s\n' "$secret" > .env
+
+docker compose --project-name vehicle-catalog run --rm --no-deps --quiet-pull caddy \
+  caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+mv compose.yaml Caddyfile .env ..
+cd ..
+docker compose up --detach --force-recreate --remove-orphans --quiet-pull

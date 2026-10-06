@@ -92,6 +92,25 @@ resource "aws_cloudfront_distribution" "site" {
     origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
   }
 
+  # The host, which answers the API. It is reached by a name of its own, over HTTPS, with the
+  # secret that tells it the request came through this distribution.
+  origin {
+    origin_id   = "host"
+    domain_name = local.host_name
+
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "https-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+
+    custom_header {
+      name  = "X-Origin-Secret"
+      value = random_password.origin_secret.result
+    }
+  }
+
   default_cache_behavior {
     target_origin_id       = "frontend"
     viewer_protocol_policy = "redirect-to-https"
@@ -106,6 +125,21 @@ resource "aws_cloudfront_distribution" "site" {
       event_type   = "viewer-request"
       function_arn = aws_cloudfront_function.app_routes.arn
     }
+  }
+
+  # Everything under /api goes to the host. No answer is kept, and the host is sent everything of
+  # the request but the Host header, in place of which it gets its own name. No function is in the
+  # way, so an address of the API that is not there stays a 404.
+  ordered_cache_behavior {
+    path_pattern           = "/api/*"
+    target_origin_id       = "host"
+    viewer_protocol_policy = "https-only"
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD"]
+
+    # CachingDisabled and AllViewerExceptHostHeader, two policies that AWS manages.
+    cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+    origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac"
   }
 
   restrictions {

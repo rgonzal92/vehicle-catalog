@@ -1,0 +1,49 @@
+# What the host answers. Its one caller is the CloudFront distribution, which reaches it by this
+# name over HTTPS and sends, in a header, a secret that nothing else knows.
+{
+	# No one reaches Caddy's own controls.
+	admin off
+
+	# Port 80 is open so that the certificate authority can check that the host holds its name.
+	# Caddy listens there only during such a check, and sends no one on from there to HTTPS.
+	auto_https disable_redirects
+
+	servers {
+		# A request that names another host than its connection was made to is turned away, so that
+		# every request is either refused or answered below.
+		strict_sni_host on
+	}
+}
+
+{$ORIGIN_NAME} {
+	# The certificate is Let's Encrypt's. Caddy gets it and renews it by itself.
+	tls {
+		issuer acme {
+			dir {$ACME_DIRECTORY:https://acme-v02.api.letsencrypt.org/directory}
+
+			# The authority reaches port 80 and no other, so that is where it is asked to look.
+			disable_tlsalpn_challenge
+		}
+	}
+
+	# A request without the distribution's secret is refused. Caddy does not start without a secret,
+	# so an empty one never opens the host to everyone.
+	@stranger not header X-Origin-Secret {$ORIGIN_SECRET}
+
+	# In the order written, so that the refusal comes before every answer.
+	route {
+		respond @stranger 403
+
+		# One address says what reached the host, which shows what the distribution passes on.
+		respond /api/ 200 {
+			body "The host answers.
+{method} {uri}
+host: {host}
+cookie: {header.Cookie}
+x-probe: {header.X-Probe}
+"
+		}
+
+		respond 404
+	}
+}

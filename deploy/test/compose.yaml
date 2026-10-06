@@ -1,0 +1,34 @@
+# Laid over ../compose.yaml to try the host's stack on one machine: a stand-in for the certificate
+# authority, a name that only this network knows, and ports of its own.
+services:
+  # Stands in for Let's Encrypt. It comes to port 80 of the name to check, as Let's Encrypt does.
+  authority:
+    image: ghcr.io/letsencrypt/pebble:2.10.1
+    environment:
+      # Checks at once, where it would otherwise wait a while first.
+      PEBBLE_VA_NOSLEEP: "1"
+    volumes:
+      - ./test/authority.json:/test/config/pebble-config.json:ro
+    networks:
+      default:
+        # The one name its own certificate is made out to.
+        aliases:
+          - pebble
+
+  caddy:
+    depends_on:
+      - authority
+    environment:
+      ORIGIN_NAME: origin.test
+      ACME_DIRECTORY: https://pebble:14000/dir
+      # The stand-in signs its own address with a certificate of its own making.
+      SSL_CERT_FILE: /authority-root.pem
+    volumes:
+      - ${AUTHORITY_ROOT:?Run check.sh, which sets this}:/authority-root.pem:ro
+    networks:
+      default:
+        aliases:
+          - origin.test
+    ports: !override
+      - "127.0.0.1:18080:80"
+      - "127.0.0.1:18443:443"
