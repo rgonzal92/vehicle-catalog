@@ -14,7 +14,7 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 class VehicleLinesIT extends ApplicationIT {
   @BeforeEach
   void noVehicleLines() {
-    jdbc.sql("DELETE FROM vehicle_line").update();
+    emptyLibraryAndCatalogs();
   }
 
   @Test

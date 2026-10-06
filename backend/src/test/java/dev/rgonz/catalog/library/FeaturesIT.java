@@ -16,7 +16,7 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 class FeaturesIT extends ApplicationIT {
   @BeforeEach
   void noFeatures() {
-    jdbc.sql("DELETE FROM feature").update();
+    emptyLibraryAndCatalogs();
   }
 
   @Test

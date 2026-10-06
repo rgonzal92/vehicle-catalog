@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.function.Consumer;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
@@ -21,9 +22,11 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * Gives an empty library its starting trims, regions, vehicle lines, and features, so the app is
  * usable the moment it runs. The entries come from the files under {@code seed/}, written as the
- * admin endpoints take them, and each is held to those endpoints' rules.
+ * admin endpoints take them, and each is held to those endpoints' rules. It runs before the seed of
+ * the catalogs, which are made of these entries.
  */
 @Component
+@Order(1)
 class LibrarySeed implements ApplicationRunner {
   private final Trims trims;
   private final Regions regions;

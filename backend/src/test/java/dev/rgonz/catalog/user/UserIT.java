@@ -72,6 +72,12 @@ class UserIT extends ApplicationIT {
     assertThat(result).hasStatusOk().bodyJson().extractingPath("$[0].role").isEqualTo("author");
     assertThat(result).bodyJson().extractingPath("$[0].username").isEqualTo("demo-author");
     assertThat(result).bodyJson().extractingPath("$[0].password").isEqualTo("demo-password");
+    assertThat(result)
+        .bodyJson()
+        .extractingPath("$[0]")
+        .asMap()
+        .as("who the account is to the app stays private")
+        .containsOnlyKeys("role", "username", "password");
   }
 
   private java.time.Instant lastLogin(long id) {

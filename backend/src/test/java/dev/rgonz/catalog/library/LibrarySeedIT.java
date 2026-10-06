@@ -24,9 +24,7 @@ class LibrarySeedIT extends ApplicationIT {
 
   @BeforeEach
   void emptyLibrary() {
-    for (var table : TABLES) {
-      jdbc.sql("DELETE FROM " + table).update();
-    }
+    emptyLibraryAndCatalogs();
   }
 
   @Test

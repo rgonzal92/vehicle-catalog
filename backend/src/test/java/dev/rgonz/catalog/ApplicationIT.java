@@ -6,7 +6,10 @@ import com.jayway.jsonpath.JsonPath;
 import dev.rgonz.catalog.core.Role;
 import jakarta.servlet.http.Cookie;
 import java.io.UnsupportedEncodingException;
+import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -35,6 +38,13 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
       "app.demo-accounts[0].role=author",
       "app.demo-accounts[0].username=demo-author",
       "app.demo-accounts[0].password=demo-password",
+      "app.demo-accounts[0].subject=author",
+      "app.demo-accounts[0].display-name=Demo Author",
+      "app.demo-accounts[1].role=manager",
+      "app.demo-accounts[1].username=demo-manager",
+      "app.demo-accounts[1].password=demo-password",
+      "app.demo-accounts[1].subject=manager",
+      "app.demo-accounts[1].display-name=Demo Manager",
       "spring.security.oauth2.client.registration.cognito.client-id=" + ApplicationIT.CLIENT_ID,
       "spring.security.oauth2.client.registration.cognito.client-secret=test-secret"
     })
@@ -134,6 +144,25 @@ public abstract class ApplicationIT {
   @LocalServerPort protected int port;
   @Autowired protected MockMvcTester mvc;
   @Autowired protected JdbcClient jdbc;
+
+  /** What the application runs once it has started, in order: the seeds. */
+  @Autowired private List<ApplicationRunner> startup;
+
+  /**
+   * Empties the library and removes every catalog. A test class does this before each test that
+   * needs a library of its own making, whatever the tests before it left behind.
+   */
+  protected void emptyLibraryAndCatalogs() {
+    jdbc.sql("TRUNCATE lineage, catalog, vehicle_line, trim, region, feature CASCADE").update();
+  }
+
+  /** Puts the database in the state a first start leaves: the seeded library and catalogs. */
+  protected void startOnAFreshDatabase() throws Exception {
+    emptyLibraryAndCatalogs();
+    for (var runner : startup) {
+      runner.run(new DefaultApplicationArguments());
+    }
+  }
 
   /**
    * Sends the CSRF token the way the frontend does: the cookie's value echoed in a header. Spring

@@ -24,6 +24,13 @@ export const routes: Routes = [
     loadComponent: () => import('./features/no-role/no-role-page').then((page) => page.NoRolePage),
   },
   {
+    path: 'approved/:lineageId',
+    title: 'Approved catalog · Vehicle Catalog',
+    canActivate: [holding('author')],
+    loadComponent: () =>
+      import('./features/approved/approved-page').then((page) => page.ApprovedPage),
+  },
+  {
     path: 'admin/vehicle-lines',
     title: 'Vehicle lines · Vehicle Catalog',
     canActivate: [holding('admin')],
