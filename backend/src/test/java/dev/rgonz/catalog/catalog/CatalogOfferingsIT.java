@@ -9,9 +9,11 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.assertj.MockMvcTester.MockMvcRequestBuilder;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
@@ -241,7 +243,15 @@ class CatalogOfferingsIT extends WorkingCopyTests {
                     .formatted(trim("Luxury"))))
         .as("a name sent along is not taken")
         .hasStatusOk();
-    addRegions(ana(), copy, "\"1\"", "ASIA");
+    assertThat(
+            edit(
+                ana(),
+                mvc.post().uri("/api/catalogs/{id}/regions", copy),
+                "\"1\"",
+                """
+                {"regionCodes": ["ASIA"], "name": "Renamed", "sortOrder": 1, "active": false}
+                """))
+        .hasStatusOk();
     sellIn(ana(), copy, "\"2\"", trim("Luxury"), "ASIA", "NA");
     removeTrim(ana(), copy, "\"3\"", trim("Base"));
     removeRegion(ana(), copy, "\"4\"", "EU");
@@ -327,7 +337,15 @@ class CatalogOfferingsIT extends WorkingCopyTests {
   @Test
   void eachChangeAppearsInTheChangeHistoryWithItsKind() {
     addTrims(ana(), copy, "\"0\"", trim("Luxury"), trim("Performance"));
-    addRegions(ana(), copy, "\"1\"", "ASIA");
+    assertThat(
+            edit(
+                ana(),
+                mvc.post().uri("/api/catalogs/{id}/regions", copy),
+                "\"1\"",
+                """
+                {"regionCodes": ["ASIA"], "name": "Renamed", "sortOrder": 1, "active": false}
+                """))
+        .hasStatusOk();
     sellIn(ana(), copy, "\"2\"", trim("Luxury"), "ASIA", "NA");
     sellIn(ana(), copy, "\"3\"", trim("Luxury"), "NA", "EU");
     removeTrim(ana(), copy, "\"4\"", trim("Performance"));
@@ -404,20 +422,18 @@ class CatalogOfferingsIT extends WorkingCopyTests {
         "{\"regionCodes\": %s}".formatted(quoted(regionCodes)));
   }
 
+  /** The values as a JSON array of strings. */
   private static String quoted(String... values) {
-    return List.of(values).stream()
-        .collect(Collectors.joining("\", \"", "[\"", "\"]"))
-        .replace("[\"\"]", "[]");
+    return Stream.of(values)
+        .map(value -> "\"" + value + "\"")
+        .collect(Collectors.joining(", ", "[", "]"));
   }
 
   /**
    * Sends an edit that names the revision, or none when it is null, with a body when it has one.
    */
   private MvcTestResult edit(
-      RequestPostProcessor who,
-      org.springframework.test.web.servlet.assertj.MockMvcTester.MockMvcRequestBuilder request,
-      String revision,
-      String body) {
+      RequestPostProcessor who, MockMvcRequestBuilder request, String revision, String body) {
     request.with(who).with(csrfToken());
     if (revision != null) {
       request.header("If-Match", revision);

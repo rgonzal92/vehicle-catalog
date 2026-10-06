@@ -91,24 +91,31 @@ import { NotSent, SaveQueue, SaveStop } from './save-queue';
           <p-tabpanels>
             <p-tabpanel value="features">
               <div class="mb-2 flex flex-wrap items-center justify-between gap-4">
-                <fieldset class="flex flex-wrap items-center gap-4">
-                  <legend class="float-left mr-4 text-sm text-muted-color">Regions shown</legend>
-                  @for (region of catalog.snapshot.regions; track region.code) {
-                    <label class="flex items-center gap-1">
-                      <input
-                        type="checkbox"
-                        class="size-4"
-                        [checked]="!hiddenRegions().has(region.code)"
-                        (change)="showRegion(region.code, $any($event.target).checked)"
-                      />
-                      {{ region.name }}
-                    </label>
+                <div>
+                  @if (catalog.snapshot.regions.length > 0) {
+                    <fieldset class="flex flex-wrap items-center gap-4">
+                      <legend class="float-left mr-4 text-sm text-muted-color">
+                        Regions shown
+                      </legend>
+                      @for (region of catalog.snapshot.regions; track region.code) {
+                        <label class="flex items-center gap-1">
+                          <input
+                            type="checkbox"
+                            class="size-4"
+                            [checked]="!hiddenRegions().has(region.code)"
+                            (change)="showRegion(region.code, $any($event.target).checked)"
+                          />
+                          {{ region.name }}
+                        </label>
+                      }
+                    </fieldset>
                   }
-                </fieldset>
-                @if (editable()) {
+                </div>
+                @if (editable() || managing()) {
                   <p-button
                     label="Manage trims and regions"
                     severity="secondary"
+                    [disabled]="managing()"
                     (onClick)="manage(offerings)"
                   />
                 }
@@ -175,12 +182,30 @@ export class CatalogEditorPage {
   protected readonly hiddenRegions = signal<ReadonlySet<string>>(new Set());
 
   /**
-   * Whether the person may set cells: the catalog is theirs and in status Draft, and no failed save
-   * has stopped the editor.
+   * Whether the catalog is being read again before the dialog for its trims and regions opens.
+   * Nothing is edited meanwhile, so that no change is made from the revision being left behind.
+   */
+  protected readonly managing = signal(false);
+
+  /**
+   * Whether the catalog could not be read again after a change of its trims, regions, or offerings
+   * was saved. What the page shows is then behind what is saved.
+   */
+  private readonly behind = signal(false);
+
+  /**
+   * Whether the person may edit the catalog: it is theirs and in status Draft, and the page shows
+   * it as saved, with no failed save or read in the way.
    */
   protected readonly editable = computed(() => {
     const catalog = this.catalog();
-    return !!catalog?.owned && catalog.snapshot.status === 'DRAFT' && !this.saves()?.stopped();
+    return (
+      !!catalog?.owned &&
+      catalog.snapshot.status === 'DRAFT' &&
+      !this.saves()?.stopped() &&
+      !this.managing() &&
+      !this.behind()
+    );
   });
 
   /**
@@ -194,7 +219,7 @@ export class CatalogEditorPage {
   /** What to tell the person while nothing more is saved until they reload, or null otherwise. */
   protected readonly reloadNeeded = computed(() => {
     const stopped = this.saves()?.stopped();
-    return stopped ? STOPPED[stopped] : null;
+    return stopped ? STOPPED[stopped] : this.behind() ? BEHIND : null;
   });
 
   constructor() {
@@ -264,21 +289,27 @@ export class CatalogEditorPage {
       }
       throw error;
     }
-    await this.open();
+    if (!(await this.open())) {
+      this.behind.set(true);
+    }
   };
 
   /**
    * Opens the dialog for the catalog's trims, regions, and offerings. It says how many cells go
-   * with a removal, so the catalog is first read again as saved, with the cells set since.
+   * with a removal, so the catalog is first read again as saved, with the cells set since. The
+   * dialog stays shut when that fails.
    */
   protected async manage(dialog: ManageOfferingsDialog): Promise<void> {
+    const saves = this.saves();
+    this.managing.set(true);
     try {
-      await this.saves()?.add(async (revision) => revision);
-    } catch {
-      // A failed save has stopped the editor, which the banner says.
-      return;
+      await saves?.whenIdle();
+      if (saves?.stopped() || !(await this.open())) {
+        return;
+      }
+    } finally {
+      this.managing.set(false);
     }
-    await this.open();
     await dialog.open();
   }
 
@@ -306,13 +337,24 @@ export class CatalogEditorPage {
     void this.open();
   }
 
-  private async open(): Promise<void> {
+  /**
+   * Reads the catalog and starts the queue of its edits over from the revision read. It says
+   * whether the catalog was read.
+   */
+  private async open(): Promise<boolean> {
     try {
       const catalog = await this.catalogs.find(this.id);
+      const regions = new Set(catalog.snapshot.regions.map(({ code }) => code));
       this.saves.set(
         new SaveQueue<CatalogEdit>((edit, revision) => edit(revision), catalog.snapshot.revision),
       );
       this.catalog.set(catalog);
+      this.behind.set(false);
+      // A region the catalog no longer has is no longer hidden, should it be added again.
+      this.hiddenRegions.update(
+        (hidden) => new Set([...hidden].filter((code) => regions.has(code))),
+      );
+      return true;
     } catch (error) {
       // The backend refuses an address that names no catalog the person may open. Any other failure
       // has been shown as a message.
@@ -320,6 +362,7 @@ export class CatalogEditorPage {
         this.catalog.set(null);
         this.missing.set(true);
       }
+      return false;
     }
   }
 }
@@ -332,6 +375,10 @@ const STOPPED: Record<SaveStop, string> = {
     'No answer says whether a change of yours was saved. Reload the catalog to see, and to go on.',
   closed: 'This catalog can no longer be edited. Reload it to see it as it is now.',
 };
+
+/** What the banner says when the page could not catch up with a change it saved. */
+const BEHIND =
+  'Your change was saved, but the catalog could not be read again. Reload it to go on.';
 
 /** What the mark says on a cell whose change was never sent. */
 const NOT_SENT = 'Not sent, because an earlier change was not saved.';

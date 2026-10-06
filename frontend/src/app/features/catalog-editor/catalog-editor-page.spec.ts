@@ -437,7 +437,11 @@ describe('CatalogEditorPage', () => {
     });
 
     it('sends a change as an edit of the revision read and reads the catalog again', async () => {
-      await manage();
+      const element = await manage();
+      const europe = Array.from(element.querySelectorAll('fieldset label'))
+        .find((label) => label.textContent?.trim() === 'Europe')!
+        .querySelector('input')!;
+      europe.click();
 
       dialog()!
         .querySelector<HTMLInputElement>('input[aria-label="Base is sold in Europe"]')!
@@ -466,6 +470,85 @@ describe('CatalogEditorPage', () => {
             ?.checked,
         ).toBe(true),
       );
+      // What the person has hidden stays hidden when the catalog is read again.
+      expect(matrixOf(element).textContent).toContain('hidden: EU');
+    });
+
+    it('takes no cell change while it reads the catalog again before opening', async () => {
+      const element = await page(workingCopy);
+
+      button(element, 'Manage trims and regions')!.click();
+      const reread = await vi.waitFor(() => backend.expectOne('/api/catalogs/41'));
+      await vi.waitFor(() => expect(matrixOf(element).textContent).toContain('editable: false'));
+      expect(button(element, 'Manage trims and regions')!.disabled).toBe(true);
+
+      reread.flush(workingCopy);
+      (await vi.waitFor(() => backend.expectOne('/api/trims'))).flush([]);
+      backend.expectOne('/api/regions').flush([]);
+      await vi.waitFor(() => expect(matrixOf(element).textContent).toContain('editable: true'));
+    });
+
+    it('stays shut when the catalog cannot be read again', async () => {
+      const element = await page(workingCopy);
+
+      button(element, 'Manage trims and regions')!.click();
+      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush(null, {
+        status: 503,
+        statusText: 'Unavailable',
+      });
+
+      await vi.waitFor(() => expect(matrixOf(element).textContent).toContain('editable: true'));
+      backend.expectNone('/api/trims');
+      expect(dialog()).toBeNull();
+    });
+
+    it('closes and asks for a reload when a saved change cannot be read back', async () => {
+      const element = await manage();
+
+      dialog()!
+        .querySelector<HTMLInputElement>('input[aria-label="Base is sold in Europe"]')!
+        .click();
+      (
+        await vi.waitFor(() =>
+          backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/trims/1/regions' }),
+        )
+      ).flush({ revision: 7 });
+      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush(null, {
+        status: 503,
+        statusText: 'Unavailable',
+      });
+
+      await vi.waitFor(() => expect(dialog()).toBeNull());
+      expect(element.querySelector('[role="alert"]')?.textContent).toContain(
+        'Your change was saved, but the catalog could not be read again.',
+      );
+      expect(matrixOf(element).textContent).toContain('editable: false');
+
+      button(element, 'Reload')!.click();
+      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush(workingCopy);
+      await vi.waitFor(() => expect(element.querySelector('[role="alert"]')).toBeNull());
+      expect(matrixOf(element).textContent).toContain('editable: true');
+    });
+
+    it('closes and reloads the catalog when it is no longer in status Draft', async () => {
+      const element = await manage();
+
+      dialog()!
+        .querySelector<HTMLInputElement>('input[aria-label="Base is sold in Europe"]')!
+        .click();
+      (
+        await vi.waitFor(() =>
+          backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/trims/1/regions' }),
+        )
+      ).flush(...refuse(409, 'NOT_DRAFT', 'Only a catalog in status Draft can be edited.'));
+      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush({
+        ...workingCopy,
+        snapshot: { ...workingCopy.snapshot, status: 'SUBMITTED' },
+      });
+
+      await vi.waitFor(() => expect(dialog()).toBeNull());
+      await vi.waitFor(() => expect(described(element).Status).toBe('Submitted'));
+      expect(button(element, 'Manage trims and regions')).toBeUndefined();
     });
 
     it('closes and asks for a reload after a revision conflict', async () => {

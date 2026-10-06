@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { choose, createWorkingCopy, expectAccessible, signIn, turboOf } from './support';
+import { choose, createWorkingCopy, expectAccessible, signIn, turboOf, unique } from './support';
 
 /** Opens the dialog for the catalog's trims, regions, and offerings from the catalog editor. */
 async function manage(page: Page): Promise<Locator> {
@@ -140,7 +140,7 @@ test('removing an offering, a region, or a trim first says how many cells go wit
 test('a catalog follows the library: a trim renamed there is renamed in the matrix, and one deactivated there stays until removed', async ({
   page,
 }) => {
-  const added = `Edition ${Date.now()}`;
+  const added = unique('Edition');
   const renamed = `Special ${added}`;
   await signIn(page, 'admin');
 

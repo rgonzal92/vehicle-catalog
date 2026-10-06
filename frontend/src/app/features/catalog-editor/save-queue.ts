@@ -71,6 +71,11 @@ export class SaveQueue<Edit> {
     private revision: number,
   ) {}
 
+  /** Settles once every edit queued so far has had its outcome, whatever it was. */
+  whenIdle(): Promise<void> {
+    return this.last;
+  }
+
   /**
    * Queues an edit behind the ones before it. The promise settles when its own save does, and is
    * rejected with {@link NotSent} when the queue stopped before its turn.

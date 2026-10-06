@@ -63,12 +63,13 @@ describe('ManageOfferingsDialog', () => {
     { id: 1, name: 'Base', sortOrder: 1, active: true },
     { id: 2, name: 'Sport', sortOrder: 2, active: false },
     { id: 3, name: 'Touring', sortOrder: 3, active: true },
-    { id: 4, name: 'Retired', sortOrder: 4, active: false },
+    { id: 4, name: 'Limited', sortOrder: 4, active: false },
   ];
   const libraryRegions = [
     { code: 'NA', name: 'North America', sortOrder: 1, active: true },
-    { code: 'EU', name: 'Europe', sortOrder: 2, active: true },
+    { code: 'EU', name: 'Europe', sortOrder: 2, active: false },
     { code: 'ASIA', name: 'Asia', sortOrder: 3, active: true },
+    { code: 'SA', name: 'South America', sortOrder: 4, active: false },
   ];
 
   const dialog = () => document.querySelector<HTMLElement>('.p-dialog')!;
@@ -114,6 +115,10 @@ describe('ManageOfferingsDialog', () => {
       row.querySelector('th')?.textContent?.replace(/\s+/g, ' ').trim(),
     );
     expect(rows).toEqual(['Base', 'Sport Inactive']);
+    const regions = Array.from(dialog().querySelectorAll('thead th'))
+      .slice(1, 3)
+      .map((heading) => heading.textContent?.replace(/\s+/g, ' ').trim());
+    expect(regions).toEqual(['North America Remove', 'Europe InactiveRemove']);
   });
 
   it('saves a ticked box at once, as the regions the trim is then sold in', async () => {
@@ -138,9 +143,13 @@ describe('ManageOfferingsDialog', () => {
     );
     backend.expectNone((request) => request.method !== 'GET');
 
+    // Nothing else is taken while the question stands, and keeping gives the box the focus back.
+    expect(box('Sport is sold in Europe').disabled).toBe(true);
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain('2 cells go');
     button('Keep').click();
     await vi.waitFor(() => expect(question()).toBeUndefined());
     expect(box('Base is sold in Europe').checked).toBe(true);
+    await vi.waitFor(() => expect(document.activeElement).toBe(box('Base is sold in Europe')));
     expect(fixture.componentInstance.sent).toEqual([]);
 
     box('Base is sold in Europe').click();
@@ -174,7 +183,7 @@ describe('ManageOfferingsDialog', () => {
       )
     ).flush({ revision: 5 });
 
-    await vi.waitFor(() => expect(button('Remove Europe')).toBeDefined());
+    await vi.waitFor(() => expect(button('Remove Europe').disabled).toBe(false));
     button('Remove Europe').click();
     await vi.waitFor(() =>
       expect(question()).toBe(

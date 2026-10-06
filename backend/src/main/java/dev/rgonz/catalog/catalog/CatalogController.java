@@ -124,7 +124,7 @@ class CatalogController {
   ResponseEntity<Edited> addRegions(
       @PathVariable long id,
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
-      @RequestBody Regions given,
+      @RequestBody RegionCodes given,
       Authentication caller) {
     return saved(edits.addRegions(id, people.idOf(caller), ifMatch, given.regionCodes()));
   }
@@ -145,7 +145,7 @@ class CatalogController {
       @PathVariable long id,
       @PathVariable long trimId,
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
-      @RequestBody Regions given,
+      @RequestBody RegionCodes given,
       Authentication caller) {
     return saved(edits.sellIn(id, people.idOf(caller), ifMatch, trimId, given.regionCodes()));
   }
@@ -158,8 +158,8 @@ class CatalogController {
   /** The library trims to add to a catalog, by their identities and nothing else. */
   record TrimsToAdd(List<Long> trimIds) {}
 
-  /** Regions of the library, by their codes and nothing else. */
-  record Regions(List<String> regionCodes) {}
+  /** Regions, by their codes and nothing else. */
+  record RegionCodes(List<String> regionCodes) {}
 
   /**
    * The catalog's change history, newest first and a page at a time, for anyone who may open the
