@@ -49,6 +49,9 @@ import { Session } from '../../core/session';
             <li>
               <a class="text-primary underline" routerLink="/admin/regions">Regions</a>
             </li>
+            <li>
+              <a class="text-primary underline" routerLink="/admin/features">Feature library</a>
+            </li>
           </ul>
         </section>
       }

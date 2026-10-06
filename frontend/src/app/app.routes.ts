@@ -52,6 +52,15 @@ export const routes: Routes = [
         (page) => page.LibraryListPage,
       ),
   },
+  {
+    path: 'admin/features',
+    title: 'Feature library · Vehicle Catalog',
+    canActivate: [holding('admin')],
+    loadComponent: () =>
+      import('./features/admin/feature-library/feature-library-page').then(
+        (page) => page.FeatureLibraryPage,
+      ),
+  },
   // Any other address leads to the landing page, whose guard sends each person where they belong.
   { path: '**', redirectTo: '' },
 ];

@@ -31,6 +31,13 @@ public class FixedLists {
         .single();
   }
 
+  public boolean hasCategory(String code) {
+    return jdbc.sql("SELECT EXISTS (SELECT 1 FROM category WHERE code = :code)")
+        .param("code", code)
+        .query(Boolean.class)
+        .single();
+  }
+
   /** An entry of a fixed list: its code and the name shown for it. */
   record Named(String code, String name) {}
 }
