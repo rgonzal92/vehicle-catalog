@@ -1,6 +1,6 @@
 name: Verify
 
-# A change is verified once: as a pull request, and again on main once it is merged.
+# Each push starts one run: on its pull request, or on main.
 on:
   pull_request:
   push:
@@ -26,6 +26,7 @@ jobs:
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: corretto
+          # The newest Java 25: setup-java takes Corretto by major version only.
           java-version: '25'
           cache: maven
           cache-dependency-path: backend/pom.xml
@@ -53,7 +54,7 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          # Empty on pull requests from forks; the build still passes without it.
+          # Empty on pull requests from forks and from Dependabot; the build passes without it.
           PRIMEUI_LICENSE_KEY: ${{ secrets.PRIMEUI_LICENSE_KEY }}
 
   e2e:
@@ -80,7 +81,7 @@ jobs:
         # The database lives only for this run, so its password is made up on the spot.
         run: CATALOG_DB_PASSWORD="$(openssl rand -hex 16)" npm run e2e
         env:
-          # Empty on pull requests from forks; the build still passes without it.
+          # Empty on pull requests from forks and from Dependabot; the build passes without it.
           PRIMEUI_LICENSE_KEY: ${{ secrets.PRIMEUI_LICENSE_KEY }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()

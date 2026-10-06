@@ -1,12 +1,15 @@
-# Dependency updates arrive as pull requests, once a week. Every version in the repository is pinned
-# exactly, so nothing changes unless one of them is merged.
+# Dependency updates arrive as pull requests, once a week, for the versions written in the pom, the
+# package files, the workflow's actions, the Dockerfile, and the Compose files.
+#
+# Changed by hand, because no update reaches them: the Node and Java versions the workflow installs,
+# and the image tags the backend's tests start, which follow the Compose file.
 #
 # Within an ecosystem, minor and patch updates come together in one pull request, and each major
 # update comes in one of its own. The Angular packages share a version, so they move together.
 #
-# Platform versions change by decision, not here. No update is proposed that takes Spring Boot off
-# 4.1, Angular off 22, PostgreSQL off 18, or the Java images off 25, or that takes TypeScript past
-# what the installed Angular supports.
+# Platform versions change by decision, not here. No version update is proposed that takes Spring
+# Boot off 4.1, Angular off 22, PostgreSQL off 18, or the Java images off 25, or that takes
+# TypeScript past what the installed Angular supports.
 version: 2
 updates:
   - package-ecosystem: maven
