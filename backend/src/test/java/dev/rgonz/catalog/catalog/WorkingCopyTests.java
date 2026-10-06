@@ -5,6 +5,7 @@ import dev.rgonz.catalog.core.Role;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.assertj.MockMvcTester.MockMvcRequestBuilder;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
@@ -66,6 +67,21 @@ abstract class WorkingCopyTests extends ApplicationIT {
         {"featureId": %d, "trimId": %d, "regionCode": "%s", "availability": "%s"}
         """
         .formatted(feature(feature), trim(trim), region, availability);
+  }
+
+  /**
+   * Sends an edit that names the revision, or none when it is null, with a body when it has one.
+   */
+  protected MvcTestResult edit(
+      RequestPostProcessor who, MockMvcRequestBuilder request, String revision, String body) {
+    request.with(who).with(csrfToken());
+    if (revision != null) {
+      request.header("If-Match", revision);
+    }
+    if (body != null) {
+      request.contentType(MediaType.APPLICATION_JSON).content(body);
+    }
+    return request.exchange();
   }
 
   protected static long idOf(MvcTestResult created) {

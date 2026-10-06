@@ -55,8 +55,9 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
  * click opens. The matrix shows the new value and reports the change; it saves nothing itself.
  * Setting a cell to what it already is changes nothing, and the matrix says so. Its
  * host tells it how the save of each change went, and a cell whose save failed goes back to what
- * was last saved and is marked, with the reason. The Tab key stops at the matrix once, and the
- * arrow keys move between its cells.
+ * was last saved and is marked, with the reason. Each feature row has a button that asks for the
+ * row to be removed. The Tab key stops at the matrix once, and the arrow keys move between its
+ * cells and, left of a row's first cell, to that button.
  *
  * The host element decides the height, and the matrix scrolls inside it.
  */
@@ -113,7 +114,24 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
           <tr [style.height.px]="rowHeight">
             <td pFrozenColumn [class]="codeCell">{{ row.feature.code }}</td>
             <td pFrozenColumn role="rowheader" [class]="nameCell" [title]="row.feature.name">
-              {{ row.feature.name }}
+              @if (editable()) {
+                <span class="flex items-center gap-1">
+                  <span class="truncate">{{ row.feature.name }}</span>
+                  <button
+                    type="button"
+                    tabindex="-1"
+                    data-remove
+                    class="ml-auto shrink-0 cursor-pointer rounded px-1 text-muted-color hover:text-red-700"
+                    [attr.aria-label]="'Remove ' + row.feature.name"
+                    (click)="askToRemove(row.feature)"
+                    (keydown)="onRemoveKey($event)"
+                  >
+                    ×
+                  </button>
+                </span>
+              } @else {
+                {{ row.feature.name }}
+              }
             </td>
             @for (offering of offerings(); track offering.key) {
               @let failure = whyNotSaved(row.feature, offering);
@@ -180,8 +198,20 @@ export class AvailabilityMatrix {
    */
   readonly hiddenRegions = input<ReadonlySet<string>>(new Set());
 
+  /**
+   * Which feature rows are shown, to narrow a long matrix to the rows being worked on. A row left
+   * out is still part of the contents, and keeps what was set in it.
+   */
+  readonly featureFilter = input<(feature: FeatureRow) => boolean>(everyFeature);
+
   /** The cell a person just set, with its new availability. */
   readonly cellChange = output<Cell>();
+
+  /**
+   * The feature row a person asks to have removed, with how many Standard and Available cells it
+   * has. The matrix removes nothing itself.
+   */
+  readonly featureRemove = output<{ feature: FeatureRow; cells: number }>();
 
   /** Every row has this height in pixels, which is how the table knows which rows are in view. */
   protected readonly rowHeight = 36;
@@ -237,7 +267,7 @@ export class AvailabilityMatrix {
   );
 
   protected readonly rows = computed(() =>
-    matrixRows(this.contents().featureRows, this.categories()),
+    matrixRows(this.contents().featureRows.filter(this.featureFilter()), this.categories()),
   );
 
   /** The Standard and Available cells of the contents by key. */
@@ -411,6 +441,40 @@ export class AvailabilityMatrix {
     }
   }
 
+  /** Reports that the person asks to have the feature row removed. */
+  protected askToRemove(feature: FeatureRow): void {
+    const ofTheRow = `${feature.id}:`;
+    this.featureRemove.emit({
+      feature,
+      cells: Array.from(this.cells().keys()).filter((key) => key.startsWith(ofTheRow)).length,
+    });
+  }
+
+  /**
+   * Keys on a row's remove button, which the left arrow reaches from the row's first cell: the
+   * right arrow leads back, and up and down lead to the buttons of the rows above and below.
+   */
+  protected onRemoveKey(event: KeyboardEvent): void {
+    const button = event.currentTarget as HTMLElement;
+    const row = button.closest('tr');
+    let beside: Element | null | undefined;
+
+    if (event.key === 'ArrowRight') {
+      beside = row?.querySelector('td[tabindex]');
+    } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      const step = event.key === 'ArrowUp' ? 'previousElementSibling' : 'nextElementSibling';
+      let other = row?.[step];
+      while (other && !other.querySelector('button[data-remove]')) {
+        other = other[step];
+      }
+      beside = other?.querySelector('button[data-remove]');
+    }
+    if (beside instanceof HTMLElement) {
+      beside.focus();
+      event.preventDefault();
+    }
+  }
+
   /** Opens the cell's dropdown and, where the browser can, shows its choices at once. */
   protected edit(event: Event): void {
     const cell = event.currentTarget as HTMLElement;
@@ -471,7 +535,13 @@ export class AvailabilityMatrix {
   }
 }
 
-/** Whether a cell of the table can take the focus, which the cells of the offerings can. */
+/** The filter that lets every feature row through. */
+const everyFeature = () => true;
+
+/**
+ * Whether an element of the table can take the focus, which the cells of the offerings and the
+ * buttons that remove rows can.
+ */
 const focusable = (cell: Element | null | undefined): cell is HTMLElement =>
   cell instanceof HTMLElement && cell.hasAttribute('tabindex');
 
@@ -484,7 +554,10 @@ function focusBeside(cell: HTMLTableCellElement, key: string): boolean {
 
   switch (key) {
     case 'ArrowLeft':
-      beside = cell.previousElementSibling;
+      // Left of a row's first cell is the button that removes the row.
+      beside = focusable(cell.previousElementSibling)
+        ? cell.previousElementSibling
+        : cell.parentElement?.querySelector('button[data-remove]');
       break;
     case 'ArrowRight':
       beside = cell.nextElementSibling;

@@ -6,28 +6,39 @@ import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/route
 import { MessageService } from 'primeng/api';
 import { Named } from '../../core/fixed-lists';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
-import { Cell, MatrixContents } from '../../shared/availability-matrix/matrix';
+import { Cell, FeatureRow, MatrixContents } from '../../shared/availability-matrix/matrix';
 import { CatalogEditorPage } from './catalog-editor-page';
 
 /**
  * Stands in for the matrix, which has tests of its own. It shows what it was given and what it was
- * told about saves, and a click on it is a person setting the manual transmission of trim 1 in
- * North America to Available.
+ * told about saves. A click on it is a person setting the manual transmission of trim 1 in North
+ * America to Available, and a double click is a person asking for its first feature row, which has
+ * two cells, to be removed.
  */
 @Component({
   selector: 'app-availability-matrix',
-  host: { '(click)': 'cellChange.emit(manualAvailable)' },
-  template: `{{ contents().featureRows.length }} feature rows, editable: {{ editable() }}, hidden:
-    {{ hidden() }}`,
+  host: {
+    '(click)': 'cellChange.emit(manualAvailable)',
+    '(dblclick)': 'featureRemove.emit({ feature: contents().featureRows[0], cells: 2 })',
+  },
+  template: `{{ shown() }} of {{ contents().featureRows.length }} feature rows, editable:
+    {{ editable() }}, hidden: {{ hidden() }}`,
 })
 class MatrixStandIn {
   readonly contents = input.required<MatrixContents>();
   readonly categories = input.required<Named[]>();
   readonly editable = input(false);
   readonly hiddenRegions = input<ReadonlySet<string>>(new Set());
-  protected readonly hidden = () => Array.from(this.hiddenRegions()).join(',') || 'none';
+  readonly featureFilter = input<(feature: FeatureRow) => boolean>(() => true);
   readonly cellChange = output<Cell>();
+  readonly featureRemove = output<{ feature: FeatureRow; cells: number }>();
   protected readonly manualAvailable = manualAvailable;
+  protected readonly hidden = () => Array.from(this.hiddenRegions()).join(',') || 'none';
+  protected readonly shown = () =>
+    this.contents()
+      .featureRows.filter(this.featureFilter())
+      .map(({ code }) => code)
+      .join(',') || 'none';
 
   saved(cell: Cell): void {
     told.push(['saved', cell]);
@@ -85,7 +96,22 @@ describe('CatalogEditorPage', () => {
         { code: 'EU', name: 'Europe' },
       ],
       offerings: [{ trimId: 1, regionCode: 'NA' }],
-      featureRows: [{ id: 1, code: 'ROOF_PANORAMIC', name: 'Panoramic Roof', categoryCode: 'EXT' }],
+      featureRows: [
+        {
+          id: 1,
+          code: 'ROOF_PANORAMIC',
+          kind: 'FEATURE',
+          name: 'Panoramic Roof',
+          categoryCode: 'EXTERIOR',
+        },
+        {
+          id: 2,
+          code: 'PACKAGE_TOW',
+          kind: 'PACKAGE',
+          name: 'Tow Package',
+          categoryCode: 'PACKAGES',
+        },
+      ],
       cells: [],
     },
   };
@@ -165,7 +191,7 @@ describe('CatalogEditorPage', () => {
     });
     expect(element.querySelector('[role="tab"]')?.textContent?.trim()).toBe('Features');
     expect(element.querySelector('app-availability-matrix')?.textContent).toBe(
-      '1 feature rows, editable: true, hidden: none',
+      'ROOF_PANORAMIC,PACKAGE_TOW of 2 feature rows, editable: true, hidden: none',
     );
   });
 
@@ -414,6 +440,141 @@ describe('CatalogEditorPage', () => {
     europe.click();
     await vi.waitFor(() => expect(matrixOf(element).textContent).toContain('hidden: none'));
     backend.expectNone((request) => request.method !== 'GET');
+  });
+
+  describe('narrowing the matrix to some feature rows', () => {
+    const shownIn = (element: HTMLElement) => matrixOf(element).textContent?.split(' of ')[0];
+
+    const type = (element: HTMLElement, text: string) => {
+      const query = element.querySelector<HTMLInputElement>('#row-query')!;
+      query.value = text;
+      query.dispatchEvent(new Event('input'));
+    };
+
+    it('searches code and name, whatever the case, and says how many rows are shown', async () => {
+      const element = await page(workingCopy);
+      expect(element.querySelector('[data-rows-shown]')?.textContent?.trim()).toBe(
+        '2 of 2 feature rows shown',
+      );
+
+      type(element, 'tow pack');
+      await vi.waitFor(() => expect(shownIn(element)).toBe('PACKAGE_TOW'));
+      expect(element.querySelector('[data-rows-shown]')?.textContent?.trim()).toBe(
+        '1 of 2 feature rows shown',
+      );
+
+      type(element, 'ROOF_');
+      await vi.waitFor(() => expect(shownIn(element)).toBe('ROOF_PANORAMIC'));
+
+      type(element, 'nothing like it');
+      await vi.waitFor(() => expect(shownIn(element)).toBe('none'));
+
+      type(element, '');
+      await vi.waitFor(() => expect(shownIn(element)).toBe('ROOF_PANORAMIC,PACKAGE_TOW'));
+      backend.expectNone((request) => request.method !== 'GET');
+    });
+  });
+
+  describe('removing a feature row', () => {
+    const dialog = () => document.querySelector<HTMLElement>('.p-dialog');
+
+    const dialogButton = (label: string) =>
+      Array.from(dialog()?.querySelectorAll('button') ?? []).find(
+        (candidate) => candidate.textContent?.trim() === label,
+      )!;
+
+    /** Asks for the panoramic roof's row, which has two cells, to be removed. */
+    async function ask(): Promise<HTMLElement> {
+      const element = await page(workingCopy);
+      matrixOf(element).dispatchEvent(new MouseEvent('dblclick'));
+      await vi.waitFor(() =>
+        expect(
+          dialog()?.querySelector('[data-question]')?.textContent?.replace(/\s+/g, ' '),
+        ).toContain(
+          'Remove Panoramic Roof (ROOF_PANORAMIC) from this catalog? 2 cells go with it.',
+        ),
+      );
+
+      return element;
+    }
+
+    it('asks first, and keeps the row when told to', async () => {
+      await ask();
+
+      dialogButton('Keep').click();
+
+      await vi.waitFor(() => expect(dialog()).toBeNull());
+      backend.expectNone((request) => request.method !== 'GET');
+    });
+
+    it('removes the row as an edit of the revision read, and reads the catalog again', async () => {
+      const element = await ask();
+
+      dialogButton('Remove').click();
+
+      const removal = await vi.waitFor(() =>
+        backend.expectOne({ method: 'DELETE', url: '/api/catalogs/41/features/1' }),
+      );
+      expect(removal.request.headers.get('If-Match')).toBe('"4"');
+      removal.flush({ revision: 5 });
+      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush({
+        ...workingCopy,
+        snapshot: {
+          ...workingCopy.snapshot,
+          revision: 5,
+          featureRows: [workingCopy.snapshot.featureRows[1]],
+        },
+      });
+      await vi.waitFor(() => expect(dialog()).toBeNull());
+      expect(matrixOf(element).textContent).toContain('PACKAGE_TOW of 1 feature rows');
+    });
+
+    it('keeps the question open with the reason when the backend turns the removal down', async () => {
+      await ask();
+
+      dialogButton('Remove').click();
+      (
+        await vi.waitFor(() =>
+          backend.expectOne({ method: 'DELETE', url: '/api/catalogs/41/features/1' }),
+        )
+      ).flush(...refuse(422, 'VALIDATION', 'This row cannot be removed.'));
+
+      await vi.waitFor(() =>
+        expect(dialog()?.textContent).toContain('This row cannot be removed.'),
+      );
+      expect(dialog()?.querySelector('[data-question]')).not.toBeNull();
+    });
+
+    it('closes the question when the row turns out to be gone and the catalog is read again', async () => {
+      const element = await ask();
+
+      dialogButton('Remove').click();
+      (
+        await vi.waitFor(() =>
+          backend.expectOne({ method: 'DELETE', url: '/api/catalogs/41/features/1' }),
+        )
+      ).flush(...refuse(404, 'NOT_FOUND', 'There is nothing at this address.'));
+      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush({
+        ...workingCopy,
+        snapshot: { ...workingCopy.snapshot, featureRows: [workingCopy.snapshot.featureRows[1]] },
+      });
+
+      await vi.waitFor(() => expect(dialog()).toBeNull());
+      expect(matrixOf(element).textContent).toContain('PACKAGE_TOW of 1 feature rows');
+    });
+  });
+
+  it('opens the feature picker from the Features tab', async () => {
+    const element = await page(workingCopy);
+
+    button(element, 'Add features')!.click();
+
+    (await vi.waitFor(() => backend.expectOne((request) => request.url === '/api/features'))).flush(
+      { items: [], total: 0 },
+    );
+    await vi.waitFor(() =>
+      expect(document.querySelector('.p-dialog')?.textContent).toContain('Add features'),
+    );
   });
 
   describe('managing trims and regions', () => {

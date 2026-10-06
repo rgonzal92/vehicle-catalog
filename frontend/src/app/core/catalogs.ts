@@ -202,6 +202,16 @@ export class Catalogs {
     return this.edit('DELETE', `/api/catalogs/${catalogId}/regions/${regionCode}`, revision);
   }
 
+  /** Adds library features to a working copy as feature rows, each with every cell Not offered. */
+  addFeatures(catalogId: number, revision: number, featureIds: number[]): Promise<number> {
+    return this.edit('POST', `/api/catalogs/${catalogId}/features`, revision, { featureIds });
+  }
+
+  /** Removes a feature row from a working copy, and with it its cells. */
+  removeFeature(catalogId: number, revision: number, featureId: number): Promise<number> {
+    return this.edit('DELETE', `/api/catalogs/${catalogId}/features/${featureId}`, revision);
+  }
+
   /** Says in which of a working copy's regions a trim is sold: in exactly the ones given. */
   sellIn(
     catalogId: number,

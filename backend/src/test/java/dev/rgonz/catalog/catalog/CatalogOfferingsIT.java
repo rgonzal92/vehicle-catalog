@@ -12,8 +12,6 @@ import java.util.stream.LongStream;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.assertj.MockMvcTester.MockMvcRequestBuilder;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
@@ -435,21 +433,6 @@ class CatalogOfferingsIT extends WorkingCopyTests {
     return Stream.of(values)
         .map(value -> "\"" + value + "\"")
         .collect(Collectors.joining(", ", "[", "]"));
-  }
-
-  /**
-   * Sends an edit that names the revision, or none when it is null, with a body when it has one.
-   */
-  private MvcTestResult edit(
-      RequestPostProcessor who, MockMvcRequestBuilder request, String revision, String body) {
-    request.with(who).with(csrfToken());
-    if (revision != null) {
-      request.header("If-Match", revision);
-    }
-    if (body != null) {
-      request.contentType(MediaType.APPLICATION_JSON).content(body);
-    }
-    return request.exchange();
   }
 
   /** The catalog's offerings, each as its trim's name and its region's code. */

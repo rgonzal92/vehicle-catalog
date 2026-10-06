@@ -37,6 +37,7 @@ function largestCatalog(): MatrixContents {
     id: index + 1,
     code: `FEATURE_${String(index + 1).padStart(3, '0')}`,
     name: `Feature ${index + 1}`,
+    kind: 'FEATURE' as const,
     categoryCode: CATEGORIES[index % CATEGORIES.length].code,
   }));
   // A fixed pattern, so every run shows and measures the same matrix: about a quarter Standard, a
