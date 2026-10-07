@@ -12,6 +12,4 @@ WORKDIR /app
 COPY --from=build /workspace/target/*.jar app.jar
 USER 10001:10001
 EXPOSE 8080
-# Stops at once where it is told it serves the live site, and starts anywhere else: a build made to
-# be unhealthy on the host and nowhere before it, to see the host go back to the image before.
-ENTRYPOINT ["sh", "-c", "[ \"$PUBLIC_URL\" != https://catalog.rgonz.dev ] && exec java -jar /app/app.jar"]
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]
