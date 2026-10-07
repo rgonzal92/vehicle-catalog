@@ -73,9 +73,9 @@ run "the_host_is_reached_for_a_shell_through_systems_manager_alone" {
   assert {
     condition = (
       aws_instance.host.metadata_options[0].http_tokens == "required"
-      && aws_instance.host.metadata_options[0].http_put_response_hop_limit == 1
+      && aws_instance.host.metadata_options[0].http_put_response_hop_limit == 2
     )
-    error_message = "The role's credentials are given only to a caller on the host that first asked for a token."
+    error_message = "The role's credentials are given only to a caller that first asked for a token, on the host or in a container on it."
   }
 
   assert {
@@ -86,8 +86,8 @@ run "the_host_is_reached_for_a_shell_through_systems_manager_alone" {
   }
 
   assert {
-    condition     = aws_iam_role_policies_exclusive.host.policy_names == toset(["fetch-backend"])
-    error_message = "The one policy of its own that the host's role has lets it fetch the backend's images."
+    condition     = aws_iam_role_policies_exclusive.host.policy_names == toset(["administer-roles", "fetch-backend"])
+    error_message = "The host's role has the policy that fetches the backend's images, the one that changes roles, and no other of its own."
   }
 }
 

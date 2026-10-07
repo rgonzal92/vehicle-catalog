@@ -106,3 +106,32 @@ run "the_host_is_told_where_to_sign_people_in_and_who_the_demo_accounts_are" {
     error_message = "The client secret is kept encrypted in Parameter Store, where the release script reads it."
   }
 }
+
+run "the_backend_changes_roles_in_this_user_pool_and_nothing_else" {
+  assert {
+    condition = jsondecode(aws_iam_role_policy.host_administer_roles.policy).Statement == [{
+      Sid    = "ReadAndChangeRoles"
+      Effect = "Allow"
+      Action = [
+        "cognito-idp:AdminAddUserToGroup", "cognito-idp:AdminGetUser",
+        "cognito-idp:AdminListGroupsForUser", "cognito-idp:AdminRemoveUserFromGroup",
+        "cognito-idp:ListUsers", "cognito-idp:ListUsersInGroup",
+      ]
+      Resource = aws_cognito_user_pool.people.arn
+    }]
+    error_message = "The host reads accounts and moves them between groups, in this user pool alone."
+  }
+
+  assert {
+    condition = (
+      strcontains(aws_ssm_association.host_stack.parameters.commands, "APP_SANDBOXACCOUNTS_0_SUBJECT=${aws_cognito_user.visitor.sub}\n")
+      && strcontains(aws_ssm_association.host_stack.parameters.commands, "APP_PROTECTEDACCOUNTS_0=${aws_cognito_user.operator.sub}\n")
+    )
+    error_message = "The backend is told that the visitor is a sandbox account and that the operator is protected."
+  }
+
+  assert {
+    condition     = aws_cognito_user.operator.password == null && aws_cognito_user.operator.temporary_password == null
+    error_message = "No password of the operator account is kept here."
+  }
+}
