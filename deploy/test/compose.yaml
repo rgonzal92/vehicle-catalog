@@ -41,6 +41,9 @@ services:
       - "127.0.0.1:18443:443"
 
   backend:
+    environment:
+      # This stack is not the live site, and the backend is not told that it is.
+      PUBLIC_URL: https://origin.test
     # An image that never gets ready is known for one sooner than on the host.
     healthcheck:
       start_period: 1m
