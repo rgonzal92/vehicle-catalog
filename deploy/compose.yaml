@@ -1,7 +1,8 @@
 # What runs on the host: Caddy, which the distribution reaches; the backend, which Caddy passes the
 # API's requests to; and the database, which nothing outside this stack reaches. The secrets come
 # from a file beside this one that only root can read, written from Parameter Store whenever the
-# stack is started.
+# stack is started. What the backend is told about signing in comes from settings.env, which
+# Terraform writes from what it knows of the login provider.
 services:
   caddy:
     image: caddy:2.11.6-alpine
@@ -25,19 +26,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # Where the login provider is, and who the demo accounts are to it.
+    env_file:
+      - settings.env
     environment:
       DATABASE_URL: jdbc:postgresql://db:5432/catalog
       DATABASE_USER: catalog
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:?The database password is not set}
       PUBLIC_URL: https://catalog.rgonz.dev
-      # The live site has no login provider. These name one that does not exist, so nobody signs
-      # in, and signing out leads back to the landing page.
-      LOGOUT_URL: https://catalog.rgonz.dev/
-      OIDC_CLIENT_ID: none
-      OIDC_CLIENT_SECRET: none
-      SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_COGNITO_AUTHORIZATION_URI: https://login.invalid/authorize
-      SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_COGNITO_TOKEN_URI: https://login.invalid/token
-      SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_COGNITO_JWK_SET_URI: https://login.invalid/jwks
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?The secret the backend shows the login provider is not set}
     # Healthy means startup has finished and the database answers. A release is given four minutes
     # to get there, on a host that may be short of CPU time, before it counts as one that failed.
     healthcheck:

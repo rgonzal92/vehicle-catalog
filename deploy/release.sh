@@ -31,9 +31,11 @@ parameter() {
 # beside its own.
 origin_secret="$(parameter origin-secret)"
 database_password="$(parameter database-password)"
+login_client_secret="$(parameter login-client-secret)"
 (
   umask 077
-  printf 'ORIGIN_SECRET=%s\nDATABASE_PASSWORD=%s\n' "$origin_secret" "$database_password" > .env.new
+  printf 'ORIGIN_SECRET=%s\nDATABASE_PASSWORD=%s\nOIDC_CLIENT_SECRET=%s\n' \
+    "$origin_secret" "$database_password" "$login_client_secret" > .env.new
 )
 mv .env.new .env
 

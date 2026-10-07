@@ -9,6 +9,8 @@ What the app needs in AWS, as Terraform. Everything is in the region `us-east-1`
   take on.
 - `host.tf`: the host, one machine that answers everything under `/api`. It runs the stack in
   `deploy/`, and nothing but CloudFront reaches its HTTPS port.
+- `login.tf`: who signs in. An Amazon Cognito user pool with its sign-in page, a group for each
+  role, and the three demo accounts, whose passwords are public and shown on the landing page.
 - `release.tf`: where the backend's images are kept, and the one thing the pipeline can have the
   host do, which is to release one of them.
 

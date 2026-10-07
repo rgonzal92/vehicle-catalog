@@ -136,9 +136,9 @@ run "the_host_runs_the_stack_the_repository_holds" {
   assert {
     condition = strcontains(
       aws_ssm_association.host_stack.parameters.commands,
-      "is at its version ${aws_ssm_parameter.origin_secret.version}.",
+      "the distribution's at ${aws_ssm_parameter.origin_secret.version}, the\n# login provider's at ${aws_ssm_parameter.login_client_secret.version}.",
     )
-    error_message = "What the host runs names the secret's version, so that a new secret has the host start its stack anew."
+    error_message = "What the host runs names each secret's version, so that a new secret has the host start its stack anew."
   }
 
   assert {
@@ -170,13 +170,13 @@ run "the_host_runs_the_stack_the_repository_holds" {
   }
 }
 
-run "the_plan_role_reads_the_secret_and_no_other_parameter" {
+run "the_plan_role_reads_the_secrets_terraform_keeps_and_no_other_parameter" {
   assert {
-    condition = [
+    condition = toset(flatten([
       for statement in jsondecode(aws_iam_role_policy.plan.policy).Statement : statement.Resource
       if contains(statement.Action, "ssm:GetParameter")
-    ] == [aws_ssm_parameter.origin_secret.arn]
-    error_message = "The plan role reads the one parameter Terraform manages."
+    ])) == toset([aws_ssm_parameter.origin_secret.arn, aws_ssm_parameter.login_client_secret.arn])
+    error_message = "The plan role reads the two parameters Terraform manages and no other."
   }
 }
 

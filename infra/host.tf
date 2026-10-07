@@ -206,8 +206,11 @@ resource "aws_ssm_association" "host_stack" {
       compose_file    = chomp(file("${path.module}/../deploy/compose.yaml"))
       caddy_file      = chomp(file("${path.module}/../deploy/Caddyfile"))
       release_script  = chomp(file("${path.module}/../deploy/release.sh"))
+      settings        = local.login_settings
       secret_version  = aws_ssm_parameter.origin_secret.version
-      region          = data.aws_region.current.region
+
+      login_secret_version = aws_ssm_parameter.login_client_secret.version
+      region               = data.aws_region.current.region
     })
   }
 
