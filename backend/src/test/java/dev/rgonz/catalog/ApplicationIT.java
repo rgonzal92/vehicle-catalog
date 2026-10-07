@@ -45,6 +45,11 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
       "app.demo-accounts[1].password=demo-password",
       "app.demo-accounts[1].subject=manager",
       "app.demo-accounts[1].display-name=Demo Manager",
+      "app.sandbox-accounts[0].subject=sandbox-visitor",
+      "app.sandbox-accounts[0].username=visitor",
+      "app.sandbox-accounts[0].email=visitor@example.test",
+      "app.sandbox-accounts[0].role=author",
+      "app.protected-accounts[0]=operator",
       "spring.security.oauth2.client.registration.cognito.client-id=" + ApplicationIT.CLIENT_ID,
       "spring.security.oauth2.client.registration.cognito.client-secret=test-secret"
     })

@@ -173,6 +173,9 @@ import { reasonOf } from '../../shared/reason-of';
             <li>
               <a class="text-primary underline" routerLink="/admin/features">Feature library</a>
             </li>
+            <li>
+              <a class="text-primary underline" routerLink="/admin/users">Users</a>
+            </li>
           </ul>
         </section>
       }

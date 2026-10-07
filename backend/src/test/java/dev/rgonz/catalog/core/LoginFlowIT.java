@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
 
 /**
  * Signs in through the mock login server over real HTTP, the way a browser does: start at the app,
@@ -81,6 +82,27 @@ class LoginFlowIT extends ApplicationIT {
     assertThat(app("GET", "/api/me").body()).contains("\"roles\":[]");
     assertThat(app("GET", "/api/vehicle-lines").statusCode()).isEqualTo(403);
     assertThat(app("POST", "/api/logout").statusCode()).as("sign-out").isEqualTo(200);
+  }
+
+  @Test
+  void aRoleChangeEndsTheSessionOfThePersonItIsFor() throws Exception {
+    // The login server's subject for a person is the username typed, and "sandbox-visitor" is the
+    // subject of the account "visitor".
+    finishSignIn(app("GET", "/api/oauth2/authorization/cognito"), "sandbox-visitor");
+    assertThat(app("GET", "/api/me").statusCode()).isEqualTo(200);
+
+    assertThat(
+            mvc.put()
+                .uri("/api/admin/users/visitor/role")
+                .with(signedInAs(Role.ADMIN, "operator"))
+                .with(csrfToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"role\": \"manager\"}"))
+        .hasStatusOk();
+
+    assertThat(app("GET", "/api/me").statusCode())
+        .as("the session their login made is gone")
+        .isEqualTo(401);
   }
 
   /** Signs in at the login server under the given username and returns to the app with the code. */

@@ -101,7 +101,7 @@ resource "aws_iam_role_policy_attachment" "host_systems_manager" {
 # apply removes any other policy given to it, in a file here or by hand.
 resource "aws_iam_role_policies_exclusive" "host" {
   role_name    = aws_iam_role.host.name
-  policy_names = [aws_iam_role_policy.host_fetch_backend.name]
+  policy_names = [aws_iam_role_policy.host_fetch_backend.name, aws_iam_role_policy.host_administer_roles.name]
 }
 
 resource "aws_iam_role_policy_attachments_exclusive" "host" {
@@ -122,11 +122,11 @@ resource "aws_instance" "host" {
   vpc_security_group_ids = [aws_security_group.host.id]
   iam_instance_profile   = aws_iam_instance_profile.host.name
 
-  # The role's credentials are given only to a caller on the host itself that first asked for a
-  # token, which a request passed on by something on the host cannot do.
+  # The role's credentials are given only to a caller that first asked for a token. The backend
+  # asks from inside its container, one hop further than the host itself, to change roles.
   metadata_options {
     http_tokens                 = "required"
-    http_put_response_hop_limit = 1
+    http_put_response_hop_limit = 2
   }
 
   # The host pays for CPU with time it saved while idle. Once that is used up it slows to a fifth

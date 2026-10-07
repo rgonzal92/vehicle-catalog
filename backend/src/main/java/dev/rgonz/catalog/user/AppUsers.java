@@ -1,6 +1,9 @@
 package dev.rgonz.catalog.user;
 
+import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.security.core.Authentication;
@@ -50,6 +53,16 @@ public class AppUsers {
     return findBySubject(signedIn.getName())
         .orElseThrow(
             () -> new AuthenticationCredentialsNotFoundException("No record of this person"));
+  }
+
+  /** When each person who has signed in last did so, by their subject. */
+  Map<String, Instant> lastLogins() {
+    return jdbc
+        .sql("SELECT cognito_sub, last_login_at FROM app_user WHERE last_login_at IS NOT NULL")
+        .query((row, number) -> Map.entry(row.getString(1), row.getTimestamp(2).toInstant()))
+        .list()
+        .stream()
+        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
   }
 
   Optional<AppUser> findBySubject(String subject) {

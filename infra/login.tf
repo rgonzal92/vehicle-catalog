@@ -31,6 +31,15 @@ locals {
         "APP_DEMOACCOUNTS_${index}_DISPLAYNAME=${local.demo_accounts[role].display_name}",
       ]
     ]),
+    [
+      # Whose roles the backend reads and changes, and in which user pool.
+      "COGNITO_USER_POOL_ID=${aws_cognito_user_pool.people.id}",
+      "APP_SANDBOXACCOUNTS_0_SUBJECT=${aws_cognito_user.visitor.sub}",
+      "APP_SANDBOXACCOUNTS_0_USERNAME=${aws_cognito_user.visitor.username}",
+      "APP_SANDBOXACCOUNTS_0_EMAIL=${aws_cognito_user.visitor.attributes.email}",
+      "APP_SANDBOXACCOUNTS_0_ROLE=${aws_cognito_user_in_group.visitor.group_name}",
+      "APP_PROTECTEDACCOUNTS_0=${aws_cognito_user.operator.sub}",
+    ],
   ))
 }
 
@@ -118,6 +127,70 @@ resource "aws_cognito_user_in_group" "demo" {
   user_pool_id = aws_cognito_user_pool.people.id
   group_name   = aws_cognito_user_group.role[each.key].name
   username     = aws_cognito_user.demo[each.key].username
+}
+
+# A sandbox account that is not protected: an admin on the public demo can change its role, and
+# the demo reset puts it back in this group. Its password is public like the demo accounts'.
+resource "aws_cognito_user" "visitor" {
+  user_pool_id   = aws_cognito_user_pool.people.id
+  username       = "visitor"
+  password       = "Catalog-visitor-1"
+  message_action = "SUPPRESS"
+
+  attributes = {
+    name  = "Sandbox Visitor"
+    email = "visitor@example.com"
+  }
+}
+
+resource "aws_cognito_user_in_group" "visitor" {
+  user_pool_id = aws_cognito_user_pool.people.id
+  group_name   = aws_cognito_user_group.role["author"].name
+  username     = aws_cognito_user.visitor.username
+}
+
+# The operator account: the maintainer's own login, an admin outside the sandbox whose role the
+# app does not change. Cognito sends a temporary password to the maintainer's address, and the
+# maintainer sets their own at the first sign-in, so no password of this account is kept here.
+resource "aws_cognito_user" "operator" {
+  user_pool_id = aws_cognito_user_pool.people.id
+  username     = "operator-rg"
+
+  attributes = {
+    name           = "Operator"
+    email          = var.budget_notification_email
+    email_verified = "true"
+  }
+}
+
+resource "aws_cognito_user_in_group" "operator" {
+  user_pool_id = aws_cognito_user_pool.people.id
+  group_name   = aws_cognito_user_group.role["admin"].name
+  username     = aws_cognito_user.operator.username
+}
+
+# What changing a role takes: the host's backend reads the accounts and their groups in this user
+# pool and moves an account from one group to another, and does nothing else there.
+resource "aws_iam_role_policy" "host_administer_roles" {
+  name = "administer-roles"
+  role = aws_iam_role.host.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "ReadAndChangeRoles"
+      Effect = "Allow"
+      Action = [
+        "cognito-idp:AdminAddUserToGroup",
+        "cognito-idp:AdminGetUser",
+        "cognito-idp:AdminListGroupsForUser",
+        "cognito-idp:AdminRemoveUserFromGroup",
+        "cognito-idp:ListUsers",
+        "cognito-idp:ListUsersInGroup",
+      ]
+      Resource = aws_cognito_user_pool.people.arn
+    }]
+  })
 }
 
 # The secret the backend proves itself with. Cognito makes it, so it is in the state as well; the
