@@ -10,7 +10,7 @@ on:
 permissions: {}
 
 jobs:
-  frontend:
+  deploy:
     # Only a push to main that passed, and only while it is still the newest commit there. A pull
     # request's run of verify never deploys, whatever its branch is called and wherever it comes
     # from. A commit that has been overtaken is left to the newer one's run, so that an older build
@@ -30,13 +30,12 @@ jobs:
       contents: read
       # To ask GitHub for the token that AWS exchanges for the deploy role's credentials.
       id-token: write
-    defaults:
-      run:
-        working-directory: frontend
+    env:
+      # The commit that passed, which is what the backend's image is named by.
+      COMMIT: ${{ github.event.workflow_run.head_sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The commit that passed.
           ref: ${{ github.event.workflow_run.head_sha }}
           # Nothing after this reaches the repository through Git, so its token is not kept.
           persist-credentials: false
@@ -45,9 +44,11 @@ jobs:
           node-version: '24.21.0'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Install
+      - name: Install the frontend's packages
+        working-directory: frontend
         run: npm ci
-      - name: Build
+      - name: Build the frontend
+        working-directory: frontend
         run: npm run build
         env:
           PRIMEUI_LICENSE_KEY: ${{ secrets.PRIMEUI_LICENSE_KEY }}
@@ -58,7 +59,48 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: us-east-1
           mask-aws-account-id: true
-      - name: Publish
+      - name: Build the backend's image
+        # The host's processor is an ARM one. The image is built once for a commit, so a run that
+        # is started again releases the image that is there.
+        run: |
+          registry="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.$AWS_REGION.amazonaws.com"
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
+          if aws ecr describe-images --repository-name "$REPOSITORY" --image-ids "imageTag=$COMMIT" \
+            >/dev/null 2>&1; then
+            echo "The image of $COMMIT is there already."
+          else
+            docker buildx build --platform linux/arm64 --provenance=false --push \
+              --tag "$registry/$REPOSITORY:$COMMIT" backend
+          fi
+        env:
+          REPOSITORY: vehicle-catalog-backend
+      - name: Release the backend
+        # The host fetches the image, starts it, and waits for it to say it is healthy. If it does
+        # not, the host starts the image before it again and this step fails, so the frontend
+        # built for the new backend is not published either.
+        run: |
+          command="$(aws ssm send-command --document-name vehicle-catalog-release \
+            --targets Key=tag:Name,Values=vehicle-catalog --parameters "ImageTag=$COMMIT" \
+            --query Command.CommandId --output text)"
+          for _ in $(seq 1 180); do
+            sleep 5
+            # A question that gets no answer is asked again: the release goes on either way.
+            status="$(aws ssm list-command-invocations --command-id "$command" \
+              --query 'CommandInvocations[0].Status' --output text || true)"
+            case "$status" in
+              "" | None | Pending | InProgress | Delayed) continue ;;
+            esac
+            aws ssm list-command-invocations --command-id "$command" --details \
+              --query 'CommandInvocations[0].CommandPlugins[0].Output' --output text
+            if [ "$status" = Success ]; then
+              exit 0
+            fi
+            echo "The release ended as $status." >&2
+            exit 1
+          done
+          echo "The host did not say how the release ended within fifteen minutes." >&2
+          exit 1
+      - name: Publish the frontend
         # The build's files go up and the ones it no longer has go away, then the page that names
         # them, then the distribution is told to fetch everything anew. A browser never keeps that
         # page without asking, so a visitor gets the new build on the next load.
@@ -66,6 +108,7 @@ jobs:
         # ponytail: the last build's files are removed at once, so a visitor who loaded the page
         # before a deploy can ask for a file that is gone until they reload. Keep the last build's
         # files for a while if that is ever seen.
+        working-directory: frontend
         run: |
           named="Aliases.Items && contains(Aliases.Items, '$SITE')"
           distribution="$(aws cloudfront list-distributions --output text \

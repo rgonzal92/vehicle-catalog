@@ -1,4 +1,6 @@
-FROM amazoncorretto:25.0.4-alpine AS build
+# The jar is the same on every kind of processor, so it is built on the kind that builds the image,
+# whichever kind the image is for.
+FROM --platform=$BUILDPLATFORM amazoncorretto:25.0.4-alpine AS build
 WORKDIR /workspace
 COPY .mvn .mvn
 COPY mvnw pom.xml ./

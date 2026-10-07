@@ -71,8 +71,8 @@ run "the_deploy_role_publishes_and_nothing_more" {
   }
 
   assert {
-    condition     = aws_iam_role_policies_exclusive.deploy.policy_names == toset(["publish-frontend"])
-    error_message = "The deploy role has that one policy of its own."
+    condition     = aws_iam_role_policies_exclusive.deploy.policy_names == toset(["publish-frontend", "release-backend"])
+    error_message = "The deploy role has the policy that publishes the site, the one that releases the backend, and no other."
   }
 
   assert {

@@ -86,8 +86,8 @@ run "the_host_is_reached_for_a_shell_through_systems_manager_alone" {
   }
 
   assert {
-    condition     = length(aws_iam_role_policies_exclusive.host.policy_names) == 0
-    error_message = "The host's role has no policy of its own."
+    condition     = aws_iam_role_policies_exclusive.host.policy_names == toset(["fetch-backend"])
+    error_message = "The one policy of its own that the host's role has lets it fetch the backend's images."
   }
 }
 
@@ -129,11 +129,24 @@ run "the_host_runs_the_stack_the_repository_holds" {
   }
 
   assert {
+    condition     = strcontains(aws_ssm_association.host_stack.parameters.commands, file("../deploy/release.sh"))
+    error_message = "The host is given the release script as it is in deploy/."
+  }
+
+  assert {
     condition = strcontains(
       aws_ssm_association.host_stack.parameters.commands,
-      "'${aws_ssm_parameter.origin_secret.name}:${aws_ssm_parameter.origin_secret.version}'",
+      "is at its version ${aws_ssm_parameter.origin_secret.version}.",
     )
-    error_message = "The host asks for the secret by its version, so that a new secret has the host start its stack anew."
+    error_message = "What the host runs names the secret's version, so that a new secret has the host start its stack anew."
+  }
+
+  assert {
+    condition = (
+      aws_ssm_parameter.origin_secret.name == "/vehicle-catalog/origin-secret"
+      && strcontains(file("../deploy/release.sh"), "\"$(parameter origin-secret)\"")
+    )
+    error_message = "The release script reads the secret from the parameter that holds it."
   }
 
   assert {

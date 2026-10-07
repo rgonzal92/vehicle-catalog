@@ -1,0 +1,11 @@
+#!/bin/sh
+# Stands in for the AWS CLI on the host: it answers the parameters the stack's secrets are read
+# from, and nothing else.
+case "$*" in
+  *"--name /vehicle-catalog/origin-secret "*) echo "a-secret-for-this-check" ;;
+  *"--name /vehicle-catalog/database-password "*) echo "a-password-for-this-check" ;;
+  *)
+    echo "aws $*: this stand-in has no answer to that" >&2
+    exit 1
+    ;;
+esac

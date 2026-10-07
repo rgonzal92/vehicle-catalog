@@ -34,14 +34,9 @@
 	route {
 		respond @stranger 403
 
-		# One address says what reached the host, which shows what the distribution passes on.
-		respond /api/ 200 {
-			body "The host answers.
-{method} {uri}
-host: {host}
-cookie: {header.Cookie}
-x-probe: {header.X-Probe}
-"
+		# The API's requests go on to the backend, without the secret that let them in.
+		reverse_proxy /api/* backend:8080 {
+			header_up -X-Origin-Secret
 		}
 
 		respond 404
