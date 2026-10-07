@@ -42,15 +42,20 @@ RELEASE_SCRIPT
 chmod 700 release.sh
 
 # Compose asks for the secrets whatever it is told to do. They play no part in checking Caddy's
-# file or in removing its container, so there they are given as nothing in particular.
+# file, so there they are given as nothing in particular.
 without_secrets() {
   ORIGIN_SECRET=unused DATABASE_PASSWORD=unused "$@"
 }
 without_secrets docker compose --project-name vehicle-catalog run --rm --no-deps --quiet-pull \
   caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+if cmp --silent Caddyfile ../Caddyfile; then reread=no; else reread=yes; fi
 mv compose.yaml Caddyfile release.sh ..
 cd ..
 
-# Caddy reads its file when it starts, so its container is made anew.
-without_secrets docker compose rm --stop --force caddy
+# The stack is started before Caddy is touched, so that whatever keeps it from starting, a secret
+# that is not there among them, leaves Caddy running as it was. Caddy reads its file when it
+# starts, so a new file takes a new container.
 ./release.sh
+if [ "$reread" = yes ]; then
+  docker compose up --detach --force-recreate --no-deps caddy
+fi

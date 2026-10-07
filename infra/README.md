@@ -22,7 +22,8 @@ proxied record answers with Cloudflare's own addresses, as if the record were no
   comment on every pull request from a branch of this repository. It uses the role
   `vehicle-catalog-plan`, which reads and does nothing else.
 - **The maintainer applies it**, by hand, with `terraform apply` in this directory. Nothing in the
-  pipeline is allowed to change infrastructure.
+  pipeline is allowed to change infrastructure. A change the pipeline's roles need is applied
+  before it is merged, or the `Deploy` run of the merge fails for want of it.
 - **`verify` checks it** without access to AWS: `terraform fmt -check`, `terraform validate`, the
   tests in `tests/`, and the test of the CloudFront function.
 
@@ -158,6 +159,19 @@ aws ssm list-associations \
   --association-filter-list key=AssociationName,value=vehicle-catalog-host-stack \
   --query 'Associations[0].Overview'
 ```
+
+A run that failed leaves Caddy running as it was. Once what stopped it is put right, this has the
+host run it again:
+
+```sh
+aws ssm start-associations-once --association-ids "$(aws ssm list-associations \
+  --association-filter-list key=AssociationName,value=vehicle-catalog-host-stack \
+  --query 'Associations[0].AssociationId' --output text)"
+```
+
+The database is on the host's own disk. It is kept across releases and restarts, and it is gone
+with the host: a new machine image in `host.tf` makes a new host, which starts with an empty
+database and no backend until the next release.
 
 The image of any commit that is still in the registry is released by hand the way the pipeline
 releases one, which is also how to go back to an earlier commit:

@@ -41,7 +41,8 @@ replaced="$(image_named "$current")"
 dropped="$(image_named "$previous")"
 if [ $# -eq 1 ]; then
   docker pull --quiet "$1" >/dev/null
-  if [ -n "$replaced" ]; then
+  # The image that runs becomes the one before, unless it is the one being released again.
+  if [ -n "$replaced" ] && [ "$replaced" != "$(image_named "$1")" ]; then
     docker tag "$replaced" "$previous"
   fi
   docker tag "$1" "$current"
@@ -78,9 +79,11 @@ refused="$(image_named "$current")"
 docker tag "$replaced" "$current"
 if [ -n "$dropped" ]; then
   docker tag "$dropped" "$previous"
-else
+elif [ -n "$(image_named "$previous")" ]; then
   docker rmi "$previous" >/dev/null
 fi
-docker compose up --detach --wait --wait-timeout 300 backend
+if ! docker compose up --detach --wait --wait-timeout 300 backend; then
+  echo "The image that ran before it did not come up healthy either." >&2
+fi
 forget "$refused"
 exit 1

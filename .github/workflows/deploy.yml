@@ -84,10 +84,11 @@ jobs:
             --query Command.CommandId --output text)"
           for _ in $(seq 1 180); do
             sleep 5
+            # A question that gets no answer is asked again: the release goes on either way.
             status="$(aws ssm list-command-invocations --command-id "$command" \
-              --query 'CommandInvocations[0].Status' --output text)"
+              --query 'CommandInvocations[0].Status' --output text || true)"
             case "$status" in
-              None | Pending | InProgress | Delayed) continue ;;
+              "" | None | Pending | InProgress | Delayed) continue ;;
             esac
             aws ssm list-command-invocations --command-id "$command" --details \
               --query 'CommandInvocations[0].CommandPlugins[0].Output' --output text

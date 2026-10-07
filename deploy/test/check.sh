@@ -150,6 +150,11 @@ expect "the authority is not asked to check anywhere else" yes \
 expect "Caddy's own controls answer no one" no \
   "$(whether docker compose exec -T caddy wget --quiet --output-document=- http://127.0.0.1:2019/config/)"
 
+releases "a first image that stops at once fails its release" 1 "$registry/backend:stops-at-once"
+expect "and the stack runs on without a backend" 502 \
+  "$(ask "${with_secret[@]}" https://origin.test:18443/api/health)"
+expect "and that image is not kept" no "$(kept stops-at-once)"
+
 releases "an image is released" 0 "$registry/backend:echo"
 said="$(answer "${with_secret[@]}" --header 'Cookie: session=abc' --header 'X-Probe: sent' \
   'https://origin.test:18443/api/things?color=red')"
@@ -168,6 +173,8 @@ healthy() {
 expect "health says the backend is up, and its database" yes "$(healthy)"
 expect "the API refuses a visitor without a session" 401 \
   "$(ask --output /dev/null "${with_secret[@]}" https://origin.test:18443/api/me)"
+releases "the image that runs is released again" 0 "$registry/backend:real"
+expect "and the one before it is still the one before it" "yes yes" "$(kept real) $(kept echo)"
 
 in_the_database() {
   docker compose exec -T db psql --username catalog --dbname catalog --tuples-only --no-align \
