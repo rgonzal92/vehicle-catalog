@@ -64,13 +64,38 @@ resource "aws_iam_role_policy" "plan" {
           "cloudfront:GetFunction",
           "cloudfront:GetOriginAccessControl",
           "cloudfront:ListTagsForResource",
+          "ec2:DescribeAddresses",
+          "ec2:DescribeAddressesAttribute",
+          "ec2:DescribeInstanceAttribute",
+          "ec2:DescribeInstanceCreditSpecifications",
+          "ec2:DescribeInstanceTypes",
+          "ec2:DescribeInstances",
+          "ec2:DescribeManagedPrefixLists",
+          "ec2:DescribeSecurityGroupRules",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeTags",
+          "ec2:DescribeVolumes",
+          "ec2:DescribeVpcs",
+          "iam:GetInstanceProfile",
           "iam:GetOpenIDConnectProvider",
           "iam:GetRole",
           "iam:GetRolePolicy",
           "iam:ListAttachedRolePolicies",
           "iam:ListRolePolicies",
+          "ssm:DescribeAssociation",
+          "ssm:DescribeParameters",
+          "ssm:ListTagsForResource",
         ]
         Resource = "*"
+      },
+      {
+        # Terraform compares the secret it made with the one in Parameter Store, so the role reads
+        # that one parameter. The secret is in the state as well, which the role also reads.
+        Sid      = "ReadTheSecretTheDistributionSends"
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter"]
+        Resource = aws_ssm_parameter.origin_secret.arn
       },
       {
         # How the bucket is set up, and that it is there. Without the listing, Terraform takes the

@@ -7,6 +7,11 @@ output "certificate_validation_record" {
   }])
 }
 
+output "host_address" {
+  description = "The host's fixed address: an A record at Cloudflare, DNS-only, from origin-catalog to this."
+  value       = aws_eip.host.public_ip
+}
+
 output "site_dns_target" {
   description = "Where the site's name points: a CNAME record at Cloudflare, DNS-only, from the site's name to this."
   value       = aws_cloudfront_distribution.site.domain_name

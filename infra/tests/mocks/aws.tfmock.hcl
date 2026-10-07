@@ -11,3 +11,10 @@ mock_resource "aws_cloudfront_function" {
     arn = "arn:aws:cloudfront::123456789012:function/vehicle-catalog-app-routes"
   }
 }
+
+# CloudFront's addresses are looked up by the name AWS gives their list.
+mock_data "aws_ec2_managed_prefix_lists" {
+  defaults = {
+    ids = ["pl-cloudfront"]
+  }
+}

@@ -3,7 +3,8 @@
 # configuration.
 #
 # Changed by hand, because no update reaches them: the Node, Java, and Terraform versions the
-# workflows install, and the image tags the backend's tests start, which follow the Compose file.
+# workflows install, the image tags the backend's tests start, which follow the Compose file, and
+# the machine image and the Docker Compose release the host is given.
 #
 # Within an ecosystem, minor and patch updates come together in one pull request, and each major
 # update comes in one of its own. The Angular packages share a version, so they move together.
@@ -77,7 +78,7 @@ updates:
         update-types: ["version-update:semver-major"]
 
   - package-ecosystem: docker-compose
-    directories: [/, /e2e]
+    directories: [/, /e2e, /deploy, /deploy/test]
     schedule:
       interval: weekly
     commit-message:

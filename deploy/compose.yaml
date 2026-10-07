@@ -1,0 +1,19 @@
+# What runs on the host. The secret the distribution sends comes from a file beside this one that
+# only root can read, written from Parameter Store when the stack is started.
+services:
+  caddy:
+    image: caddy:2.11.6-alpine
+    restart: unless-stopped
+    environment:
+      ORIGIN_NAME: origin-catalog.rgonz.dev
+      ORIGIN_SECRET: ${ORIGIN_SECRET:?The secret the distribution sends is not set}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # The certificate and the account with the certificate authority, kept across restarts.
+      - caddy-data:/data
+
+volumes:
+  caddy-data:
