@@ -9,6 +9,8 @@ here="$(cd "$(dirname "$0")" && pwd)"
 work="$(mktemp -d)"
 cp -r "$here/.." "$work/stack"
 cd "$work/stack"
+# What the backend is told about signing in, which Terraform writes for the host.
+cp test/settings.env settings.env
 export AUTHORITY_ROOT="$work/authority-root.pem"
 export COMPOSE_PROJECT_NAME=vehicle-catalog-host-check
 export COMPOSE_FILE=compose.yaml:test/compose.yaml
@@ -20,7 +22,7 @@ registry=127.0.0.1:15000
 # Compose asks for the secrets whatever it is told to do. Before the stack's own file of them is
 # written, and for what does not use them, they are given as nothing in particular.
 without_secrets() {
-  ORIGIN_SECRET=unused DATABASE_PASSWORD=unused "$@"
+  ORIGIN_SECRET=unused DATABASE_PASSWORD=unused OIDC_CLIENT_SECRET=unused "$@"
 }
 trap 'without_secrets docker compose down --volumes >/dev/null 2>&1
   docker rmi --force vehicle-catalog-backend:current vehicle-catalog-backend:previous >/dev/null 2>&1
@@ -173,6 +175,10 @@ healthy() {
 expect "health says the backend is up, and its database" yes "$(healthy)"
 expect "the API refuses a visitor without a session" 401 \
   "$(ask --output /dev/null "${with_secret[@]}" https://origin.test:18443/api/me)"
+expect "the backend knows the demo accounts, each with what a visitor signs in with" \
+  "admin author manager" \
+  "$(answer "${with_secret[@]}" https://origin.test:18443/api/demo-accounts |
+    jq --raw-output '[.[] | select(.password != null) | .username] | sort | join(" ")')"
 releases "the image that runs is released again" 0 "$registry/backend:real"
 expect "and the one before it is still the one before it" "yes yes" "$(kept real) $(kept echo)"
 
@@ -214,7 +220,7 @@ expect "everything comes back when the host restarts" "unless-stopped unless-sto
 
 # Without a secret, Caddy does not start at all.
 expect "no secret, no start" no \
-  "$(ORIGIN_SECRET=' ' DATABASE_PASSWORD=unused whether docker compose run --rm --no-deps caddy \
+  "$(ORIGIN_SECRET=' ' DATABASE_PASSWORD=unused OIDC_CLIENT_SECRET=unused whether docker compose run --rm --no-deps caddy \
     caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile)"
 
 exit "$failed"

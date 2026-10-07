@@ -6,8 +6,9 @@
 set -euo pipefail
 export AWS_DEFAULT_REGION=${region}
 
-# The secret the distribution sends is at its version ${secret_version}. A new secret changes
-# this line, and so has the host start its stack with it.
+# The secrets Terraform keeps are at these versions: the distribution's at ${secret_version}, the
+# login provider's at ${login_secret_version}. A new secret changes this line, and so has the host
+# start its stack with it.
 
 if ! command -v docker >/dev/null; then
   dnf install --assumeyes docker
@@ -40,16 +41,19 @@ cat > release.sh <<'RELEASE_SCRIPT'
 ${release_script}
 RELEASE_SCRIPT
 chmod 700 release.sh
+cat > settings.env <<'SETTINGS'
+${settings}
+SETTINGS
 
 # Compose asks for the secrets whatever it is told to do. They play no part in checking Caddy's
 # file, so there they are given as nothing in particular.
 without_secrets() {
-  ORIGIN_SECRET=unused DATABASE_PASSWORD=unused "$@"
+  ORIGIN_SECRET=unused DATABASE_PASSWORD=unused OIDC_CLIENT_SECRET=unused "$@"
 }
 without_secrets docker compose --project-name vehicle-catalog run --rm --no-deps --quiet-pull \
   caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 if cmp --silent Caddyfile ../Caddyfile; then reread=no; else reread=yes; fi
-mv compose.yaml Caddyfile release.sh ..
+mv compose.yaml Caddyfile release.sh settings.env ..
 cd ..
 
 # The stack is started before Caddy is touched, so that whatever keeps it from starting, a secret

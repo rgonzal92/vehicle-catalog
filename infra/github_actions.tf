@@ -64,6 +64,15 @@ resource "aws_iam_role_policy" "plan" {
           "cloudfront:GetFunction",
           "cloudfront:GetOriginAccessControl",
           "cloudfront:ListTagsForResource",
+          "cognito-idp:AdminGetUser",
+          "cognito-idp:AdminListGroupsForUser",
+          "cognito-idp:DescribeManagedLoginBranding",
+          "cognito-idp:DescribeManagedLoginBrandingByClient",
+          "cognito-idp:DescribeUserPool",
+          "cognito-idp:DescribeUserPoolClient",
+          "cognito-idp:DescribeUserPoolDomain",
+          "cognito-idp:GetGroup",
+          "cognito-idp:GetUserPoolMfaConfig",
           "ec2:DescribeAddresses",
           "ec2:DescribeAddressesAttribute",
           "ec2:DescribeInstanceAttribute",
@@ -96,12 +105,16 @@ resource "aws_iam_role_policy" "plan" {
         Resource = "*"
       },
       {
-        # Terraform compares the secret it made with the one in Parameter Store, so the role reads
-        # that one parameter. The secret is in the state as well, which the role also reads.
-        Sid      = "ReadTheSecretTheDistributionSends"
-        Effect   = "Allow"
-        Action   = ["ssm:GetParameter"]
-        Resource = aws_ssm_parameter.origin_secret.arn
+        # Terraform compares each secret it keeps with the one in Parameter Store, so the role
+        # reads those parameters and no other. The secrets are in the state as well, which the
+        # role also reads.
+        Sid    = "ReadTheSecretsTerraformKeeps"
+        Effect = "Allow"
+        Action = ["ssm:GetParameter"]
+        Resource = [
+          aws_ssm_parameter.origin_secret.arn,
+          aws_ssm_parameter.login_client_secret.arn,
+        ]
       },
       {
         # How the bucket is set up, and that it is there. Without the listing, Terraform takes the

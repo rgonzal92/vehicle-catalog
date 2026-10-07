@@ -18,3 +18,11 @@ mock_data "aws_ec2_managed_prefix_lists" {
     ids = ["pl-cloudfront"]
   }
 }
+
+# A user pool's id is checked for its form wherever it is used.
+mock_resource "aws_cognito_user_pool" {
+  defaults = {
+    id       = "us-east-1_Example01"
+    endpoint = "cognito-idp.us-east-1.amazonaws.com/us-east-1_Example01"
+  }
+}
