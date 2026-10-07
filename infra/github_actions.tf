@@ -73,6 +73,7 @@ resource "aws_iam_role_policy" "plan" {
           "cognito-idp:DescribeUserPoolDomain",
           "cognito-idp:GetGroup",
           "cognito-idp:GetUserPoolMfaConfig",
+          "cognito-idp:ListUserPoolClients",
           "ec2:DescribeAddresses",
           "ec2:DescribeAddressesAttribute",
           "ec2:DescribeInstanceAttribute",
