@@ -9,6 +9,8 @@ What the app needs in AWS, as Terraform. Everything is in the region `us-east-1`
   take on.
 - `host.tf`: the host, one machine that answers everything under `/api`. It runs the stack in
   `deploy/`, and nothing but CloudFront reaches its HTTPS port.
+- `release.tf`: where the backend's images are kept, and the one thing the pipeline can have the
+  host do, which is to release one of them.
 
 DNS for `rgonz.dev` is kept at Cloudflare and changed by hand. Every record named here is a
 DNS-only record there. Cloudflare makes a new record a proxied one unless told otherwise, and a
@@ -26,12 +28,22 @@ proxied record answers with Cloudflare's own addresses, as if the record were no
 
 A pull request from a fork gets no access to AWS, and neither does one from Dependabot.
 
-## How a build reaches the site
+## How a commit reaches the site
 
-What reaches main and passes `verify` is published by the `Deploy` workflow: it builds the
-frontend, puts the build in the bucket, and has the distribution fetch it anew. It uses the role
-`vehicle-catalog-deploy`, which only a run on the main branch can take on and which is allowed
-what publishing takes and nothing else.
+What reaches main and passes `verify` goes live through the `Deploy` workflow, in this order:
+
+1. It builds the backend's image and puts it in the registry under the commit's name.
+2. It has the host release that image: fetch it, start it, and wait for it to say it is healthy.
+   If it does not within about five minutes, the host starts the image before it again and the
+   run fails.
+3. It puts the frontend's build in the bucket and has the distribution fetch it anew.
+
+It uses the role `vehicle-catalog-deploy`, which only a run on the main branch can take on and
+which is allowed what those steps take and nothing else. On the host it can release an image and
+do nothing more: `deploy/` reaches the host with `terraform apply`, not with a push.
+
+Going back to the image before restores the image and not the database, so every migration
+leaves the image before it able to run.
 
 ## Before the first apply
 
@@ -82,17 +94,27 @@ These are done once, signed in with `aws sso login`. Until all of them are done,
    output `host_address`. The host asks for its certificate as it starts, and Let's Encrypt looks
    the name up then.
 
-5. Create everything else. This waits until the certificate has been issued, which AWS says can
+5. Give the database its password, which is kept in Parameter Store and nowhere else:
+
+   ```sh
+   aws ssm put-parameter --name /vehicle-catalog/database-password --type SecureString \
+     --value "$(openssl rand -hex 32)"
+   ```
+
+   The database takes the password when it first starts and keeps it. A new value here does not
+   change the database's own.
+
+6. Create everything else. This waits until the certificate has been issued, which AWS says can
    take half an hour from when the record is there, and then until the distribution is ready:
 
    ```sh
    terraform apply
    ```
 
-6. Point the site's name at the distribution: at Cloudflare, a CNAME record from `catalog` to the
+7. Point the site's name at the distribution: at Cloudflare, a CNAME record from `catalog` to the
    output `site_dns_target`.
 
-7. Tell the pipeline which roles to take on:
+8. Tell the pipeline which roles to take on:
 
    ```sh
    gh secret set AWS_PLAN_ROLE_ARN \
@@ -105,7 +127,8 @@ These are done once, signed in with `aws sso login`. Until all of them are done,
    neither the repository nor a run's log, and the `Plan` workflow leaves it out of its comment
    too.
 
-The site shows the app once a build has been published, which the next push to main does.
+The site shows the app once a build has been published, which the next push to main does. The
+same push releases the backend; before it, the API answers 502.
 
 ## The host
 
@@ -118,7 +141,8 @@ aws ssm start-session --target "$(aws ec2 describe-instances \
   --query 'Reservations[0].Instances[0].InstanceId' --output text)"
 ```
 
-The stack is in `/opt/vehicle-catalog` there, which only root reads. This shows what Caddy says:
+The stack is in `/opt/vehicle-catalog` there, which only root reads. This shows what Caddy, the
+backend, and the database say:
 
 ```sh
 sudo docker compose --project-directory /opt/vehicle-catalog logs
@@ -135,8 +159,17 @@ aws ssm list-associations \
   --query 'Associations[0].Overview'
 ```
 
-`deploy/test/check.sh` runs the same stack on this machine against a stand-in for the certificate
-authority, which `verify` does too.
+The image of any commit that is still in the registry is released by hand the way the pipeline
+releases one, which is also how to go back to an earlier commit:
+
+```sh
+aws ssm send-command --document-name vehicle-catalog-release \
+  --targets Key=tag:Name,Values=vehicle-catalog --parameters ImageTag=<the commit, in full>
+```
+
+`deploy/test/check.sh` runs the same stack on this machine against stand-ins for the certificate
+authority, the registry, and Parameter Store, and releases images to it, among them two that do
+not come up healthy. `verify` runs it too.
 
 The secret the distribution sends the host is changed with
 `terraform apply -replace=random_password.origin_secret`. The host has the new one within a
@@ -151,7 +184,7 @@ that record at Cloudflare first, and then the `prevent_destroy` line in `host.tf
 ```sh
 terraform plan     # what would change
 terraform apply    # change it
-terraform test     # who may take on each role and read the bucket, and what each role may do
+terraform test     # who may take on each role, what each role may do, and what reaches the host
 node --test functions/app_routes.test.mjs    # which paths are answered with the app's page
 ```
 

@@ -21,12 +21,41 @@ class SecurityIT extends ApplicationIT {
   }
 
   @Test
+  void healthSaysHowTheDatabaseIs() {
+    assertThat(mvc.get().uri("/api/health"))
+        .hasStatusOk()
+        .bodyJson()
+        .extractingPath("$.components.db.status")
+        .isEqualTo("UP");
+  }
+
+  @Test
+  void healthSaysNothingMoreOfAPartThanHowItIs() {
+    assertThat(mvc.get().uri("/api/health"))
+        .hasStatusOk()
+        .bodyJson()
+        .extractingPath("$.components.db")
+        .asMap()
+        .containsOnlyKeys("status");
+  }
+
+  @Test
   void readinessAnswersWithoutASessionOnceStartupHasFinished() {
     assertThat(mvc.get().uri("/api/health/readiness"))
         .hasStatusOk()
         .bodyJson()
         .extractingPath("$.status")
         .isEqualTo("UP");
+  }
+
+  @Test
+  void readyMeansTheDatabaseAnswersToo() {
+    assertThat(mvc.get().uri("/api/health/readiness"))
+        .hasStatusOk()
+        .bodyJson()
+        .extractingPath("$.components")
+        .asMap()
+        .containsOnlyKeys("db", "readinessState");
   }
 
   @Test

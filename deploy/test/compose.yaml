@@ -1,5 +1,6 @@
 # Laid over ../compose.yaml to try the host's stack on one machine: a stand-in for the certificate
-# authority, a name that only this network knows, and ports of its own.
+# authority, a registry to release images from, a name that only this network knows, and ports of
+# its own.
 services:
   # Stands in for Let's Encrypt. It comes to port 80 of the name to check, as Let's Encrypt does.
   authority:
@@ -14,6 +15,12 @@ services:
         # The one name its own certificate is made out to.
         aliases:
           - pebble
+
+  # Holds the images that are released, as the registry in AWS does for the host.
+  registry:
+    image: registry:3.1.2
+    ports:
+      - "127.0.0.1:15000:5000"
 
   caddy:
     depends_on:
@@ -32,3 +39,8 @@ services:
     ports: !override
       - "127.0.0.1:18080:80"
       - "127.0.0.1:18443:443"
+
+  backend:
+    # An image that never gets ready is known for one sooner than on the host.
+    healthcheck:
+      start_period: 1m

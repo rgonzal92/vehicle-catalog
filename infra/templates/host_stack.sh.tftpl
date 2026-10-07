@@ -1,9 +1,13 @@
 # Makes the host run the stack: Docker and Compose if they are not there yet, then the stack's
-# files as the repository has them, the secret the distribution sends, and the stack itself.
+# files as the repository has them, and the stack itself with the backend image released last.
 # Systems Manager runs this on the host as root, when the host first reports in and again
 # whenever a line of it changes. What Terraform fills in is written the way bash writes a
 # variable, so the file can be checked as bash before it is filled in.
 set -euo pipefail
+export AWS_DEFAULT_REGION=${region}
+
+# The secret the distribution sends is at its version ${secret_version}. A new secret changes
+# this line, and so has the host start its stack with it.
 
 if ! command -v docker >/dev/null; then
   dnf install --assumeyes docker
@@ -32,16 +36,21 @@ COMPOSE_FILE
 cat > Caddyfile <<'CADDY_FILE'
 ${caddy_file}
 CADDY_FILE
+cat > release.sh <<'RELEASE_SCRIPT'
+${release_script}
+RELEASE_SCRIPT
+chmod 700 release.sh
 
-# The secret goes into a file that only root can read, which Compose reads beside its own. It is
-# asked for by its version, so a new secret changes this script and so reaches the host.
-umask 077
-secret="$(aws ssm get-parameter --region ${region} --name '${secret_name}:${secret_version}' \
-  --with-decryption --query Parameter.Value --output text)"
-printf 'ORIGIN_SECRET=%s\n' "$secret" > .env
-
-docker compose --project-name vehicle-catalog run --rm --no-deps --quiet-pull caddy \
-  caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-mv compose.yaml Caddyfile .env ..
+# Compose asks for the secrets whatever it is told to do. They play no part in checking Caddy's
+# file or in removing its container, so there they are given as nothing in particular.
+without_secrets() {
+  ORIGIN_SECRET=unused DATABASE_PASSWORD=unused "$@"
+}
+without_secrets docker compose --project-name vehicle-catalog run --rm --no-deps --quiet-pull \
+  caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+mv compose.yaml Caddyfile release.sh ..
 cd ..
-docker compose up --detach --force-recreate --remove-orphans --quiet-pull
+
+# Caddy reads its file when it starts, so its container is made anew.
+without_secrets docker compose rm --stop --force caddy
+./release.sh

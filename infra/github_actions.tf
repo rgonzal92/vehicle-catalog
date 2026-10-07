@@ -77,6 +77,9 @@ resource "aws_iam_role_policy" "plan" {
           "ec2:DescribeTags",
           "ec2:DescribeVolumes",
           "ec2:DescribeVpcs",
+          "ecr:DescribeRepositories",
+          "ecr:GetLifecyclePolicy",
+          "ecr:ListTagsForResource",
           "iam:GetInstanceProfile",
           "iam:GetOpenIDConnectProvider",
           "iam:GetRole",
@@ -84,7 +87,10 @@ resource "aws_iam_role_policy" "plan" {
           "iam:ListAttachedRolePolicies",
           "iam:ListRolePolicies",
           "ssm:DescribeAssociation",
+          "ssm:DescribeDocument",
+          "ssm:DescribeDocumentPermission",
           "ssm:DescribeParameters",
+          "ssm:GetDocument",
           "ssm:ListTagsForResource",
         ]
         Resource = "*"
@@ -175,7 +181,7 @@ resource "aws_iam_role" "deploy" {
 # file here or by hand.
 resource "aws_iam_role_policies_exclusive" "deploy" {
   role_name    = aws_iam_role.deploy.name
-  policy_names = [aws_iam_role_policy.deploy_frontend.name]
+  policy_names = [aws_iam_role_policy.deploy_frontend.name, aws_iam_role_policy.deploy_backend.name]
 }
 
 resource "aws_iam_role_policy_attachments_exclusive" "deploy" {

@@ -97,11 +97,11 @@ resource "aws_iam_role_policy_attachment" "host_systems_manager" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-# That policy is all the host's role has. An apply removes any other policy given to it, in a file
-# here or by hand.
+# That policy and the one that lets the host fetch the backend's images are all its role has. An
+# apply removes any other policy given to it, in a file here or by hand.
 resource "aws_iam_role_policies_exclusive" "host" {
   role_name    = aws_iam_role.host.name
-  policy_names = []
+  policy_names = [aws_iam_role_policy.host_fetch_backend.name]
 }
 
 resource "aws_iam_role_policy_attachments_exclusive" "host" {
@@ -184,10 +184,11 @@ resource "aws_ssm_parameter" "origin_secret" {
   value       = random_password.origin_secret.result
 }
 
-# Has the host run the stack as deploy/ has it. It runs when the host first reports to Systems
-# Manager and again whenever what it runs changes, so a change to deploy/ or to the secret reaches
-# the host with an apply and without a new host. The apply that creates this waits for the run and
-# fails if it does. A later apply does not wait; infra/README.md says how to see how a run went.
+# Has the host run the stack as deploy/ has it, with the backend image released last. It runs when
+# the host first reports to Systems Manager and again whenever what it runs changes, so a change to
+# deploy/ or to the secret reaches the host with an apply and without a new host. The apply that
+# creates this waits for the run and fails if it does. A later apply does not wait; infra/README.md
+# says how to see how a run went.
 resource "aws_ssm_association" "host_stack" {
   name             = "AWS-RunShellScript"
   association_name = "vehicle-catalog-host-stack"
@@ -204,7 +205,7 @@ resource "aws_ssm_association" "host_stack" {
       compose_sha256  = "733ec76717ceb59052a9609b9dadfb523b2df8eab57a54212872d10a58078ea2"
       compose_file    = chomp(file("${path.module}/../deploy/compose.yaml"))
       caddy_file      = chomp(file("${path.module}/../deploy/Caddyfile"))
-      secret_name     = aws_ssm_parameter.origin_secret.name
+      release_script  = chomp(file("${path.module}/../deploy/release.sh"))
       secret_version  = aws_ssm_parameter.origin_secret.version
       region          = data.aws_region.current.region
     })
