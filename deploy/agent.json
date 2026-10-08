@@ -1,0 +1,30 @@
+{
+  "agent": {
+    "omit_hostname": true
+  },
+  "metrics": {
+    "namespace": "vehicle-catalog",
+    "metrics_collected": {
+      "otlp": {
+        "grpc_endpoint": "127.0.0.1:4317",
+        "http_endpoint": "0.0.0.0:4318"
+      },
+      "mem": {
+        "measurement": ["mem_used_percent"]
+      },
+      "disk": {
+        "resources": ["/"],
+        "measurement": ["used_percent"],
+        "drop_device": true
+      }
+    }
+  },
+  "traces": {
+    "traces_collected": {
+      "otlp": {
+        "grpc_endpoint": "127.0.0.1:4327",
+        "http_endpoint": "0.0.0.0:4328"
+      }
+    }
+  }
+}

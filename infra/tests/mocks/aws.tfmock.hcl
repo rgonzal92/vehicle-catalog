@@ -12,6 +12,13 @@ mock_resource "aws_cloudfront_function" {
   }
 }
 
+# The region is written out in deploy/, where it has to be the one everything else is in.
+mock_data "aws_region" {
+  defaults = {
+    region = "us-east-1"
+  }
+}
+
 # CloudFront's addresses are looked up by the name AWS gives their list.
 mock_data "aws_ec2_managed_prefix_lists" {
   defaults = {

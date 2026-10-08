@@ -2,7 +2,9 @@
 # API's requests to; and the database, which nothing outside this stack reaches. The secrets come
 # from a file beside this one that only root can read, written from Parameter Store whenever the
 # stack is started. What the backend is told about signing in comes from settings.env, which
-# Terraform writes from what it knows of the login provider.
+# Terraform writes from what it knows of the login provider. What the backend reports of itself
+# goes to Amazon CloudWatch: its log straight from Docker, its metrics and traces by way of the
+# CloudWatch agent, which runs on the host itself and not in this stack.
 services:
   caddy:
     image: caddy:2.11.6-alpine
@@ -35,6 +37,25 @@ services:
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:?The database password is not set}
       PUBLIC_URL: https://catalog.rgonz.dev
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?The secret the backend shows the login provider is not set}
+      # The log is written as JSON, one object to a line, with the trace id a line belongs to.
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+      # Where the agent listens: for metrics on one port of the host, for traces on another.
+      MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "true"
+      MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://host.docker.internal:4318/v1/metrics
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://host.docker.internal:4328/v1/traces
+    # The host, by a name of its own, since the agent is not in this stack.
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    # Docker sends the log to CloudWatch Logs as the host's role, and keeps a copy for `docker
+    # logs`. The backend is never held up by it: it starts whether or not CloudWatch can be
+    # reached, and what cannot be sent in time is dropped.
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: us-east-1
+        awslogs-group: /vehicle-catalog/backend
+        awslogs-stream: backend
+        mode: non-blocking
     # Healthy means startup has finished and the database answers. A release is given four minutes
     # to get there, on a host that may be short of CPU time, before it counts as one that failed.
     healthcheck:

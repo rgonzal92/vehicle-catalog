@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs the host's stack on this machine as the host runs it, against stand-ins for the certificate
-# authority, the image registry, and Parameter Store, and checks what it does: who is answered,
-# how an image is released, and what happens to one that does not come up healthy.
+# authority, the image registry, Parameter Store, and the CloudWatch agent, and checks what it
+# does: who is answered, how an image is released, what happens to one that does not come up
+# healthy, and what the backend reports of itself.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 
@@ -179,6 +180,34 @@ expect "the backend knows the demo accounts, each with what a visitor signs in w
   "admin author manager" \
   "$(answer "${with_secret[@]}" https://origin.test:18443/api/demo-accounts |
     jq --raw-output '[.[] | select(.password != null) | .username] | sort | join(" ")')"
+
+# What the backend reports of itself. The stand-in for the agent writes down what it is sent.
+reported() {
+  docker compose logs --no-log-prefix agent 2>&1
+}
+logged() {
+  docker compose logs --no-log-prefix backend 2>&1
+}
+# The line the backend wrote for the request above, which is one object.
+trace="$(logged | jq --raw-input --raw-output \
+  'fromjson? | select(.message | startswith("GET /api/me 401")) | .traceId' | tail -n 1)"
+expect "a request leaves a line in the log, with its trace id" yes \
+  "$(whether grep -qE '^[0-9a-f]{32}$' <<<"$trace")"
+# Spans are sent every few seconds, and here metrics are too. The stand-in writes a span down with
+# its trace id at the start of a line.
+span="^ *Trace ID +: ${trace:-none}\$"
+for _ in $(seq 1 30); do
+  said="$(reported)"
+  grep -qE "$span" <<<"$said" && grep -q -- '-> Name: http.server.requests' <<<"$said" && break
+  sleep 1
+done
+expect "the agent is sent that request's trace" yes "$(whether grep -qE "$span" <<<"$said")"
+expect "the agent is sent five metrics and no other" \
+  "catalog.copy catalog.edit health http.server.requests jvm.heap.used" \
+  "$(sed -n 's/^ *-> Name: //p' <<<"$said" | sort -u | paste -sd ' ')"
+expect "the log holds none of the secrets" 0 \
+  "$(logged | grep -cF -e "$secret" -e a-password-for-this-check -e a-client-secret-for-this-check || true)"
+
 releases "the image that runs is released again" 0 "$registry/backend:real"
 expect "and the one before it is still the one before it" "yes yes" "$(kept real) $(kept echo)"
 
