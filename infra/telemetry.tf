@@ -9,8 +9,8 @@ locals {
   agent               = jsondecode(file("${path.module}/../deploy/agent.json"))
   telemetry_namespace = local.agent.metrics.namespace
 
-  # What a request can come to. The backend counts its requests by this and by nothing else.
-  request_outcomes = ["SUCCESS", "REDIRECTION", "CLIENT_ERROR", "SERVER_ERROR"]
+  # How the dashboard finds a metric of the backend's: in the namespace, by a name that follows.
+  backend_metric = "Namespace=\"${local.telemetry_namespace}\""
 
   log_retention_days = 30
 }
@@ -101,22 +101,29 @@ resource "aws_iam_role_policy" "host_report" {
 # Goes off when the backend has said for three minutes that it is not ready, and when it has said
 # nothing in that time, as a backend that is stopped does. A release ordinarily stops it for less
 # than that; one whose backend is slow to start sets the alarm off until it is ready.
+#
+# The agent tells each of the backend's metrics apart by four labels of its own making besides, and
+# one of them is the version of the library that sent the metric. So the alarm asks for the metric
+# by its name, whatever labels it carries, and goes on finding it when that library is updated.
 resource "aws_cloudwatch_metric_alarm" "backend_health" {
   alarm_name        = "vehicle-catalog-backend-health"
   alarm_description = "The backend has not been ready for three minutes, or has reported nothing in that time."
 
-  namespace           = local.telemetry_namespace
-  metric_name         = "health"
-  statistic           = "Minimum"
-  period              = 60
   evaluation_periods  = 3
   comparison_operator = "LessThanThreshold"
   threshold           = 1
   treat_missing_data  = "breaching"
+
+  metric_query {
+    id          = "health"
+    expression  = "SELECT MIN(health) FROM \"${local.telemetry_namespace}\""
+    period      = 60
+    return_data = true
+  }
 }
 
-# The metrics, side by side. The host's processor time is among them at no charge: EC2 reports it
-# for every machine.
+# The metrics, side by side. The backend's are found by name, as the alarm finds its own. The
+# host's processor time is among them at no charge: EC2 reports it for every machine.
 resource "aws_cloudwatch_dashboard" "backend" {
   dashboard_name = "vehicle-catalog"
 
@@ -128,13 +135,13 @@ resource "aws_cloudwatch_dashboard" "backend" {
           title   = "Requests a minute, by outcome"
           region  = data.aws_region.current.region
           view    = "timeSeries"
-          stacked = true
-          stat    = "SampleCount"
           period  = 60
-          metrics = [
-            for outcome in local.request_outcomes :
-            [local.telemetry_namespace, "http.server.requests", "outcome", outcome]
-          ]
+          stacked = true
+          metrics = [[{
+            expression = "SEARCH('${local.backend_metric} MetricName=\"http.server.requests\"', 'SampleCount', 60)"
+            id         = "requests"
+            label      = "$${PROP('Dim.outcome')}"
+          }]]
         }
       },
       {
@@ -145,20 +152,31 @@ resource "aws_cloudwatch_dashboard" "backend" {
           view   = "timeSeries"
           period = 60
           metrics = [
-            [local.telemetry_namespace, "http.server.requests", "outcome", "SUCCESS", { stat = "p50", label = "half of them, within" }],
-            [local.telemetry_namespace, "http.server.requests", "outcome", "SUCCESS", { stat = "p99", label = "99 in 100, within" }],
+            [{
+              expression = "SEARCH('${local.backend_metric} MetricName=\"http.server.requests\" outcome=\"SUCCESS\"', 'p50', 60)"
+              id         = "half"
+              label      = "half of them, within"
+            }],
+            [{
+              expression = "SEARCH('${local.backend_metric} MetricName=\"http.server.requests\" outcome=\"SUCCESS\"', 'p99', 60)"
+              id         = "most"
+              label      = "99 in 100, within"
+            }],
           ]
         }
       },
       {
         type = "metric", x = 0, y = 6, width = 12, height = 6
         properties = {
-          title   = "Whether the backend is ready (1) or not (0)"
-          region  = data.aws_region.current.region
-          view    = "timeSeries"
-          stat    = "Minimum"
-          period  = 60
-          metrics = [[local.telemetry_namespace, "health"]]
+          title  = "Whether the backend is ready (1) or not (0)"
+          region = data.aws_region.current.region
+          view   = "timeSeries"
+          period = 60
+          metrics = [[{
+            expression = "SEARCH('${local.backend_metric} MetricName=\"health\"', 'Minimum', 60)"
+            id         = "health"
+            label      = "ready"
+          }]]
         }
       },
       {
@@ -167,23 +185,33 @@ resource "aws_cloudwatch_dashboard" "backend" {
           title  = "How long saving an edit and copying a catalog take, on average"
           region = data.aws_region.current.region
           view   = "timeSeries"
-          stat   = "Average"
           period = 60
           metrics = [
-            [local.telemetry_namespace, "catalog.edit"],
-            [local.telemetry_namespace, "catalog.copy"],
+            [{
+              expression = "SEARCH('${local.backend_metric} MetricName=\"catalog.edit\"', 'Average', 60)"
+              id         = "edit"
+              label      = "saving an edit"
+            }],
+            [{
+              expression = "SEARCH('${local.backend_metric} MetricName=\"catalog.copy\"', 'Average', 60)"
+              id         = "copy"
+              label      = "copying a catalog"
+            }],
           ]
         }
       },
       {
         type = "metric", x = 0, y = 12, width = 12, height = 6
         properties = {
-          title   = "Memory the backend's heap uses"
-          region  = data.aws_region.current.region
-          view    = "timeSeries"
-          stat    = "Average"
-          period  = 60
-          metrics = [[local.telemetry_namespace, "jvm.heap.used"]]
+          title  = "Memory the backend's heap uses"
+          region = data.aws_region.current.region
+          view   = "timeSeries"
+          period = 60
+          metrics = [[{
+            expression = "SEARCH('${local.backend_metric} MetricName=\"jvm.heap.used\"', 'Average', 60)"
+            id         = "heap"
+            label      = "heap"
+          }]]
         }
       },
       {
