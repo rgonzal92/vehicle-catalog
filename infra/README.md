@@ -2,6 +2,8 @@
 
 What the app needs in AWS, as Terraform. Everything is in the region `us-east-1`.
 
+- `backup.tf`: the bucket that keeps the nightly backups of the database, and the host's leave to
+  write them.
 - `budget.tf`: an alert by email once the account's costs for the month pass US$60.
 - `frontend.tf`: the site at `catalog.rgonz.dev`. The Angular build is in a private bucket, and a
   CloudFront distribution serves it under a certificate for that name.
@@ -175,7 +177,7 @@ aws ssm start-associations-once --association-ids "$(aws ssm list-associations \
 
 The database is on the host's own disk. It is kept across releases and restarts, and it is gone
 with the host: a new machine image in `host.tf` makes a new host, which starts with an empty
-database and no backend until the next release.
+database and no backend until the next release. A backup puts back what the old host held.
 
 The image of any commit that is still in the registry is released by hand the way the pipeline
 releases one, which is also how to go back to an earlier commit:
@@ -186,8 +188,9 @@ aws ssm send-command --document-name vehicle-catalog-release \
 ```
 
 `deploy/test/check.sh` runs the same stack on this machine against stand-ins for the certificate
-authority, the registry, Parameter Store, and the CloudWatch agent, and releases images to it,
-among them two that do not come up healthy. `verify` runs it too.
+authority, the registry, Parameter Store, the backups bucket, and the CloudWatch agent. It releases
+images to it, among them two that do not come up healthy, and backs the database up and puts the
+backup back. `verify` runs it too.
 
 The secret the distribution sends the host is changed with
 `terraform apply -replace=random_password.origin_secret`. The host has the new one within a
@@ -196,6 +199,43 @@ minute and the distribution some minutes later; in between, the API answers 403.
 Terraform refuses to give up the host's address, because whoever is given it next could pass for
 the host while the `origin-catalog` record still names it. To take the host down for good, remove
 that record at Cloudflare first, and then the `prevent_destroy` line in `host.tf`.
+
+## Backups
+
+Every night at 02:30 UTC the host writes a copy of the database to the bucket
+`rgonz-vehicle-catalog-backups`, named by when it was made. That is half an hour before the demo
+reset, so a backup holds the day's work. A backup is kept for thirty days.
+
+The host writes backups and does nothing else with them, so one is listed and fetched from a
+workstation. On the host, this says how the last run went and when the next is due, and makes a
+backup now:
+
+```sh
+systemctl list-timers vehicle-catalog-backup.timer
+sudo journalctl --unit vehicle-catalog-backup.service --since yesterday
+sudo systemctl start vehicle-catalog-backup.service
+```
+
+To put a backup back, fetch it on a workstation and send it to the host's database through a
+session there. This replaces everything the database holds, so the backend is stopped for it:
+
+```sh
+aws s3 ls s3://rgonz-vehicle-catalog-backups/
+aws s3 cp s3://rgonz-vehicle-catalog-backups/<the backup> .
+```
+
+Then, on the host, with the file copied there:
+
+```sh
+cd /opt/vehicle-catalog
+sudo docker compose stop backend
+sudo docker compose exec -T db pg_restore --username catalog --dbname catalog \
+  --clean --if-exists --no-owner < <the backup>
+sudo docker compose start backend
+```
+
+A backup made by a newer backend holds tables an older one does not know, so the image released
+is the one that made the backup, or a later one.
 
 ## What the backend reports
 

@@ -125,9 +125,9 @@ resource "aws_iam_role_policy" "plan" {
         ]
       },
       {
-        # How the bucket is set up, and that it is there. Without the listing, Terraform takes the
-        # bucket for gone and plans to make it again.
-        Sid    = "ReadTheFrontendBucket"
+        # How each bucket is set up, and that it is there. Without the listing, Terraform takes a
+        # bucket for gone and plans to make it again. What is in a bucket is not read.
+        Sid    = "ReadTheBuckets"
         Effect = "Allow"
         Action = [
           "s3:GetAccelerateConfiguration",
@@ -146,7 +146,7 @@ resource "aws_iam_role_policy" "plan" {
           "s3:ListBucket",
           "s3:ListTagsForResource",
         ]
-        Resource = aws_s3_bucket.frontend.arn
+        Resource = [aws_s3_bucket.frontend.arn, aws_s3_bucket.backups.arn]
       },
       {
         Sid      = "ReadTheState"

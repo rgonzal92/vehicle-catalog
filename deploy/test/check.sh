@@ -224,6 +224,27 @@ for image in stops-at-once never-gets-ready; do
   expect "and the image that failed is not kept" no "$(kept "$image")"
 done
 
+# A backup, and what is in it put back into a database of its own.
+export BACKUPS="$work/backups"
+mkdir "$BACKUPS"
+backs_up() { # what, how it should end, the bucket
+  local ended=0
+  ./backup.sh "$3" >"$work/backup.log" 2>&1 || ended=$?
+  expect "$1" "$2" "$ended"
+}
+backs_up "the database is backed up" 0 a-bucket
+expect "as one file, named by when it was made" 1 \
+  "$(find "$BACKUPS" -name 'catalog-20??-??-??T????Z.dump' | wc -l)"
+quietly docker compose exec -T db createdb --username catalog put-back
+quietly docker compose exec -T db pg_restore --username catalog --dbname put-back --no-owner \
+  <"$(find "$BACKUPS" -name '*.dump')"
+expect "a backup put back holds what the database held" 7 \
+  "$(docker compose exec -T db psql --username catalog --dbname put-back --tuples-only --no-align \
+    --command 'SELECT it FROM kept_by_the_check' 2>&1)"
+backs_up "a backup that cannot be sent ends in failure" 1 a-bucket-that-refuses
+expect "and says that it failed" yes \
+  "$(whether grep -qx 'The database was not backed up.' "$work/backup.log")"
+
 issued="$(certificate -serial)"
 releases "another image is released after those" 0 "$registry/backend:another"
 expect "a release keeps what is in the database" 7 "$(in_the_database 'SELECT it FROM kept_by_the_check')"
