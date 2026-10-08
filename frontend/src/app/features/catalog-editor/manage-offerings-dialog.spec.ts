@@ -85,6 +85,17 @@ describe('ManageOfferingsDialog', () => {
 
   const question = () => dialog().querySelector('[data-question]')?.textContent?.trim();
 
+  /**
+   * The options in the list that a dropdown has open. A list that has been chosen from stays on the
+   * page for a moment, so the options are read from the dropdown's own list and nowhere else.
+   */
+  const offered = (id: string) => {
+    const list = dialog()
+      .querySelector(`p-select[inputid="${id}"] [role="combobox"]`)!
+      .getAttribute('aria-controls');
+    return Array.from(document.querySelectorAll<HTMLElement>(`[id="${list}"] [role="option"]`));
+  };
+
   beforeEach(async () => {
     // A dropdown asks how wide the screen is before it opens, which the test page cannot say.
     vi.stubGlobal('matchMedia', () => ({ matches: false }));
@@ -201,7 +212,7 @@ describe('ManageOfferingsDialog', () => {
   it('offers only active library entries the catalog does not have, and adds the one chosen', async () => {
     dialog().querySelector<HTMLElement>('p-select[inputid="add-trim"]')!.click();
     const options = await vi.waitFor(() => {
-      const found = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'));
+      const found = offered('add-trim');
       expect(found.map((option) => option.textContent?.trim())).toEqual(['Touring']);
       return found;
     });
@@ -216,7 +227,7 @@ describe('ManageOfferingsDialog', () => {
 
     dialog().querySelector<HTMLElement>('p-select[inputid="add-region"]')!.click();
     const regions = await vi.waitFor(() => {
-      const found = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'));
+      const found = offered('add-region');
       expect(found.map((option) => option.textContent?.trim())).toEqual(['Asia']);
       return found;
     });
