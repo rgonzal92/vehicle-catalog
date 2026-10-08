@@ -98,7 +98,7 @@ resource "aws_iam_role_policy_attachment" "host_systems_manager" {
 }
 
 # That policy and the ones written here are all its role has: to fetch the backend's images, to
-# change roles, and to report to Amazon CloudWatch. An apply removes any other policy given to it,
+# change roles, to report to Amazon CloudWatch, and to write backups. An apply removes any other policy given to it,
 # in a file here or by hand.
 resource "aws_iam_role_policies_exclusive" "host" {
   role_name = aws_iam_role.host.name
@@ -106,6 +106,7 @@ resource "aws_iam_role_policies_exclusive" "host" {
     aws_iam_role_policy.host_fetch_backend.name,
     aws_iam_role_policy.host_administer_roles.name,
     aws_iam_role_policy.host_report.name,
+    aws_iam_role_policy.host_back_up.name,
   ]
 }
 
@@ -213,6 +214,8 @@ resource "aws_ssm_association" "host_stack" {
       caddy_file      = chomp(file("${path.module}/../deploy/Caddyfile"))
       release_script  = chomp(file("${path.module}/../deploy/release.sh"))
       agent_file      = chomp(file("${path.module}/../deploy/agent.json"))
+      backup_script   = chomp(file("${path.module}/../deploy/backup.sh"))
+      backup_bucket   = aws_s3_bucket.backups.bucket
       settings        = local.login_settings
       secret_version  = aws_ssm_parameter.origin_secret.version
 

@@ -1,10 +1,13 @@
 #!/bin/sh
 # Stands in for the AWS CLI on the host: it answers the parameters the stack's secrets are read
-# from, and nothing else.
+# from, takes what is sent to a bucket, and does nothing else.
 case "$*" in
   *"--name /vehicle-catalog/origin-secret "*) echo "a-secret-for-this-check" ;;
   *"--name /vehicle-catalog/database-password "*) echo "a-password-for-this-check" ;;
   *"--name /vehicle-catalog/login-client-secret "*) echo "a-client-secret-for-this-check" ;;
+  # Keeps what is sent to a bucket in a directory, and has one bucket that takes nothing.
+  "s3 cp "*" s3://a-bucket-that-refuses/"*) exit 1 ;;
+  "s3 cp "*" s3://a-bucket/"*) cp "$3" "$BACKUPS/${4##*/}" ;;
   *)
     echo "aws $*: this stand-in has no answer to that" >&2
     exit 1

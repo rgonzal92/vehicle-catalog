@@ -1,6 +1,7 @@
 # Makes the host run the stack: Docker and Compose if they are not there yet, then the stack's
-# files as the repository has them, the stack itself with the backend image released last, and
-# the CloudWatch agent that the backend sends its metrics and traces to.
+# files as the repository has them, the stack itself with the backend image released last, the
+# nightly backup of the database, and the CloudWatch agent that the backend sends its metrics and
+# traces to.
 # Systems Manager runs this on the host as root, when the host first reports in and again
 # whenever a line of it changes. What Terraform fills in is written the way bash writes a
 # variable, so the file can be checked as bash before it is filled in.
@@ -42,6 +43,10 @@ cat > release.sh <<'RELEASE_SCRIPT'
 ${release_script}
 RELEASE_SCRIPT
 chmod 700 release.sh
+cat > backup.sh <<'BACKUP_SCRIPT'
+${backup_script}
+BACKUP_SCRIPT
+chmod 700 backup.sh
 cat > settings.env <<'SETTINGS'
 ${settings}
 SETTINGS
@@ -57,7 +62,7 @@ without_secrets() {
 without_secrets docker compose --project-name vehicle-catalog run --rm --no-deps --quiet-pull \
   caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 if cmp --silent Caddyfile ../Caddyfile; then reread=no; else reread=yes; fi
-mv compose.yaml Caddyfile release.sh settings.env agent.json ..
+mv compose.yaml Caddyfile release.sh backup.sh settings.env agent.json ..
 cd ..
 
 # The stack is started before Caddy is touched, so that whatever keeps it from starting, a secret
@@ -67,6 +72,31 @@ cd ..
 if [ "$reread" = yes ]; then
   docker compose up --detach --force-recreate --no-deps caddy
 fi
+
+# The database is backed up every night at half past two by the clock everyone shares, which is
+# half an hour before the demo reset. A night the host was off for is made up when it is on again.
+cat > /etc/systemd/system/vehicle-catalog-backup.service <<'BACKUP_SERVICE'
+[Unit]
+Description=Write a copy of the database to the bucket that keeps the backups
+
+[Service]
+Type=oneshot
+Environment=AWS_DEFAULT_REGION=${region}
+ExecStart=/opt/vehicle-catalog/backup.sh ${backup_bucket}
+BACKUP_SERVICE
+cat > /etc/systemd/system/vehicle-catalog-backup.timer <<'BACKUP_TIMER'
+[Unit]
+Description=Back the database up every night
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+BACKUP_TIMER
+systemctl daemon-reload
+systemctl enable --now vehicle-catalog-backup.timer
 
 # The agent comes last, so that whatever keeps it from starting leaves the site as it is. It is
 # given its file anew and started again with it, and starts by itself when the host does.
