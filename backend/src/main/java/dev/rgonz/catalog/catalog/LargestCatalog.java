@@ -1,11 +1,11 @@
 package dev.rgonz.catalog.catalog;
 
 import dev.rgonz.catalog.core.Role;
+import dev.rgonz.catalog.core.Seed;
 import dev.rgonz.catalog.reference.FixedLists;
 import dev.rgonz.catalog.user.DemoPeople;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
-import org.springframework.boot.ApplicationRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
@@ -17,16 +17,17 @@ import org.springframework.transaction.annotation.Transactional;
  * version of a vehicle line of its own, "Largest Catalog", made of library entries of its own, so
  * that a working copy of it is created and edited like any other.
  *
- * <p>It is made at startup only where {@code app.largest-catalog} is true, which it is not unless
- * it is set, and nothing a visitor can reach makes it. A test makes it by calling {@link
- * #create()}. It runs after the seeds, each of which fills only what is still empty. Where it is
- * asked for, the author and manager demo accounts have to say who they are, and the names it gives
- * its library entries have to be free, or the application does not start. Its 12 trims, 8 regions,
- * and 500 features stay in the library from then on.
+ * <p>It is made only where {@code app.largest-catalog} is true, which it is not unless it is set,
+ * and nothing a visitor can reach makes it. There it is made at startup and made anew, with its
+ * library entries, in each demo reset. A test makes it by calling {@link #create()}. It runs after
+ * the other seeds, each of which fills only what is still empty. Where it is asked for, the author
+ * and manager demo accounts have to say who they are, and the names it gives its library entries
+ * have to be free, or the application does not start. Its 12 trims, 8 regions, and 500 features are
+ * in the library from then on, where every catalog can add them.
  */
 @Component
 @Order(3)
-class LargestCatalog implements ApplicationRunner {
+class LargestCatalog implements Seed {
   private final JdbcClient jdbc;
   private final FixedLists fixedLists;
   private final DemoPeople demoPeople;
@@ -43,7 +44,7 @@ class LargestCatalog implements ApplicationRunner {
     this.wanted = wanted;
   }
 
-  /** Runs once the application has started, after the seeds. */
+  /** Runs once the application has started and in each demo reset, after the other seeds. */
   @Override
   @Transactional
   public void run(ApplicationArguments arguments) {

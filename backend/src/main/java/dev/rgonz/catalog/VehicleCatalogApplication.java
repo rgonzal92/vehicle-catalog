@@ -3,10 +3,12 @@ package dev.rgonz.catalog;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /** Starts the vehicle catalog backend. */
 @SpringBootApplication
 @ConfigurationPropertiesScan
+@EnableScheduling
 public class VehicleCatalogApplication {
 
   public static void main(String[] args) {

@@ -134,6 +134,10 @@ services:
       APP_SANDBOXACCOUNTS_0_USERNAME: visitor
       APP_SANDBOXACCOUNTS_0_EMAIL: visitor@example.test
       APP_SANDBOXACCOUNTS_0_ROLE: author
+      # The demo reset puts the library and the catalogs back as a first start leaves them, every
+      # day at 03:00 UTC, here as on the public demo. Set DEMO_RESET_CRON=- to keep what is done
+      # here.
+      APP_DEMORESET_CRON: ${DEMO_RESET_CRON:-0 0 3 * * *}
       # Set LARGEST_CATALOG=true to start with the largest catalog there can be as well, 500 feature
       # rows by 96 offerings, to see and measure the app at that size.
       APP_LARGESTCATALOG: ${LARGEST_CATALOG:-false}

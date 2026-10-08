@@ -50,6 +50,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
       "app.sandbox-accounts[0].email=visitor@example.test",
       "app.sandbox-accounts[0].role=author",
       "app.protected-accounts[0]=operator",
+      // The demo reset runs only when a test runs it, never because the clock says so.
+      "app.demo-reset.cron=-",
       "spring.security.oauth2.client.registration.cognito.client-id=" + ApplicationIT.CLIENT_ID,
       "spring.security.oauth2.client.registration.cognito.client-secret=test-secret"
     })

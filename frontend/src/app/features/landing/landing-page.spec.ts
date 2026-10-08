@@ -47,4 +47,18 @@ describe('LandingPage', () => {
     expect(rows[0].textContent).toContain('demo-password');
     expect(rows[1].textContent).toContain('No password');
   });
+
+  it('says that visitor work is deleted every day, whoever owns it, and that the accounts stay', async () => {
+    const fixture = TestBed.createComponent(LandingPage);
+    fixture.detectChanges();
+    backend.expectOne('/api/demo-accounts').flush([]);
+    await fixture.whenStable();
+    const notice = (fixture.nativeElement as HTMLElement).querySelector('[data-reset-notice]');
+
+    expect(notice?.textContent).toContain('deleted every day at 03:00 UTC');
+    expect(notice?.textContent).toContain('including what the demo accounts own');
+    expect(notice?.textContent).toContain(
+      'The accounts themselves stay, so you can sign in again.',
+    );
+  });
 });

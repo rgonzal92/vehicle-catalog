@@ -1,6 +1,7 @@
 package dev.rgonz.catalog.catalog;
 
 import dev.rgonz.catalog.core.Role;
+import dev.rgonz.catalog.core.Seed;
 import dev.rgonz.catalog.user.DemoPeople;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -13,7 +14,6 @@ import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
-import org.springframework.boot.ApplicationRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -38,7 +38,7 @@ import tools.jackson.databind.json.JsonMapper;
  */
 @Component
 @Order(2)
-class CatalogSeed implements ApplicationRunner {
+class CatalogSeed implements Seed {
   private static final Logger log = LoggerFactory.getLogger(CatalogSeed.class);
 
   private final JdbcClient jdbc;
@@ -52,8 +52,9 @@ class CatalogSeed implements ApplicationRunner {
   }
 
   /**
-   * Runs once the application has started. The whole load is one transaction, so a file that cannot
-   * be loaded leaves no catalogs and the next start tries again.
+   * Runs once the application has started, and in each demo reset. The whole load is one
+   * transaction, so a file that cannot be loaded leaves the catalogs as they were and the next run
+   * tries again.
    */
   @Override
   @Transactional

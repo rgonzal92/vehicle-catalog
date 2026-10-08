@@ -30,6 +30,8 @@ services:
   backend:
     ports: !reset []
     environment:
+      # No demo reset while the browser tests run: one at 03:00 UTC would take their work away.
+      APP_DEMORESET_CRON: "-"
       PUBLIC_URL: http://localhost:8092
       LOGOUT_URL: http://localhost:8093/default/endsession?post_logout_redirect_uri=http://localhost:8092/
       SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_COGNITO_AUTHORIZATION_URI: http://localhost:8093/default/authorize

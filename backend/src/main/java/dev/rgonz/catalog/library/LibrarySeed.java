@@ -1,5 +1,6 @@
 package dev.rgonz.catalog.library;
 
+import dev.rgonz.catalog.core.Seed;
 import dev.rgonz.catalog.library.Features.NewFeature;
 import dev.rgonz.catalog.library.Regions.NewRegion;
 import dev.rgonz.catalog.library.Trims.NewTrim;
@@ -11,7 +12,6 @@ import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.function.Consumer;
 import org.springframework.boot.ApplicationArguments;
-import org.springframework.boot.ApplicationRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -27,7 +27,7 @@ import tools.jackson.databind.json.JsonMapper;
  */
 @Component
 @Order(1)
-class LibrarySeed implements ApplicationRunner {
+class LibrarySeed implements Seed {
   private final Trims trims;
   private final Regions regions;
   private final VehicleLines vehicleLines;
@@ -54,8 +54,9 @@ class LibrarySeed implements ApplicationRunner {
   }
 
   /**
-   * Runs once the application has started. The whole load is one transaction, so an entry that is
-   * refused leaves the library empty and the next start tries again.
+   * Runs once the application has started, and in each demo reset. The whole load is one
+   * transaction, so an entry that is refused leaves the library as it was and the next run tries
+   * again.
    */
   @Override
   @Transactional

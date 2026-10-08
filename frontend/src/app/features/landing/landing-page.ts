@@ -46,6 +46,10 @@ interface DemoAccount {
             </tr>
           </ng-template>
         </p-table>
+        <p class="mt-4 text-muted-color" data-reset-notice>
+          This is a demo. Everything visitors do here is deleted every day at 03:00 UTC, including
+          what the demo accounts own. The accounts themselves stay, so you can sign in again.
+        </p>
       </section>
     </main>
   `,
