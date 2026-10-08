@@ -211,9 +211,9 @@ It all goes to Amazon CloudWatch.
   ```
 
 - **Its traces** go to the CloudWatch agent, which runs on the host itself, and from there to
-  X-Ray. X-Ray keeps every span in the log group `aws/spans`, and the CloudWatch console shows
-  them under Application Signals, Transaction Search. Every request is traced but the health
-  checks.
+  X-Ray. X-Ray keeps every span for thirty days in the log group `aws/spans`, which is of its own
+  making, and the CloudWatch console shows them under Application Signals, Transaction Search.
+  Every request is traced but the health checks.
 - **Its metrics** go to the same agent, which publishes them under the namespace
   `vehicle-catalog` together with two of the host's own. The dashboard `vehicle-catalog` shows
   them.

@@ -182,6 +182,11 @@ run "every_metric_that_is_sent_is_looked_at" {
 
 run "traces_are_kept_as_spans_that_xray_alone_writes" {
   assert {
+    condition     = aws_cloudwatch_log_group.application_signals.retention_in_days == 30
+    error_message = "What X-Ray keeps beside the spans goes after thirty days too."
+  }
+
+  assert {
     condition     = aws_xray_trace_segment_destination.spans.destination == "CloudWatchLogs"
     error_message = "Traces are kept in CloudWatch Logs, where each span can be searched."
   }

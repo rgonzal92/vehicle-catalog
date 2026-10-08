@@ -21,12 +21,23 @@ resource "aws_cloudwatch_log_group" "backend" {
   retention_in_days = local.log_retention_days
 }
 
-# Traces are kept as spans in a log group of X-Ray's own making, where every one of them can be
-# searched, which AWS calls Transaction Search. It is a setting of the whole account in this region.
+# Traces are kept as spans in a log group of X-Ray's own making, aws/spans, where every one of
+# them can be searched, which AWS calls Transaction Search. It is a setting of the whole account in
+# this region. X-Ray keeps a span for thirty days.
 resource "aws_xray_trace_segment_destination" "spans" {
   destination = "CloudWatchLogs"
 
-  depends_on = [aws_cloudwatch_log_resource_policy.spans]
+  depends_on = [
+    aws_cloudwatch_log_resource_policy.spans,
+    aws_cloudwatch_log_group.application_signals,
+  ]
+}
+
+# X-Ray makes a second log group with that setting, and would keep what is in it for good. It is
+# made here first, so that what is in it goes like everything else.
+resource "aws_cloudwatch_log_group" "application_signals" {
+  name              = "/aws/application-signals/data"
+  retention_in_days = local.log_retention_days
 }
 
 # X-Ray writes the spans into its log groups, which this lets it do, for this account's traces alone.
