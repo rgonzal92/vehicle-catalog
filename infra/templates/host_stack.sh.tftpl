@@ -1,5 +1,6 @@
 # Makes the host run the stack: Docker and Compose if they are not there yet, then the stack's
-# files as the repository has them, and the stack itself with the backend image released last.
+# files as the repository has them, the stack itself with the backend image released last, and
+# the CloudWatch agent that the backend sends its metrics and traces to.
 # Systems Manager runs this on the host as root, when the host first reports in and again
 # whenever a line of it changes. What Terraform fills in is written the way bash writes a
 # variable, so the file can be checked as bash before it is filled in.
@@ -44,6 +45,9 @@ chmod 700 release.sh
 cat > settings.env <<'SETTINGS'
 ${settings}
 SETTINGS
+cat > agent.json <<'AGENT_FILE'
+${agent_file}
+AGENT_FILE
 
 # Compose asks for the secrets whatever it is told to do. They play no part in checking Caddy's
 # file, so there they are given as nothing in particular.
@@ -53,7 +57,7 @@ without_secrets() {
 without_secrets docker compose --project-name vehicle-catalog run --rm --no-deps --quiet-pull \
   caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 if cmp --silent Caddyfile ../Caddyfile; then reread=no; else reread=yes; fi
-mv compose.yaml Caddyfile release.sh settings.env ..
+mv compose.yaml Caddyfile release.sh settings.env agent.json ..
 cd ..
 
 # The stack is started before Caddy is touched, so that whatever keeps it from starting, a secret
@@ -63,3 +67,11 @@ cd ..
 if [ "$reread" = yes ]; then
   docker compose up --detach --force-recreate --no-deps caddy
 fi
+
+# The agent comes last, so that whatever keeps it from starting leaves the site as it is. It is
+# given its file anew and started again with it, and starts by itself when the host does.
+if ! rpm --query --quiet amazon-cloudwatch-agent; then
+  dnf install --assumeyes amazon-cloudwatch-agent
+fi
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -a fetch-config -m ec2 -s -c file:/opt/vehicle-catalog/agent.json

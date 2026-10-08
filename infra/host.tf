@@ -97,11 +97,16 @@ resource "aws_iam_role_policy_attachment" "host_systems_manager" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-# That policy and the one that lets the host fetch the backend's images are all its role has. An
-# apply removes any other policy given to it, in a file here or by hand.
+# That policy and the ones written here are all its role has: to fetch the backend's images, to
+# change roles, and to report to Amazon CloudWatch. An apply removes any other policy given to it,
+# in a file here or by hand.
 resource "aws_iam_role_policies_exclusive" "host" {
-  role_name    = aws_iam_role.host.name
-  policy_names = [aws_iam_role_policy.host_fetch_backend.name, aws_iam_role_policy.host_administer_roles.name]
+  role_name = aws_iam_role.host.name
+  policy_names = [
+    aws_iam_role_policy.host_fetch_backend.name,
+    aws_iam_role_policy.host_administer_roles.name,
+    aws_iam_role_policy.host_report.name,
+  ]
 }
 
 resource "aws_iam_role_policy_attachments_exclusive" "host" {
@@ -206,6 +211,7 @@ resource "aws_ssm_association" "host_stack" {
       compose_file    = chomp(file("${path.module}/../deploy/compose.yaml"))
       caddy_file      = chomp(file("${path.module}/../deploy/Caddyfile"))
       release_script  = chomp(file("${path.module}/../deploy/release.sh"))
+      agent_file      = chomp(file("${path.module}/../deploy/agent.json"))
       settings        = local.login_settings
       secret_version  = aws_ssm_parameter.origin_secret.version
 
@@ -217,6 +223,11 @@ resource "aws_ssm_association" "host_stack" {
   wait_for_success_timeout_seconds = 900
 
   # The stack is started with the host's fixed address already in place, where the certificate
-  # authority looks for it.
-  depends_on = [aws_eip_association.host]
+  # authority looks for it, and with somewhere for the backend's log to go: Docker does not start
+  # a container whose log it cannot write.
+  depends_on = [
+    aws_eip_association.host,
+    aws_cloudwatch_log_group.backend,
+    aws_iam_role_policy.host_report,
+  ]
 }

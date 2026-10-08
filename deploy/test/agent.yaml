@@ -1,0 +1,20 @@
+# What the stand-in for the CloudWatch agent does: it listens where the agent would and writes each
+# metric and each span it is sent to its own log, in full.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+exporters:
+  debug:
+    verbosity: detailed
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      exporters: [debug]
+    traces:
+      receivers: [otlp]
+      exporters: [debug]

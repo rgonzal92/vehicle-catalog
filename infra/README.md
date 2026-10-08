@@ -13,6 +13,8 @@ What the app needs in AWS, as Terraform. Everything is in the region `us-east-1`
   role, and the three demo accounts, whose passwords are public and shown on the landing page.
 - `release.tf`: where the backend's images are kept, and the one thing the pipeline can have the
   host do, which is to release one of them.
+- `telemetry.tf`: where the backend's log, traces, and metrics are kept in Amazon CloudWatch, the
+  alarm that goes off when the backend is not ready, and the dashboard.
 
 DNS for `rgonz.dev` is kept at Cloudflare and changed by hand. Every record named here is a
 DNS-only record there. Cloudflare makes a new record a proxied one unless told otherwise, and a
@@ -184,8 +186,8 @@ aws ssm send-command --document-name vehicle-catalog-release \
 ```
 
 `deploy/test/check.sh` runs the same stack on this machine against stand-ins for the certificate
-authority, the registry, and Parameter Store, and releases images to it, among them two that do
-not come up healthy. `verify` runs it too.
+authority, the registry, Parameter Store, and the CloudWatch agent, and releases images to it,
+among them two that do not come up healthy. `verify` runs it too.
 
 The secret the distribution sends the host is changed with
 `terraform apply -replace=random_password.origin_secret`. The host has the new one within a
@@ -195,12 +197,63 @@ Terraform refuses to give up the host's address, because whoever is given it nex
 the host while the `origin-catalog` record still names it. To take the host down for good, remove
 that record at Cloudflare first, and then the `prevent_destroy` line in `host.tf`.
 
+## What the backend reports
+
+It all goes to Amazon CloudWatch.
+
+- **Its log** is the log group `/vehicle-catalog/backend`, where a line is kept for thirty days.
+  Docker on the host writes it there. A line is one JSON object. Every request leaves one, with
+  its method, path, status, and time, and with the id of its trace as `traceId`. A health check
+  leaves none.
+
+  ```sh
+  aws logs tail /vehicle-catalog/backend --since 10m
+  ```
+
+- **Its traces** go to the CloudWatch agent, which runs on the host itself, and from there to
+  X-Ray. X-Ray keeps every span in the log group `aws/spans`, and the CloudWatch console shows
+  them under Application Signals, Transaction Search. Every request is traced but the health
+  checks.
+- **Its metrics** go to the same agent, which publishes them under the namespace
+  `vehicle-catalog` together with two of the host's own. The dashboard `vehicle-catalog` shows
+  them.
+
+| Metric | What it says | Told apart by |
+| --- | --- | --- |
+| `health` | 1 while the backend is ready, 0 while it is not | nothing |
+| `http.server.requests` | how many requests there were and how long each took | `outcome`, of which requests ordinarily have four |
+| `jvm.heap.used` | the memory the backend's heap uses | nothing |
+| `catalog.edit` | how long saving an edit of a working copy took | nothing |
+| `catalog.copy` | how long copying a catalog into a new working copy took | nothing |
+| `mem_used_percent` | the share of the host's memory in use | nothing |
+| `disk_used_percent` | the share of the host's disk in use | nothing that varies |
+
+CloudWatch counts a metric once for every value of what it is told apart by, which makes ten of
+these, and charges for each one beyond ten. So the backend sends no metric that the alarm or the
+dashboard does not use: `Telemetry.java` in the backend turns down every other.
+
+The alarm `vehicle-catalog-backend-health` goes off once the backend has not been ready for three
+minutes, or has reported nothing in that time, which is what a stopped backend does. It tells no
+one: it is there to be looked at.
+
+```sh
+aws cloudwatch describe-alarms --alarm-names vehicle-catalog-backend-health \
+  --query 'MetricAlarms[0].StateValue'
+```
+
+On the host, this says whether the agent runs, and its own log is in
+`/opt/aws/amazon-cloudwatch-agent/logs/`:
+
+```sh
+sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a status
+```
+
 ## Working with it
 
 ```sh
 terraform plan     # what would change
 terraform apply    # change it
-terraform test     # who may take on each role, what each role may do, and what reaches the host
+terraform test     # who may take on each role, what each role may do, what reaches the host, and what it reports
 node --test functions/app_routes.test.mjs    # which paths are answered with the app's page
 ```
 
@@ -215,4 +268,5 @@ TF_VAR_budget_notification_email=someone@example.com terraform plan
 Terraform 1.15 or newer. The providers are pinned in `terraform.tf`, and `.terraform.lock.hcl`
 records what was downloaded for them; both are kept in Git. The workflows install the Terraform
 version they name. The host's image and the release of Docker Compose it is given are named in
-`host.tf` and change by hand.
+`host.tf` and change by hand. The CloudWatch agent is the one Amazon Linux has in its packages
+when the host is first set up.

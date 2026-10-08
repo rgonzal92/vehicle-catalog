@@ -1,6 +1,6 @@
 # Laid over ../compose.yaml to try the host's stack on one machine: a stand-in for the certificate
-# authority, a registry to release images from, a name that only this network knows, and ports of
-# its own.
+# authority, a registry to release images from, a stand-in for the CloudWatch agent, a name that
+# only this network knows, and ports of its own.
 services:
   # Stands in for Let's Encrypt. It comes to port 80 of the name to check, as Let's Encrypt does.
   authority:
@@ -22,6 +22,13 @@ services:
     ports:
       - "127.0.0.1:15000:5000"
 
+  # Stands in for the CloudWatch agent: it takes the metrics and traces the backend sends, and
+  # writes down each one it is sent.
+  agent:
+    image: otel/opentelemetry-collector:0.161.0
+    volumes:
+      - ./test/agent.yaml:/etc/otelcol/config.yaml:ro
+
   caddy:
     depends_on:
       - authority
@@ -41,6 +48,14 @@ services:
       - "127.0.0.1:18443:443"
 
   backend:
+    environment:
+      # The stand-in is in this stack, takes both on one port, and is sent metrics every few
+      # seconds, where the agent is sent them every minute.
+      MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://agent:4318/v1/metrics
+      MANAGEMENT_OTLP_METRICS_EXPORT_STEP: 5s
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://agent:4318/v1/traces
+    # The log stays on this machine.
+    logging: !reset null
     # An image that never gets ready is known for one sooner than on the host.
     healthcheck:
       start_period: 1m

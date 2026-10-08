@@ -86,8 +86,8 @@ run "the_host_is_reached_for_a_shell_through_systems_manager_alone" {
   }
 
   assert {
-    condition     = aws_iam_role_policies_exclusive.host.policy_names == toset(["administer-roles", "fetch-backend"])
-    error_message = "The host's role has the policy that fetches the backend's images, the one that changes roles, and no other of its own."
+    condition     = aws_iam_role_policies_exclusive.host.policy_names == toset(["administer-roles", "fetch-backend", "report"])
+    error_message = "The host's role has the policy that fetches the backend's images, the one that changes roles, the one that reports to CloudWatch, and no other of its own."
   }
 }
 
