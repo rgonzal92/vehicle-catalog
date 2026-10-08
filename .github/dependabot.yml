@@ -11,7 +11,8 @@
 #
 # Platform versions change by decision, not here. No version update is proposed that takes Spring
 # Boot off 4.1, Angular off 22, PostgreSQL off 18, the Java images off 25, or the Terraform AWS
-# provider off 6, or that takes TypeScript past what the installed Angular supports.
+# provider off 6, or that takes TypeScript past what the installed Angular supports or the types
+# for Node past the Node that is installed.
 version: 2
 updates:
   - package-ecosystem: maven
@@ -49,6 +50,9 @@ updates:
       # Angular 22 supports TypeScript from 6.0 up to, but not including, 6.1.
       - dependency-name: typescript
         versions: [">=6.1"]
+      # The types say what Node offers, so they stay on the version of Node the workflows install.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
