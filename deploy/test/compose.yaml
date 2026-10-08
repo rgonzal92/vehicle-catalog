@@ -25,7 +25,7 @@ services:
   # Stands in for the CloudWatch agent: it takes the metrics and traces the backend sends, and
   # writes down each one it is sent.
   agent:
-    image: otel/opentelemetry-collector:0.161.0
+    image: otel/opentelemetry-collector:0.162.0
     volumes:
       - ./test/agent.yaml:/etc/otelcol/config.yaml:ro
 
