@@ -230,7 +230,13 @@ It all goes to Amazon CloudWatch.
 
 CloudWatch counts a metric once for every value of what it is told apart by, which makes ten of
 these, and charges for each one beyond ten. So the backend sends no metric that the alarm or the
-dashboard does not use: `Telemetry.java` in the backend turns down every other.
+dashboard does not use: `Telemetry.java` in the backend turns down every other. A metric is there
+once it has first been sent, so the two times and the fourth outcome, a request that fails in the
+backend, appear when there has been one.
+
+The agent adds four labels of its own to each of the backend's metrics, and one of them is the
+version of the library that sent it. The alarm and the dashboard therefore find a metric by its
+name, whatever labels it carries. `docs/adr/0010` says why.
 
 The alarm `vehicle-catalog-backend-health` goes off once the backend has not been ready for three
 minutes, or has reported nothing in that time, which is what a stopped backend does. It tells no
@@ -247,6 +253,13 @@ On the host, this says whether the agent runs, and its own log is in
 ```sh
 sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a status
 ```
+
+That log gains a line a minute for each thing the backend times that did not happen in that
+minute: `E! metric has a distribution with no entries`. It is the agent turning down an empty
+report, and nothing is lost by it.
+
+`docs/host-memory-measurements.md` has the memory the stack was measured to use, and
+`docs/adr/0009` the size of the host that was chosen from it.
 
 ## Working with it
 

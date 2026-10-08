@@ -54,7 +54,7 @@ run "the_host_publishes_metrics_under_the_apps_namespace_alone" {
 
   assert {
     condition = (
-      aws_cloudwatch_metric_alarm.backend_health.namespace == "vehicle-catalog"
+      strcontains(one(aws_cloudwatch_metric_alarm.backend_health.metric_query).expression, " FROM \"vehicle-catalog\"")
       && local.agent.metrics.namespace == "vehicle-catalog"
     )
     error_message = "The agent publishes under the namespace the alarm looks in."
@@ -122,14 +122,15 @@ run "the_agent_is_where_the_backend_sends_to" {
 
 run "a_backend_that_is_not_ready_or_says_nothing_sets_off_the_alarm" {
   assert {
+    # By name alone: the agent adds labels of its own to the metric, and one of them changes with
+    # the version of the library that sends it.
     condition = (
-      aws_cloudwatch_metric_alarm.backend_health.metric_name == "health"
-      && aws_cloudwatch_metric_alarm.backend_health.dimensions == null
-      && aws_cloudwatch_metric_alarm.backend_health.statistic == "Minimum"
+      one(aws_cloudwatch_metric_alarm.backend_health.metric_query).expression == "SELECT MIN(health) FROM \"vehicle-catalog\""
+      && aws_cloudwatch_metric_alarm.backend_health.metric_name == null
       && aws_cloudwatch_metric_alarm.backend_health.comparison_operator == "LessThanThreshold"
       && aws_cloudwatch_metric_alarm.backend_health.threshold == 1
     )
-    error_message = "The alarm goes off when the least the backend said of its health in a minute is below one."
+    error_message = "The alarm goes off when the least the backend said of its health in a minute is below one, whatever labels the metric carries."
   }
 
   assert {
@@ -139,7 +140,7 @@ run "a_backend_that_is_not_ready_or_says_nothing_sets_off_the_alarm" {
 
   assert {
     condition = (
-      aws_cloudwatch_metric_alarm.backend_health.period == 60
+      one(aws_cloudwatch_metric_alarm.backend_health.metric_query).period == 60
       && aws_cloudwatch_metric_alarm.backend_health.evaluation_periods == 3
     )
     error_message = "The alarm waits three minutes, which is longer than a release ordinarily stops the backend for."
@@ -148,13 +149,26 @@ run "a_backend_that_is_not_ready_or_says_nothing_sets_off_the_alarm" {
 
 run "every_metric_that_is_sent_is_looked_at" {
   assert {
-    # The backend sends these four and its health, which the alarm watches. A test in backend/
-    # holds it to those five.
+    # A test in backend/ holds the backend to these five.
     condition = alltrue([
-      for metric in ["http.server.requests", "jvm.heap.used", "catalog.edit", "catalog.copy"] :
-      strcontains(aws_cloudwatch_dashboard.backend.dashboard_body, "\"${metric}\"")
+      for metric in ["health", "http.server.requests", "jvm.heap.used", "catalog.edit", "catalog.copy"] :
+      anytrue([
+        for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+        strcontains(jsonencode(widget.properties.metrics), "Namespace=\\\"vehicle-catalog\\\" MetricName=\\\"${metric}\\\"")
+      ])
     ])
-    error_message = "The dashboard shows the requests, the heap, and how long an edit and a copy take."
+    error_message = "The dashboard shows each of the backend's metrics, found in the app's namespace by its name."
+  }
+
+  assert {
+    # Left to itself, CloudWatch draws such a chart in steps of five minutes and shows one point
+    # in five.
+    condition = alltrue([
+      for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+      widget.properties.period == 60
+      if strcontains(jsonencode(widget.properties.metrics), "SEARCH(")
+    ])
+    error_message = "A chart that finds its metrics by name is drawn by the minute, which is how its metrics are asked for."
   }
 
   assert {

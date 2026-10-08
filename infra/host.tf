@@ -121,7 +121,8 @@ resource "aws_iam_instance_profile" "host" {
 
 resource "aws_instance" "host" {
   # Amazon Linux 2023 for arm64: al2023-ami-2023.12.20260930.0-kernel-6.18-arm64.
-  ami                    = "ami-065b1b834d2a83a7a"
+  ami = "ami-065b1b834d2a83a7a"
+  # docs/adr/0009 says why this size, from the memory the stack was measured to use.
   instance_type          = "t4g.small"
   subnet_id              = data.aws_subnet.host.id
   vpc_security_group_ids = [aws_security_group.host.id]
