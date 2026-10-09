@@ -22,6 +22,13 @@ export interface LineageSummary {
   versionNumber: number;
   approvedBy: string;
   approvedAt: string;
+  /**
+   * Whether validation last found an Error in the current Approved: a change of the library has
+   * broken it since it was approved. A backend that is one release behind does not say.
+   */
+  needsRevision?: boolean;
+  /** How many Errors that was. */
+  errorCount?: number;
 }
 
 /** One Approved version in a lineage's list of versions. */

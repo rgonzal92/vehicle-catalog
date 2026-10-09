@@ -241,7 +241,8 @@ class RenameAndDeleteIT extends WorkingCopyTests {
 
   /**
    * How many rows each table holds of the catalog: the catalog's own row, and the rows of every
-   * table that names a catalog as theirs, whichever tables those are by now.
+   * table that names a catalog as theirs, whichever tables those are by now. The checks of Approved
+   * versions are left out: a working copy has none, and no Approved version is deleted.
    */
   private Map<String, Long> rowsOf(long catalog) {
     var rows = new TreeMap<String, Long>();
@@ -250,6 +251,7 @@ class RenameAndDeleteIT extends WorkingCopyTests {
             """
             SELECT table_name FROM information_schema.columns
             WHERE table_schema = current_schema() AND column_name = 'catalog_id'
+              AND table_name <> 'approved_check'
             """)
         .query(String.class)
         .list()

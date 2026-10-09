@@ -52,6 +52,10 @@ _Avoid_: Group, section
 Said of a feature that can no longer be added to catalogs or rules. Trims, regions, and vehicle lines are **inactive** instead.
 _Avoid_: Deleted, archived
 
+**Library revision**:
+A number that goes up whenever the library changes in a way that can break a catalog: a feature is retired or made active again, a trim or a region is deactivated or activated, or a global rule is added, changed, or deleted.
+_Avoid_: Library version
+
 ### Catalogs
 
 **Catalog**:
@@ -76,6 +80,10 @@ _Avoid_: Parent, source
 **Stale**:
 Said of a working copy whose base is no longer its lineage's current Approved.
 _Avoid_: Outdated, conflicted
+
+**Needs revision**:
+Said of a current Approved that a change of the library has left with an Error. The Approved version itself never changes; a new version puts it right.
+_Avoid_: Broken, invalid, stale (that is said of a working copy)
 
 **Revision conflict**:
 A write refused because the catalog changed after the writer last read it.

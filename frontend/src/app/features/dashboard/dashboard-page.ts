@@ -202,7 +202,20 @@ import { reasonOf } from '../../shared/reason-of';
                   </a>
                 </td>
                 <td>{{ lineage.modelYear }}</td>
-                <td>{{ lineage.versionNumber }}</td>
+                <td>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span>{{ lineage.versionNumber }}</span>
+                    @if (lineage.needsRevision) {
+                      <p-tag
+                        severity="warn"
+                        value="Needs revision"
+                        title="A change of the library has left it with an Error since it was approved."
+                        data-needs-revision
+                      />
+                      <app-issue-counts [errors]="lineage.errorCount ?? 0" [warnings]="0" />
+                    }
+                  </div>
+                </td>
                 <td>{{ lineage.approvedAt | date: 'mediumDate' }}</td>
                 <td>{{ lineage.approvedBy }}</td>
               </tr>

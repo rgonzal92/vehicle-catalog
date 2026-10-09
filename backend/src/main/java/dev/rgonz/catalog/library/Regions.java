@@ -18,9 +18,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 class Regions {
   private final RegionRepository repository;
+  private final LibraryRevision revision;
 
-  Regions(RegionRepository repository) {
+  Regions(RegionRepository repository, LibraryRevision revision) {
     this.repository = repository;
+    this.revision = revision;
   }
 
   @Transactional(readOnly = true)
@@ -46,10 +48,15 @@ class Regions {
             .filter(candidate -> candidate.getCode().equals(code))
             .findFirst()
             .orElseThrow(ApiException::notFound);
+    var wasActive = region.isActive();
     region.change(given.name(), given.active());
     SortOrders.move(regions, region, given.sortOrder());
+    var saved = save(region);
+    if (wasActive != saved.isActive()) {
+      revision.increase();
+    }
 
-    return save(region);
+    return saved;
   }
 
   /** The database keeps codes and names unique, which also settles two admins racing. */

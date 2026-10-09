@@ -26,9 +26,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class GlobalRules {
   private final JdbcClient jdbc;
+  private final LibraryRevision revision;
 
-  GlobalRules(JdbcClient jdbc) {
+  GlobalRules(JdbcClient jdbc, LibraryRevision revision) {
     this.jdbc = jdbc;
+    this.revision = revision;
   }
 
   /** Every rule, by the code of its source. */
@@ -45,7 +47,9 @@ public class GlobalRules {
   List<GlobalRule> add(RuleContent given) {
     if (given.kind() != RuleKind.EXCLUDES) {
       check(given, Set.of());
-      return List.of(find(insert(given, null)));
+      var made = List.of(find(insert(given, null)));
+      revision.increase();
+      return made;
     }
     var made = new ArrayList<GlobalRule>();
     checkWhatARuleNames(given);
@@ -57,6 +61,7 @@ public class GlobalRules {
       insert(given.naming(target, given.sourceFeatureId()), pairKey);
       made.add(find(id));
     }
+    revision.increase();
     return made;
   }
 
@@ -79,6 +84,7 @@ public class GlobalRules {
         rewrite(other, given.naming(given.targetFeatureIds().getFirst(), given.sourceFeatureId()));
       }
     }
+    revision.increase();
 
     return find(id);
   }
@@ -98,6 +104,7 @@ public class GlobalRules {
     if (deleted == 0) {
       throw ApiException.notFound();
     }
+    revision.increase();
   }
 
   /**
