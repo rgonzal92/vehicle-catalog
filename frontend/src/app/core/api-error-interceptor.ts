@@ -1,9 +1,16 @@
-import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
+import { HttpContextToken, HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { tap } from 'rxjs';
 import { Session } from './session';
+
+/**
+ * Marks a request that the person did not ask for, such as looking for new notifications every
+ * minute. When the server or the network fails it, nothing is shown: the person was not waiting
+ * for it, and the next one may succeed.
+ */
+export const IN_THE_BACKGROUND = new HttpContextToken(() => false);
 
 /**
  * Handles the API failures no caller can explain. A server or network failure is shown as a
@@ -23,6 +30,9 @@ export const apiErrorInterceptor: HttpInterceptorFn = (request, next) => {
         }
 
         if (error.status === 0 || error.status >= 500) {
+          if (request.context.get(IN_THE_BACKGROUND)) {
+            return;
+          }
           messages.add({
             severity: 'error',
             summary: 'Something went wrong',

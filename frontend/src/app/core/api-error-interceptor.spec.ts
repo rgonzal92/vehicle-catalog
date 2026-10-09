@@ -1,9 +1,9 @@
-import { HttpClient, provideHttpClient, withInterceptors } from '@angular/common/http';
+import { HttpClient, HttpContext, provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { MessageService } from 'primeng/api';
-import { apiErrorInterceptor } from './api-error-interceptor';
+import { apiErrorInterceptor, IN_THE_BACKGROUND } from './api-error-interceptor';
 import { Session } from './session';
 
 describe('apiErrorInterceptor', () => {
@@ -32,6 +32,17 @@ describe('apiErrorInterceptor', () => {
     backend.expectOne('/api/anything').flush(null, { status: 500, statusText: 'Server Error' });
 
     expect(shown).toHaveBeenCalledWith(expect.objectContaining({ severity: 'error' }));
+  });
+
+  it('says nothing when a request made in the background fails', () => {
+    const shown = vi.spyOn(messages, 'add');
+
+    http
+      .get('/api/anything', { context: new HttpContext().set(IN_THE_BACKGROUND, true) })
+      .subscribe({ error: () => undefined });
+    backend.expectOne('/api/anything').flush(null, { status: 500, statusText: 'Server Error' });
+
+    expect(shown).not.toHaveBeenCalled();
   });
 
   it('leaves a refusal the caller can explain to the caller', () => {

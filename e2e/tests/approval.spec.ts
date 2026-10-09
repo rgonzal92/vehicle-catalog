@@ -62,6 +62,31 @@ test("a manager approves a submitted catalog, which becomes its lineage's Approv
   await page.getByRole('link', { name: 'Open Sedan 2028', exact: true }).click();
   await expect(page.getByText('Approved version 1')).toBeVisible();
   await expect(page.locator('[data-shown]')).toContainText(name);
+
+  // The owner is told of the approval, which the worker sees to a moment after it. Other tests
+  // approve this account's catalogs too, so the count is whatever it is.
+  const bell = page.getByRole('button', { name: /^Notifications/ });
+  await expect(async () => {
+    await page.reload();
+    await expect(bell).toHaveAccessibleName(/^Notifications, \d+ unread$/, { timeout: 2000 });
+  }).toPass();
+  await expectAccessible(page);
+  await bell.click();
+  const told = page
+    .getByRole('dialog', { name: 'Notifications' })
+    .getByRole('listitem')
+    .filter({ hasText: `Demo Manager approved ${name} as Approved v1 of Sedan 2028` });
+  await expect(told).toContainText('Unread:');
+  await expectAccessible(page);
+
+  // Having been shown, it is read, and stays so. It leads to the lineage's Approved view.
+  await page.goto('/dashboard');
+  await bell.click();
+  await expect(told).toBeVisible();
+  await expect(told).not.toContainText('Unread:');
+  await told.getByRole('link').click();
+  await expect(page).toHaveURL(/\/approved\/\d+$/);
+  await expect(page.getByText('Approved version 1')).toBeVisible();
 });
 
 test('a manager rejects a submitted catalog with a reason, and its owner has it back', async ({
