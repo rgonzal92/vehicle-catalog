@@ -33,23 +33,33 @@ export async function choose(scope: Locator, label: string, option: string): Pro
 /**
  * Waits for the controls that are fading in, fading out, or changing color, which would otherwise
  * be judged on a color they only have for a moment. One that never ends, such as a spinner, is
- * not waited for.
+ * not waited for. What has only just been told to go is given a moment to start fading first.
  */
 const settled = (page: Page) =>
-  page.evaluate(() =>
-    Promise.allSettled(
+  page.evaluate(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await Promise.allSettled(
       document
         .getAnimations()
         .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity)
         .map((animation) => animation.finished),
-    ),
-  );
+    );
+  });
 
 /**
  * Fails when axe finds an accessibility violation on the settled page, naming each one. The page
  * is checked in light, and then for contrast in dark, which differs from light in its colors alone.
  */
 export async function expectAccessible(page: Page): Promise<void> {
+  // A toast goes when its time is up, and one that went during the check would be judged half
+  // faded. Under the pointer it stays, as it does for someone who is reading it.
+  const toast = page.locator('.p-toast-message').first();
+  const held =
+    (await toast.isVisible()) &&
+    (await toast.hover({ timeout: 1000 }).then(
+      () => true,
+      () => false,
+    ));
   await settled(page);
   const light = await new AxeBuilder({ page }).analyze();
 
@@ -59,6 +69,9 @@ export async function expectAccessible(page: Page): Promise<void> {
   const dark = await new AxeBuilder({ page }).withRules(['color-contrast']).analyze();
   await page.emulateMedia({ colorScheme: 'light' });
   await expect(page.locator('html')).not.toHaveClass(/app-dark/);
+  if (held) {
+    await page.mouse.move(0, 0);
+  }
 
   const named = (scheme: string, { violations }: typeof light) =>
     violations.map(
