@@ -99,6 +99,17 @@ export interface Catalog {
 interface Edited {
   revision: number;
   issues: Issue[];
+  /** The rules that went with a feature row, a trim, or a region the edit removed, in words. */
+  rulesDeleted?: string[];
+}
+
+/**
+ * What removing a feature row, a trim, or a region of a working copy led to: the revision, and the
+ * rules that were deleted with it, each in words and a pair once.
+ */
+export interface Removed {
+  revision: number;
+  rulesDeleted: string[];
 }
 
 const NO_ISSUES: Issue[] = [];
@@ -267,9 +278,12 @@ export class Catalogs {
     return this.edit(catalogId, 'POST', '/trims', revision, { trimIds });
   }
 
-  /** Removes a trim from a working copy, and with it its offerings and their cells. */
-  removeTrim(catalogId: number, revision: number, trimId: number): Promise<number> {
-    return this.edit(catalogId, 'DELETE', `/trims/${trimId}`, revision);
+  /**
+   * Removes a trim from a working copy, and with it its offerings, their cells, and the rules that
+   * covered no other trim.
+   */
+  removeTrim(catalogId: number, revision: number, trimId: number): Promise<Removed> {
+    return this.remove(catalogId, `/trims/${trimId}`, revision);
   }
 
   /** Adds library regions to a working copy. */
@@ -277,9 +291,12 @@ export class Catalogs {
     return this.edit(catalogId, 'POST', '/regions', revision, { regionCodes });
   }
 
-  /** Removes a region from a working copy, and with it its offerings and their cells. */
-  removeRegion(catalogId: number, revision: number, regionCode: string): Promise<number> {
-    return this.edit(catalogId, 'DELETE', `/regions/${regionCode}`, revision);
+  /**
+   * Removes a region from a working copy, and with it its offerings, their cells, and the rules
+   * that covered no other region.
+   */
+  removeRegion(catalogId: number, revision: number, regionCode: string): Promise<Removed> {
+    return this.remove(catalogId, `/regions/${regionCode}`, revision);
   }
 
   /** Adds library features to a working copy as feature rows, each with every cell Not offered. */
@@ -287,9 +304,21 @@ export class Catalogs {
     return this.edit(catalogId, 'POST', '/features', revision, { featureIds });
   }
 
-  /** Removes a feature row from a working copy, and with it its cells. */
-  removeFeature(catalogId: number, revision: number, featureId: number): Promise<number> {
-    return this.edit(catalogId, 'DELETE', `/features/${featureId}`, revision);
+  /**
+   * Removes a feature row from a working copy, and with it its cells. The backend refuses while a
+   * rule of the catalog names the feature, unless the rules that name it are to go with the row.
+   */
+  removeFeature(
+    catalogId: number,
+    revision: number,
+    featureId: number,
+    removeRules = false,
+  ): Promise<Removed> {
+    return this.remove(
+      catalogId,
+      `/features/${featureId}${removeRules ? '?removeRules=true' : ''}`,
+      revision,
+    );
   }
 
   /** Says in which of a working copy's regions a trim is sold: in exactly the ones given. */
@@ -337,6 +366,24 @@ export class Catalogs {
     revision: number,
     body?: unknown,
   ): Promise<number> {
+    return (await this.answerTo(catalogId, method, part, revision, body)).revision;
+  }
+
+  /** Sends the removal of a part of a working copy, as an edit, and says what went with it. */
+  private async remove(catalogId: number, part: string, revision: number): Promise<Removed> {
+    const saved = await this.answerTo(catalogId, 'DELETE', part, revision);
+
+    // A backend that is one release behind answers without the rules it deleted.
+    return { revision: saved.revision, rulesDeleted: saved.rulesDeleted ?? [] };
+  }
+
+  private async answerTo(
+    catalogId: number,
+    method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    part: string,
+    revision: number,
+    body?: unknown,
+  ): Promise<Edited> {
     const saved = await this.send<Edited>(
       method,
       `/api/catalogs/${catalogId}${part}`,
@@ -345,7 +392,7 @@ export class Catalogs {
     );
     this.keep(catalogId, saved.revision, saved.issues);
 
-    return saved.revision;
+    return saved;
   }
 
   /**

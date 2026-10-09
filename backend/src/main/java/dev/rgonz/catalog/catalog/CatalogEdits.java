@@ -445,44 +445,55 @@ class CatalogEdits {
 
   /**
    * Removes a feature row from the catalog, and with it its cells, which the database sees to. A
-   * row that a rule of the catalog names stays.
+   * row that a rule of the catalog names stays, unless the rules that name it are to go with it.
+   *
+   * @param removeRules whether the rules that name the feature are deleted with its row
    */
-  long removeFeature(long catalogId, long actorId, String ifMatch, long featureId) {
-    return edit(
-        catalogId,
-        actorId,
-        ifMatch,
-        () -> {
-          var naming = rules.naming(catalogId, featureId);
-          if (!naming.isEmpty()) {
-            throw ApiException.inUse(
-                "A rule of this catalog names this feature. Change or delete the rule first.",
-                naming);
-          }
-          var removed =
-              jdbc.sql(
-                      """
+  Removed removeFeature(
+      long catalogId, long actorId, String ifMatch, long featureId, boolean removeRules) {
+    var rulesDeleted = new ArrayList<String>();
+    var revision =
+        edit(
+            catalogId,
+            actorId,
+            ifMatch,
+            () -> {
+              if (removeRules) {
+                rulesDeleted.addAll(rules.deleteThoseNaming(catalogId, actorId, featureId));
+              }
+              var naming = rules.naming(catalogId, featureId);
+              if (!naming.isEmpty()) {
+                throw ApiException.inUse(
+                    "A rule of this catalog names this feature. Change or delete the rule first, or"
+                        + " remove the rules with the row.",
+                    naming);
+              }
+              var removed =
+                  jdbc.sql(
+                          """
                       DELETE FROM catalog_feature
                       WHERE catalog_id = :catalog AND feature_id = :feature
                       """)
-                  .param("catalog", catalogId)
-                  .param("feature", featureId)
-                  .update();
-          if (removed == 0) {
-            throw ApiException.notFound();
-          }
-          jdbc.sql(
-                  """
+                      .param("catalog", catalogId)
+                      .param("feature", featureId)
+                      .update();
+              if (removed == 0) {
+                throw ApiException.notFound();
+              }
+              jdbc.sql(
+                      """
                   INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
                   VALUES (:catalog, :actor, 'FEATURE_REMOVED',
                           jsonb_build_object('featureId', :feature))
                   """)
-              .param("catalog", catalogId)
-              .param("actor", actorId)
-              .param("feature", featureId)
-              .update();
-          return true;
-        });
+                  .param("catalog", catalogId)
+                  .param("actor", actorId)
+                  .param("feature", featureId)
+                  .update();
+              return true;
+            });
+
+    return new Removed(revision, rulesDeleted);
   }
 
   /**
@@ -792,8 +803,8 @@ class CatalogEdits {
   }
 
   /**
-   * What removing a trim or a region answers with: the revision the catalog is at afterwards, and
-   * the rules that were deleted with it, each in words and a pair once.
+   * What removing a feature row, a trim, or a region answers with: the revision the catalog is at
+   * afterwards, and the rules that were deleted with it, each in words and a pair once.
    */
   record Removed(long revision, List<String> rulesDeleted) {}
 

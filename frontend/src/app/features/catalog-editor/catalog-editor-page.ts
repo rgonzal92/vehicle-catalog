@@ -48,6 +48,7 @@ import { AddFeaturesDialog } from './add-features-dialog';
 import { counted, sentence } from './counted';
 import { HistoryTab } from './history-tab';
 import { ManageOfferingsDialog } from './manage-offerings-dialog';
+import { rulesInWords } from './rule-words';
 import { RulesTab } from './rules-tab';
 import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
 
@@ -316,6 +317,7 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
                 (onHide)="matrix.focusOn(lastAsked)"
               >
                 @if (removing(); as asked) {
+                  @let named = rulesNaming(asked.feature, catalog);
                   <div class="grid gap-4">
                     @if (removalRefusal()) {
                       <p-message severity="error">{{ removalRefusal() }}</p-message>
@@ -324,6 +326,16 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
                       Remove {{ asked.feature.name }} ({{ asked.feature.code }}) from this catalog?
                       {{ cellsGoing(asked.cells) }}
                     </p>
+                    @if (named.length > 0) {
+                      <div class="grid gap-1" data-rules-going>
+                        <p>{{ rulesGoing(named.length) }}</p>
+                        <ul class="list-disc pl-6">
+                          @for (rule of named; track rule) {
+                            <li>{{ rule }}</li>
+                          }
+                        </ul>
+                      </div>
+                    }
                     <div class="flex justify-end gap-2">
                       <p-button
                         label="Keep"
@@ -333,9 +345,9 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
                         (onClick)="removing.set(null)"
                       />
                       <p-button
-                        label="Remove"
+                        [label]="named.length > 0 ? 'Remove with its rules' : 'Remove'"
                         [loading]="removingNow()"
-                        (onClick)="removeFeature(asked.feature)"
+                        (onClick)="removeFeature(asked.feature, named.length > 0)"
                       />
                     </div>
                   </div>
@@ -766,16 +778,38 @@ export class CatalogEditorPage {
     return `${sentence(counted(cells, 'cell'))} ${cells === 1 ? 'goes' : 'go'} with it.`;
   }
 
-  /** Removes the feature row the person confirmed, or keeps the question open with the refusal. */
-  protected async removeFeature(feature: FeatureRow): Promise<void> {
+  /** The rules of the catalog that name a feature, in words, which go when its row is removed. */
+  protected rulesNaming(feature: FeatureRow, { snapshot }: Catalog): string[] {
+    return rulesInWords(
+      snapshot,
+      (rule) =>
+        rule.sourceFeatureId === feature.id ||
+        // Of a pair, the rule that starts from the feature says it for both.
+        (rule.pairKey === null && rule.targetFeatureIds.includes(feature.id)),
+    );
+  }
+
+  /** What the question says about the rules that go with a feature row. */
+  protected rulesGoing(rules: number): string {
+    return rules === 1
+      ? '1 rule of this catalog names it. Removing the row deletes the rule too:'
+      : `${rules} rules of this catalog name it. Removing the row deletes them too:`;
+  }
+
+  /**
+   * Removes the feature row the person confirmed, with the rules that name it when there are any,
+   * or keeps the question open with the refusal.
+   */
+  protected async removeFeature(feature: FeatureRow, withItsRules = false): Promise<void> {
     if (this.removingNow()) {
       return;
     }
 
     this.removingNow.set(true);
     try {
-      await this.restructure((revision) =>
-        this.catalogs.removeFeature(this.id, revision, feature.id),
+      await this.restructure(
+        async (revision) =>
+          (await this.catalogs.removeFeature(this.id, revision, feature.id, withItsRules)).revision,
       );
       this.removing.set(null);
     } catch (error) {

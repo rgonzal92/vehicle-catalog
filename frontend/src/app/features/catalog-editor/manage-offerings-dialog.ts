@@ -9,21 +9,25 @@ import {
   signal,
 } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
+import { MessageService } from 'primeng/api';
 import { Button } from 'primeng/button';
 import { Dialog } from 'primeng/dialog';
 import { Message } from 'primeng/message';
 import { Select } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { Tag } from 'primeng/tag';
-import { Catalog, CatalogEdit, Catalogs } from '../../core/catalogs';
+import { Catalog, CatalogEdit, Catalogs, Removed } from '../../core/catalogs';
 import { Library, LibraryRegion, LibraryTrim } from '../../core/library';
 import { Cell, MatrixRegion, MatrixTrim } from '../../shared/availability-matrix/matrix';
 import { reasonOf } from '../../shared/reason-of';
 import { counted, sentence } from './counted';
+import { rulesInWords } from './rule-words';
 
 /** A removal waiting for the owner to confirm it, with what it would take along. */
 interface Question {
   text: string;
+  /** The rules that would be deleted with it, in words. */
+  rules: string[];
   edit: CatalogEdit;
   /** The control that asked, which gets the focus back when the owner keeps what is there. */
   asker: HTMLElement | null;
@@ -35,7 +39,8 @@ interface Question {
  * library, with its names and its order; the catalog adds and removes them and never defines them.
  *
  * Each change is saved at once. Removing a trim, a region, or an offering first says how many
- * cells go with it.
+ * cells go with it, and which rules of the catalog: a rule that covers no other trim, or no other
+ * region, is deleted with the one it covers. Removing an offering changes no rule.
  */
 @Component({
   imports: [ReactiveFormsModule, Button, Dialog, Message, Select, TableModule, Tag],
@@ -54,7 +59,25 @@ interface Question {
         }
         @if (question(); as asked) {
           <div class="flex flex-wrap items-center justify-between gap-4" role="alert">
-            <p data-question>{{ asked.text }}</p>
+            <div class="grid gap-1">
+              <p data-question>{{ asked.text }}</p>
+              @if (asked.rules.length > 0) {
+                <div data-rules-going>
+                  <p>
+                    {{
+                      asked.rules.length === 1
+                        ? 'This rule covers nothing else and is deleted with it:'
+                        : 'These rules cover nothing else and are deleted with it:'
+                    }}
+                  </p>
+                  <ul class="list-disc pl-6">
+                    @for (rule of asked.rules; track rule) {
+                      <li>{{ rule }}</li>
+                    }
+                  </ul>
+                </div>
+              }
+            </div>
             <div class="flex gap-2">
               <p-button label="Keep" severity="secondary" [autofocus]="true" (onClick)="keep()" />
               <p-button label="Remove" (onClick)="apply(asked.edit)" />
@@ -173,6 +196,7 @@ interface Question {
 export class ManageOfferingsDialog {
   private readonly catalogs = inject(Catalogs);
   private readonly library = inject(Library);
+  private readonly messages = inject(MessageService);
   private readonly injector = inject(Injector);
 
   /** The working copy as it was last saved, which is what the cell counts are taken from. */
@@ -319,7 +343,9 @@ export class ManageOfferingsDialog {
       asker: click.target as HTMLElement,
       text:
         `${trim.name} will no longer be sold in ${region.name}. ` +
-        `${sentence(counted(cells, 'cell'))} ${cells === 1 ? 'goes' : 'go'} with this offering.`,
+        `${sentence(counted(cells, 'cell'))} ${cells === 1 ? 'goes' : 'go'} with this offering, ` +
+        'and no rule changes.',
+      rules: [],
       edit: (revision) =>
         this.catalogs.sellIn(
           this.id(),
@@ -339,7 +365,12 @@ export class ManageOfferingsDialog {
         offerings.filter(({ trimId }) => trimId === trim.id).length,
         this.cells((cell) => cell.trimId === trim.id),
       ),
-      edit: (revision) => this.catalogs.removeTrim(this.id(), revision, trim.id),
+      rules: rulesInWords(
+        this.catalog().snapshot,
+        ({ allTrims, trimIds }) => !allTrims && trimIds.length === 1 && trimIds[0] === trim.id,
+      ),
+      edit: (revision) =>
+        this.removed(trim.name, this.catalogs.removeTrim(this.id(), revision, trim.id)),
     });
   }
 
@@ -352,7 +383,13 @@ export class ManageOfferingsDialog {
         offerings.filter(({ regionCode }) => regionCode === region.code).length,
         this.cells((cell) => cell.regionCode === region.code),
       ),
-      edit: (revision) => this.catalogs.removeRegion(this.id(), revision, region.code),
+      rules: rulesInWords(
+        this.catalog().snapshot,
+        ({ allRegions, regionCodes }) =>
+          !allRegions && regionCodes.length === 1 && regionCodes[0] === region.code,
+      ),
+      edit: (revision) =>
+        this.removed(region.name, this.catalogs.removeRegion(this.id(), revision, region.code)),
     });
   }
 
@@ -376,6 +413,23 @@ export class ManageOfferingsDialog {
     } finally {
       this.busy.set(false);
     }
+  }
+
+  /**
+   * Says which rules were deleted with a trim or a region once it is removed, and answers with the
+   * revision the removal led to.
+   */
+  private async removed(name: string, removal: Promise<Removed>): Promise<number> {
+    const { revision, rulesDeleted } = await removal;
+    if (rulesDeleted.length > 0) {
+      this.messages.add({
+        severity: 'info',
+        summary: `${sentence(counted(rulesDeleted.length, 'rule'))} deleted with ${name}`,
+        detail: `${rulesDeleted.join('; ')}.`,
+      });
+    }
+
+    return revision;
   }
 
   private id(): number {

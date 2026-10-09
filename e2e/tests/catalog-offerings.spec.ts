@@ -88,7 +88,9 @@ test('removing an offering, a region, or a trim first says how many cells go wit
   // Unticking asks first, and keeping leaves everything as it was.
   let dialog = await manage(page);
   await sold(dialog, 'Base', 'Europe').click();
-  const question = dialog.getByText(/^Base will no longer be sold in Europe\. \d+ cells go with/);
+  const question = dialog.getByText(
+    /^Base will no longer be sold in Europe\. \d+ cells go with this offering, and no rule changes\./,
+  );
   await expect(question).toBeVisible();
   await expectAccessible(page);
   await dialog.getByRole('button', { name: 'Keep' }).click();
@@ -121,8 +123,19 @@ test('removing an offering, a region, or a trim first says how many cells go wit
   await expect(
     dialog.getByText(/^Remove Europe from this catalog\? 2 offerings and \d+ cells go with it\./),
   ).toBeVisible();
+  // The copy started with a rule that covers Europe alone, which goes with the region.
+  await expect(
+    dialog.getByText('This rule covers nothing else and is deleted with it:'),
+  ).toBeVisible();
+  await expect(
+    dialog
+      .getByRole('listitem')
+      .filter({ hasText: 'AM/FM Radio requires Digital Radio (in Europe)' }),
+  ).toBeVisible();
+  await expectAccessible(page);
   await dialog.getByRole('button', { name: 'Remove', exact: true }).click();
   await expect(dialog.getByRole('columnheader', { name: /Europe/ })).toHaveCount(0);
+  await expect(page.getByText('1 rule deleted with Europe')).toBeVisible();
   await dialog.getByRole('button', { name: 'Remove Sport' }).click();
   await expect(
     dialog.getByText(/^Remove Sport from this catalog\? 1 offering and \d+ cells go with it\./),

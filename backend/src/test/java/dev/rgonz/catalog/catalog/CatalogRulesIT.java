@@ -351,6 +351,63 @@ class CatalogRulesIT extends WorkingCopyTests {
   }
 
   @Test
+  void aFeatureRowIsRemovedWithTheRulesThatNameItWhenTheOwnerAsksForThat() {
+    add(
+        ana(),
+        copy,
+        "\"0\"",
+        rule("REQUIRES", "SEAT_LEATHER", List.of("Sport"), null, "AUDIO_PREMIUM"));
+    add(ana(), copy, "\"1\"", rule("EXCLUDES", "TRANS_MANUAL", null, null, "SEAT_LEATHER"));
+    add(
+        ana(),
+        copy,
+        "\"2\"",
+        rule("INCLUDES", "PACKAGE_TOW", null, null, "TRANS_MANUAL", "SEAT_LEATHER"));
+    add(ana(), copy, "\"3\"", rule("REQUIRES", "TRANS_MANUAL", null, null, "ROOF_PANORAMIC"));
+
+    var removed =
+        edit(
+            ana(),
+            mvc.delete()
+                .uri("/api/catalogs/{id}/features/{feature}", copy, feature("SEAT_LEATHER"))
+                .param("removeRules", "true"),
+            "\"4\"",
+            null);
+
+    assertThat(removed).hasStatusOk().bodyJson().extractingPath("$.revision").isEqualTo(5);
+    assertThat(ApplicationIT.<List<String>>read(removed, "$.rulesDeleted"))
+        .as("a pair once, and a rule that names it among other targets whole")
+        .containsExactly(
+            "Leather Seats excludes Manual Transmission",
+            "Leather Seats requires Premium Audio (on Sport)",
+            "Tow Package includes Leather Seats, Manual Transmission");
+    assertThat(sentences(copy)).containsExactly("Manual Transmission requires Panoramic Roof");
+    assertThat(
+            count(
+                "catalog_feature WHERE catalog_id = %d AND feature_id = %d",
+                copy, feature("SEAT_LEATHER")))
+        .isZero();
+    var history = mvc.get().uri("/api/catalogs/{id}/changes", copy).with(ana()).exchange();
+    assertThat(ApplicationIT.<List<String>>read(history, "$.items[*].kind"))
+        .startsWith(
+            "FEATURE_REMOVED", "RULE_REMOVED", "RULE_REMOVED", "RULE_REMOVED", "RULE_ADDED");
+    assertThat(
+            edit(
+                ana(),
+                mvc.delete()
+                    .uri("/api/catalogs/{id}/features/{feature}", copy, feature("AUDIO_PREMIUM"))
+                    .param("removeRules", "true"),
+                "\"5\"",
+                null))
+        .as("a row no rule names any more")
+        .hasStatusOk()
+        .bodyJson()
+        .extractingPath("$.rulesDeleted")
+        .asArray()
+        .isEmpty();
+  }
+
+  @Test
   void removingATrimOrARegionTakesItOutOfEveryScopeAndDeletesTheRulesItAloneWasIn() {
     add(
         ana(),
