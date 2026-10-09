@@ -19,42 +19,43 @@ import { join } from 'node:path';
 const parts = [
   [
     'approval',
-    'feature-rows',
-    'needs-revision',
     'submit',
-    'issues',
-    'save-failures',
-    'page-states',
+    'feature-library',
+    'trims-and-regions',
     'vehicle-lines',
-    'export',
-    'history',
-    'roles',
+    'users',
+    'jobs',
     'sign-out',
-    'seeded-library',
-    'landing',
     'seeded-catalogs',
   ],
   [
     'catalog-rules',
-    'catalog-offerings',
     'working-copies',
     'review-queue',
-    'global-rules',
-    'feature-library',
-    'trims-and-regions',
+    'issues',
     'rename-and-delete',
     'cell-edits',
-    'users',
     'approved-view',
-    'jobs',
-    'shell',
+    'roles',
+    'seeded-library',
+    'landing',
     'matrix-proof',
-    'trial',
+  ],
+  [
+    'catalog-offerings',
+    'feature-rows',
+    'needs-revision',
+    'global-rules',
+    'save-failures',
+    'page-states',
+    'export',
+    'history',
+    'shell',
   ],
 ];
 
 /**
- * The spec files of one part, named as "1/2" for the first of two. Every spec file has to be in
+ * The spec files of one part, named as "1/3" for the first of three. Every spec file has to be in
  * exactly one part, or nothing is run: one that is added is not left out by being forgotten.
  */
 function specsOf(part: string): string[] {
