@@ -18,14 +18,18 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Works out a catalog's issues from its contents and from the library's state today. It works every
  * issue out afresh each time, and knows nothing of the database or of the web.
  *
- * <p>Besides what a catalog must have, it checks each offering against the rules in effect for it.
- * A feature that is not a feature row of the catalog counts as Not offered in every offering, which
- * is how a global rule reaches a catalog that says nothing of its target.
+ * <p>Besides what a catalog must have, it checks each offering against the rules in effect for it:
+ * every global rule whose region scope covers the offering's region, and every rule of the catalog
+ * whose trim scope and region scope cover the offering. A rule of the catalog adds to the global
+ * rules and takes none away. A feature that is not a feature row of the catalog counts as Not
+ * offered in every offering, which is how a global rule reaches a catalog that says nothing of its
+ * target.
  */
 final class Validation {
   private Validation() {}
@@ -183,10 +187,17 @@ final class Validation {
     private final Map<Long, String> names = new HashMap<>();
     private final Map<String, Availability> cells = new HashMap<>();
 
+    /** The global rules, then the catalog's own. */
+    private final List<Rule> rules;
+
+    /** The pairs of the catalog whose features have been checked for being retired. */
+    private final Set<String> pairsNamed = new HashSet<>();
+
     RuleChecks(CatalogSnapshot catalog, Library library, List<Issue> found) {
       this.catalog = catalog;
       this.library = library;
       this.found = found;
+      this.rules = Stream.concat(library.rules().stream(), catalog.rules().stream()).toList();
       names.putAll(library.featureNames());
       // A feature row is called what the catalog calls it, which an Approved version recorded.
       catalog.featureRows().forEach(feature -> names.put(feature.id(), feature.name()));
@@ -200,7 +211,8 @@ final class Validation {
     }
 
     void run() {
-      if (library.rules().isEmpty()) {
+      catalog.rules().forEach(this::checkWhatItNames);
+      if (rules.isEmpty()) {
         return;
       }
       var offerings = Set.copyOf(catalog.offerings());
@@ -215,13 +227,48 @@ final class Validation {
     }
 
     /**
+     * Finds the retired features a rule of the catalog names. The rule stays an Error until it is
+     * changed or deleted, or the feature is active again. An exclusion is two rules that name the
+     * same features, and is reported once.
+     */
+    private void checkWhatItNames(Rule rule) {
+      if (rule.pairKey() != null && !pairsNamed.add(rule.pairKey())) {
+        return;
+      }
+      Stream.concat(Stream.of(rule.sourceFeatureId()), rule.targetFeatureIds().stream())
+          .filter(library.retiredFeatureIds()::contains)
+          .forEach(
+              retired ->
+                  found.add(
+                      new Issue(
+                          Code.RULE_FEATURE_RETIRED,
+                          Severity.ERROR,
+                          null,
+                          null,
+                          retired,
+                          List.of(),
+                          new RuleReference(rule.origin().name(), rule.key()),
+                          "%s is retired, and the rule that %s names it."
+                              .formatted(name(retired), inWords(rule)))));
+    }
+
+    /** A rule as a sentence without its full stop: "Tow Package requires Heavy-Duty Cooling". */
+    private String inWords(Rule rule) {
+      return "%s %s %s"
+          .formatted(
+              name(rule.sourceFeatureId()),
+              rule.kind().words(),
+              rule.targetFeatureIds().stream().map(this::name).collect(Collectors.joining(", ")));
+    }
+
+    /**
      * Checks one offering against every rule in effect for it.
      *
      * @param where the offering in words, such as "Sport in Europe"
      */
     private void check(Offering offering, String where) {
       var pairsChecked = new HashSet<String>();
-      for (Rule rule : library.rules()) {
+      for (Rule rule : rules) {
         if (!rule.covers(offering)) {
           continue;
         }
@@ -232,7 +279,7 @@ final class Validation {
           case REQUIRES_ONE_OF -> requiresOneOf(rule, source, offering, where);
           case EXCLUDES -> {
             // An exclusion is two rules that say the same, and is checked once.
-            if (pairsChecked.add(rule.pairKey())) {
+            if (pairsChecked.add(rule.origin() + " " + rule.pairKey())) {
               excludes(rule, source, offering, where);
             }
           }

@@ -82,11 +82,17 @@ const globalRules = [
 
 @Component({
   imports: [RulesTab],
-  template: `<app-rules-tab [catalog]="catalog()" [run]="run" [editable]="editable()" />`,
+  template: `<app-rules-tab
+    [catalog]="catalog()"
+    [run]="run"
+    [editable]="editable()"
+    [shown]="shown()"
+  />`,
 })
 class Host {
   readonly catalog = signal(catalogWith(requires, excludes, mirrored));
   readonly editable = signal(true);
+  readonly shown = signal<string | null>(null);
 
   /** The edits the tab asked to be sent. Each is sent as an edit of revision 4. */
   readonly sent: Promise<number>[] = [];
@@ -295,6 +301,23 @@ describe('RulesTab', () => {
 
     show.click();
     await vi.waitFor(() => expect(highlighted()).toEqual([false, false, false, false]));
+  });
+
+  it('highlights the rule an issue names, and gives it the focus', async () => {
+    const element = await tab();
+
+    host.shown.set('excludes');
+
+    await vi.waitFor(() =>
+      expect(
+        Array.from(element.querySelectorAll('tbody tr'), (row) =>
+          row.hasAttribute('data-shown-rule'),
+        ),
+      ).toEqual([false, true, false, false]),
+    );
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(element.querySelector('tr[data-rule="excludes"]')),
+    );
   });
 
   it('says that both rules go when a paired rule is deleted, and deletes it when told to', async () => {

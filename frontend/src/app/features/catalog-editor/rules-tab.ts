@@ -1,4 +1,14 @@
-import { Component, computed, effect, inject, input, signal } from '@angular/core';
+import {
+  afterNextRender,
+  Component,
+  computed,
+  effect,
+  ElementRef,
+  inject,
+  Injector,
+  input,
+  signal,
+} from '@angular/core';
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ArrowRightArrowLeft } from '@primeicons/angular/arrow-right-arrow-left';
 import { Plus } from '@primeicons/angular/plus';
@@ -129,10 +139,13 @@ function rowOf(
         </tr>
       </ng-template>
       <ng-template #body let-row>
-        @let shown = row.pairKey && row.pairKey === shownPair();
+        @let pairShown = row.pairKey && row.pairKey === shownPair();
+        @let ruleShown = row.id === shown();
         <tr
-          [class]="shown ? shownPairRow : ''"
-          [attr.data-shown-pair]="shown ? '' : null"
+          [class]="pairShown || ruleShown ? shownRow : ''"
+          [attr.data-shown-pair]="pairShown ? '' : null"
+          [attr.data-shown-rule]="ruleShown ? '' : null"
+          [attr.tabindex]="ruleShown ? -1 : null"
           [attr.data-rule]="row.id"
         >
           <td>{{ row.source }}</td>
@@ -361,6 +374,15 @@ export class RulesTab {
   /** Whether the catalog can be edited. The tab is read-only, and its dialogs close, when not. */
   readonly editable = input.required<boolean>();
 
+  /**
+   * The key of a rule of the catalog to bring into view, as an issue names it, or null. Its row is
+   * highlighted and takes the focus.
+   */
+  readonly shown = input<string | null>(null);
+
+  private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
+
   protected readonly kindNames: Record<string, string> = RULE_KIND_NAMES;
   protected readonly kinds = Object.entries(RULE_KIND_NAMES).map(([code, name]) => ({
     code: code as RuleKind,
@@ -479,11 +501,11 @@ export class RulesTab {
   protected readonly shownPair = signal<string | null>(null);
 
   /**
-   * How a row of the shown pair looks: a bar in the primary color at its start, and bold text. Its
-   * ground stays as it is, since the muted words of a row's actions would not stand out enough
-   * from a tinted one.
+   * How a row that is shown looks, as one of a pair or as the rule of an issue: a bar in the
+   * primary color at its start, and bold text. Its ground stays as it is, since the muted words of
+   * a row's actions would not stand out enough from a tinted one.
    */
-  protected readonly shownPairRow =
+  protected readonly shownRow =
     '[&>td]:font-semibold [&>td:first-child]:shadow-[inset_4px_0_0_var(--p-primary-color)]';
 
   /** Whether the form holds everything a rule needs. The backend checks the rest. */
@@ -505,6 +527,18 @@ export class RulesTab {
       if (!this.editable()) {
         this.dialogOpen.set(false);
         this.deleting.set(null);
+      }
+    });
+    effect(() => {
+      const key = this.shown();
+      if (key && this.rows().some(({ id }) => id === key)) {
+        afterNextRender(
+          () =>
+            this.element.nativeElement
+              .querySelector<HTMLElement>(`tr[data-rule="${CSS.escape(key)}"]`)
+              ?.focus(),
+          { injector: this.injector },
+        );
       }
     });
     void this.readGlobalRules();

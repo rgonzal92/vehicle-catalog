@@ -46,7 +46,8 @@ record Issue(
     INCLUDED_NOT_STANDARD,
     INCLUDED_NOT_OFFERED,
     INCLUDED_ALREADY_STANDARD,
-    ONE_OF_NONE_OFFERED
+    ONE_OF_NONE_OFFERED,
+    RULE_FEATURE_RETIRED
   }
 
   /** A rule, by its origin and by what identifies it there. */

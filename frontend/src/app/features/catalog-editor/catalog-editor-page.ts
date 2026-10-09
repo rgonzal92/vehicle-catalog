@@ -3,6 +3,7 @@ import {
   afterNextRender,
   Component,
   computed,
+  effect,
   ElementRef,
   inject,
   Injector,
@@ -349,7 +350,12 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
             </p-tabpanel>
             <p-tabpanel value="rules">
               @if (tab() === 'rules') {
-                <app-rules-tab [catalog]="catalog" [run]="restructure" [editable]="editable()" />
+                <app-rules-tab
+                  [catalog]="catalog"
+                  [run]="restructure"
+                  [editable]="editable()"
+                  [shown]="shownRule()"
+                />
               }
             </p-tabpanel>
             <p-tabpanel value="issues">
@@ -384,6 +390,16 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
                             [text]="true"
                             [ariaLabel]="'Show the cell of this issue: ' + issue.message"
                             (onClick)="showCell(issue, matrix)"
+                          />
+                        }
+                        @if (issue.rule?.origin === 'CATALOG') {
+                          <p-button
+                            label="Show rule"
+                            severity="secondary"
+                            size="small"
+                            [text]="true"
+                            [ariaLabel]="'Show the rule of this issue: ' + issue.message"
+                            (onClick)="showRule(issue)"
                           />
                         }
                       </td>
@@ -439,6 +455,12 @@ export class CatalogEditorPage {
 
   /** The tab being shown. */
   protected readonly tab = signal<string | number | undefined>('features');
+
+  /**
+   * The key of the rule of the catalog that an issue was chosen to show, which the Rules tab
+   * brings into view, or null. It lasts while the Rules tab is shown.
+   */
+  protected readonly shownRule = signal<string | null>(null);
 
   /** The matrix, which is told how the save of each change it reported went. */
   private readonly matrix = viewChild<AvailabilityMatrix>('matrix');
@@ -571,6 +593,11 @@ export class CatalogEditorPage {
   });
 
   constructor() {
+    effect(() => {
+      if (this.tab() !== 'rules') {
+        this.shownRule.set(null);
+      }
+    });
     void this.fixedLists.load();
     void this.open();
   }
@@ -798,6 +825,14 @@ export class CatalogEditorPage {
     afterNextRender(() => matrix.show({ featureId, trimId, regionCode }), {
       injector: this.injector,
     });
+  }
+
+  /** Shows the Rules tab with the rule of the catalog that an issue comes from in view. */
+  protected showRule(issue: Issue): void {
+    if (issue.rule) {
+      this.shownRule.set(issue.rule.key);
+      this.tab.set('rules');
+    }
   }
 
   protected showRegion(code: string, shown: boolean): void {

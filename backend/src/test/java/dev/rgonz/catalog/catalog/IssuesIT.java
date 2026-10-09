@@ -229,4 +229,80 @@ class IssuesIT extends WorkingCopyTests {
         .as("the same cells in the two regions of the same trim")
         .containsExactly("EU");
   }
+
+  /** A rule of the catalog by which the manual transmission requires the panoramic roof. */
+  private String manualRequiresPanoramicRoof(String regions) {
+    return """
+        {"kind": "REQUIRES", "sourceFeatureId": %d, "targetFeatureIds": [%d],
+         "allTrims": true, "trimIds": [], "allRegions": %s, "regionCodes": [%s]}
+        """
+        .formatted(feature("TRANS_MANUAL"), feature("ROOF_PANORAMIC"), regions.isEmpty(), regions);
+  }
+
+  @Test
+  void aRuleOfTheCatalogIsCheckedInItsScopeAndEveryEditOfItAnswersWithTheIssues() {
+    // The manual transmission is Standard on Base in Europe, where no panoramic roof is offered,
+    // and is not offered in North America.
+    var added =
+        edit(
+            ana(),
+            mvc.post().uri("/api/catalogs/{id}/rules", copy),
+            "\"0\"",
+            manualRequiresPanoramicRoof(""));
+
+    assertThat(errors(added)).containsExactly("REQUIRED_NOT_OFFERED");
+    Map<String, String> rule = read(added, "$.issues[0].rule");
+    assertThat(rule).containsEntry("origin", "CATALOG");
+    assertThat(ApplicationIT.<String>read(added, "$.issues[0].regionCode")).isEqualTo("EU");
+    assertThat(ApplicationIT.<List<String>>read(open(ana(), copy), "$.snapshot.rules[*].key"))
+        .as("the issue names the rule by its key")
+        .contains(rule.get("key"));
+
+    var elsewhere =
+        edit(
+            ana(),
+            mvc.put().uri("/api/catalogs/{id}/rules/{key}", copy, rule.get("key")),
+            "\"1\"",
+            manualRequiresPanoramicRoof("\"NA\""));
+
+    assertThat(errors(elsewhere)).as("limited to North America").isEmpty();
+
+    var back =
+        edit(
+            ana(),
+            mvc.put().uri("/api/catalogs/{id}/rules/{key}", copy, rule.get("key")),
+            "\"2\"",
+            manualRequiresPanoramicRoof("\"EU\""));
+
+    assertThat(errors(back)).as("limited to Europe").containsExactly("REQUIRED_NOT_OFFERED");
+
+    var deleted =
+        edit(
+            ana(),
+            mvc.delete().uri("/api/catalogs/{id}/rules/{key}", copy, rule.get("key")),
+            "\"3\"",
+            null);
+
+    assertThat(errors(deleted)).isEmpty();
+  }
+
+  @Test
+  void aRuleOfTheCatalogThatNamesARetiredFeatureIsAnErrorUntilTheFeatureIsActiveAgain() {
+    // The copy starts with a rule by which ventilated seats require leather seats.
+    jdbc.sql("UPDATE feature SET status = 'RETIRED' WHERE code = 'SEAT_LEATHER'").update();
+
+    var opened = open(ana(), copy);
+
+    assertThat(errors(opened)).containsExactlyInAnyOrder("FEATURE_RETIRED", "RULE_FEATURE_RETIRED");
+    assertThat(
+            ApplicationIT.<List<String>>read(
+                opened, "$.issues[?(@.code == 'RULE_FEATURE_RETIRED')].message"))
+        .containsExactly(
+            "Leather Seats is retired, and the rule that Ventilated Front Seats requires Leather"
+                + " Seats names it.");
+
+    jdbc.sql("UPDATE feature SET status = 'ACTIVE' WHERE code = 'SEAT_LEATHER'").update();
+
+    assertThat(errors(open(ana(), copy))).isEmpty();
+  }
 }
