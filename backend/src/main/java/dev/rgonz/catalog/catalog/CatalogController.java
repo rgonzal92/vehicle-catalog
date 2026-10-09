@@ -14,6 +14,7 @@ import dev.rgonz.catalog.catalog.WorkingCopies.StartPoint;
 import dev.rgonz.catalog.catalog.WorkingCopies.Submitted;
 import dev.rgonz.catalog.catalog.WorkingCopies.WorkingCopy;
 import dev.rgonz.catalog.core.ApiException;
+import dev.rgonz.catalog.core.RequiresRole;
 import dev.rgonz.catalog.core.Role;
 import dev.rgonz.catalog.user.AppUsers;
 import jakarta.validation.Valid;
@@ -39,9 +40,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Shows everyone with a role the lineages, their Approved versions, and a catalog's contents, shows
- * managers and admins the catalogs that are waiting for review, and lets each of them create, edit,
- * rename, and delete working copies of their own, keep their rules, submit them for review and
- * withdraw them, and read a catalog's change history.
+ * managers and admins the catalogs that are waiting for review and lets them approve or reject one,
+ * and lets each of them create, edit, rename, and delete working copies of their own, keep their
+ * rules, submit them for review and withdraw them, and read a catalog's change history.
  */
 @RestController
 class CatalogController {
@@ -49,6 +50,7 @@ class CatalogController {
   private final WorkingCopies workingCopies;
   private final CatalogEdits edits;
   private final Submissions submissions;
+  private final Reviews reviews;
   private final ChangeHistory history;
   private final AppUsers people;
   private final RoleHierarchy roles;
@@ -58,9 +60,11 @@ class CatalogController {
       WorkingCopies workingCopies,
       CatalogEdits edits,
       Submissions submissions,
+      Reviews reviews,
       ChangeHistory history,
       AppUsers people,
       RoleHierarchy roles) {
+    this.reviews = reviews;
     this.roles = roles;
     this.catalogs = catalogs;
     this.workingCopies = workingCopies;
@@ -339,6 +343,41 @@ class CatalogController {
   ResponseEntity<Edited> withdraw(@PathVariable long id, Authentication caller) {
     return saved(id, caller, submissions.withdraw(id, people.idOf(caller)));
   }
+
+  /**
+   * Approves a Submitted catalog that is not the caller's own, which makes it the next Approved
+   * version of its lineage. It names the revision the reviewer saw.
+   */
+  @PostMapping("/api/catalogs/{id}/approve")
+  @RequiresRole(Role.MANAGER)
+  ResponseEntity<Edited> approve(
+      @PathVariable long id,
+      @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+      @RequestBody(required = false) Decision given,
+      Authentication caller) {
+    var comment = given == null ? null : given.comment();
+
+    return saved(id, caller, reviews.approve(id, people.idOf(caller), ifMatch, comment));
+  }
+
+  /**
+   * Rejects a Submitted catalog that is not the caller's own, with the reason, which sends it back
+   * to its owner as a Draft.
+   */
+  @PostMapping("/api/catalogs/{id}/reject")
+  @RequiresRole(Role.MANAGER)
+  ResponseEntity<Edited> reject(
+      @PathVariable long id,
+      @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+      @RequestBody(required = false) Decision given,
+      Authentication caller) {
+    var comment = given == null ? null : given.comment();
+
+    return saved(id, caller, reviews.reject(id, people.idOf(caller), ifMatch, comment));
+  }
+
+  /** What a reviewer says with a decision. A rejection needs it. */
+  record Decision(String comment) {}
 
   /** What an owner says when they submit a catalog: a note, or nothing. */
   record Submission(String note) {}

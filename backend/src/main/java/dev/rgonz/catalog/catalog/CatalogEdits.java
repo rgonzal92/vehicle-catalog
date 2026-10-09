@@ -361,9 +361,9 @@ class CatalogEdits {
   }
 
   /**
-   * Deletes the catalog with its contents and its change history. Its lineage stays, and so does
-   * every other catalog. It follows the rules of an edit: only the owner deletes a catalog, only
-   * while it is in status Draft, and only as they last saw it.
+   * Deletes the catalog with its contents, its change history, and the decisions about it. Its
+   * lineage stays, and so does every other catalog. It follows the rules of an edit: only the owner
+   * deletes a catalog, only while it is in status Draft, and only as they last saw it.
    */
   void delete(long catalogId, long actorId, String ifMatch) {
     transactions.executeWithoutResult(
@@ -384,6 +384,9 @@ class CatalogEdits {
               .param("id", catalogId)
               .update();
           jdbc.sql("DELETE FROM catalog_change WHERE catalog_id = :id")
+              .param("id", catalogId)
+              .update();
+          jdbc.sql("DELETE FROM catalog_review WHERE catalog_id = :id")
               .param("id", catalogId)
               .update();
           jdbc.sql("DELETE FROM catalog WHERE id = :id").param("id", catalogId).update();

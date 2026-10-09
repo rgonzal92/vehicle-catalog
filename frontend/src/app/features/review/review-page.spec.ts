@@ -2,7 +2,8 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Component, input } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
+import { MessageService } from 'primeng/api';
 import { Named } from '../../core/fixed-lists';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
 import { Issue, MatrixChanges, MatrixContents } from '../../shared/availability-matrix/matrix';
@@ -99,6 +100,7 @@ describe('ReviewPage', () => {
         provideRouter([]),
         provideHttpClient(),
         provideHttpClientTesting(),
+        MessageService,
         {
           provide: ActivatedRoute,
           useValue: { snapshot: { paramMap: convertToParamMap({ id: '41' }) } },
@@ -206,6 +208,149 @@ describe('ReviewPage', () => {
     expect(notice?.textContent).toContain('This catalog is not waiting for review.');
     expect(notice?.querySelector('a')?.getAttribute('href')).toBe('/catalogs/41');
     expect(element.querySelector('app-availability-matrix')).toBeNull();
+  });
+
+  describe('deciding on the catalog', () => {
+    const dialog = () => document.querySelector<HTMLElement>('.p-dialog');
+    const button = (scope: ParentNode, label: string) =>
+      Array.from(scope.querySelectorAll('button')).find(
+        (candidate) => candidate.textContent?.trim() === label,
+      )!;
+    const anError = {
+      code: 'NO_REGIONS',
+      severity: 'ERROR',
+      trimId: null,
+      regionCode: null,
+      featureId: null,
+      relatedFeatureIds: [],
+      rule: null,
+      message: 'The catalog has no regions.',
+    };
+
+    /** Opens the dialog for a decision and answers with the box for the comment. */
+    async function ask(element: HTMLElement, decision: string): Promise<HTMLTextAreaElement> {
+      button(element, decision).click();
+      return vi.waitFor(() => {
+        const box = dialog()?.querySelector<HTMLTextAreaElement>('textarea');
+        expect(box).toBeTruthy();
+        return box!;
+      });
+    }
+
+    it('approves it as the page shows it, and goes back to the dashboard', async () => {
+      const element = await page(submitted);
+      const navigated = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+
+      await ask(element, 'Approve');
+      button(dialog()!, 'Approve').click();
+
+      const sent = await vi.waitFor(() =>
+        backend.expectOne({ method: 'POST', url: '/api/catalogs/41/approve' }),
+      );
+      expect(sent.request.headers.get('If-Match')).toBe('"5"');
+      expect(sent.request.body).toEqual({ comment: '' });
+      sent.flush({ revision: 6, issues: [] });
+      await vi.waitFor(() => expect(navigated).toHaveBeenCalledWith('/dashboard'));
+    });
+
+    it('rejects it only with a reason', async () => {
+      const element = await page(submitted);
+      const navigated = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+
+      const comment = await ask(element, 'Reject');
+      expect(button(dialog()!, 'Reject').disabled).toBe(true);
+      comment.value = '  The hybrid needs its battery cooling.  ';
+      comment.dispatchEvent(new Event('input'));
+      await vi.waitFor(() => expect(button(dialog()!, 'Reject').disabled).toBe(false));
+      button(dialog()!, 'Reject').click();
+
+      const sent = await vi.waitFor(() =>
+        backend.expectOne({ method: 'POST', url: '/api/catalogs/41/reject' }),
+      );
+      expect(sent.request.headers.get('If-Match')).toBe('"5"');
+      expect(sent.request.body).toEqual({ comment: 'The hybrid needs its battery cooling.' });
+      sent.flush({ revision: 6, issues: [] });
+      await vi.waitFor(() => expect(navigated).toHaveBeenCalledWith('/dashboard'));
+    });
+
+    it('lets nobody decide on a catalog of their own, and says why', async () => {
+      const element = await page({ ...submitted, owned: true });
+
+      expect(button(element, 'Approve').disabled).toBe(true);
+      expect(button(element, 'Reject').disabled).toBe(true);
+      expect(element.querySelector('#approval-blocked')?.textContent).toBe(
+        'This catalog is yours, and nobody decides on their own.',
+      );
+    });
+
+    it('cannot approve a catalog with an Error, a stale one, or one of an inactive line', async () => {
+      const blocked = async (catalog: object) => {
+        const element = await page(catalog);
+        const said = element.querySelector('#approval-blocked')?.textContent;
+        expect(button(element, 'Approve').disabled).toBe(true);
+        expect(button(element, 'Reject').disabled, 'it can still be rejected').toBe(false);
+        backend.verify();
+        TestBed.resetTestingModule();
+        return said;
+      };
+
+      expect(await blocked({ ...submitted, issues: [anError] })).toBe(
+        'It has 1 Error, so it cannot be approved.',
+      );
+      expect(await blocked({ ...submitted, stale: true })).toBe(
+        'It is stale: another version of its lineage was approved after it was made.',
+      );
+      expect(await blocked({ ...submitted, vehicleLineActive: false })).toBe(
+        'Its vehicle line is deactivated.',
+      );
+    });
+
+    it('keeps the dialog open with the reason when the backend refuses the decision', async () => {
+      const element = await page(submitted);
+      await ask(element, 'Approve');
+
+      button(dialog()!, 'Approve').click();
+      (
+        await vi.waitFor(() =>
+          backend.expectOne({ method: 'POST', url: '/api/catalogs/41/approve' }),
+        )
+      ).flush(
+        { code: 'HAS_ERRORS', detail: 'This catalog has Errors, so it cannot be approved.' },
+        { status: 422, statusText: 'Refused' },
+      );
+
+      await vi.waitFor(() =>
+        expect(dialog()?.textContent).toContain(
+          'This catalog has Errors, so it cannot be approved.',
+        ),
+      );
+    });
+
+    it('reads the catalog again when it has changed since the page read it', async () => {
+      const element = await page(submitted);
+      await ask(element, 'Approve');
+
+      button(dialog()!, 'Approve').click();
+      (
+        await vi.waitFor(() =>
+          backend.expectOne({ method: 'POST', url: '/api/catalogs/41/approve' }),
+        )
+      ).flush(
+        { code: 'REVISION_CONFLICT', detail: 'Changed somewhere else.', revision: 7 },
+        { status: 412, statusText: 'Refused' },
+      );
+
+      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush({
+        ...submitted,
+        submitNote: 'Changed since.',
+        snapshot: { ...submitted.snapshot, revision: 7 },
+      });
+      backend.expectOne('/api/catalogs/41/diff?against=base').flush(changes);
+      await vi.waitFor(() => expect(dialog()).toBeNull());
+      await vi.waitFor(() =>
+        expect(described(element)['Note for the reviewer']).toBe('Changed since.'),
+      );
+    });
   });
 
   it('says so when there is no catalog to review at the address', async () => {

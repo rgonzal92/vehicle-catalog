@@ -108,6 +108,15 @@ class RenameAndDeleteIT extends WorkingCopyTests {
          "allTrims": false, "trimIds": [%d], "allRegions": false, "regionCodes": ["NA"]}
         """
             .formatted(feature("TRANS_MANUAL"), feature("SEAT_LEATHER"), trim("Base")));
+    // A catalog that was rejected has a decision about it too.
+    jdbc.sql(
+            """
+            INSERT INTO catalog_review (catalog_id, reviewer_id, decision, comment)
+            VALUES (:catalog, :reviewer, 'REJECTED', 'Not yet.')
+            """)
+        .param("catalog", copy)
+        .param("reviewer", person("ben"))
+        .update();
     var approved = approved("COMPACT_SUV", 2026, 2);
     var sibling = workingCopy(ben(), "COMPACT_SUV", 2026);
     var lineages = jdbc.sql("SELECT * FROM lineage ORDER BY id").query().listOfRows();
@@ -115,7 +124,8 @@ class RenameAndDeleteIT extends WorkingCopyTests {
     var siblingRows = rowsOf(sibling);
     assertThat(rowsOf(copy))
         .as("every table that holds something of a catalog holds something of this one")
-        .containsKeys("catalog", "catalog_cell", "catalog_change", "catalog_rule_trim")
+        .containsKeys(
+            "catalog", "catalog_cell", "catalog_change", "catalog_rule_trim", "catalog_review")
         .allSatisfy((table, rows) -> assertThat(rows).as(table).isPositive());
 
     var deleted = delete(ana(), copy, "\"2\"");
