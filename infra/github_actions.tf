@@ -149,6 +149,13 @@ resource "aws_iam_role_policy" "plan" {
         Resource = [aws_s3_bucket.frontend.arn, aws_s3_bucket.backups.arn]
       },
       {
+        # How each of the jobs' two queues is set up. What is on a queue is not read.
+        Sid      = "ReadTheQueues"
+        Effect   = "Allow"
+        Action   = ["sqs:GetQueueAttributes", "sqs:ListQueueTags"]
+        Resource = [aws_sqs_queue.jobs.arn, aws_sqs_queue.jobs_failed.arn]
+      },
+      {
         Sid      = "ReadTheState"
         Effect   = "Allow"
         Action   = ["s3:GetObject"]
