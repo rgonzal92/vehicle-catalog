@@ -77,6 +77,29 @@ run "the_host_works_off_these_two_queues_and_no_other" {
   }
 }
 
+run "the_pipeline_plans_with_the_queues_in_place" {
+  assert {
+    condition = one([
+      for statement in jsondecode(aws_iam_role_policy.plan.policy).Statement : statement
+      if statement.Sid == "ReadTheQueues"
+      ]) == {
+      Sid      = "ReadTheQueues"
+      Effect   = "Allow"
+      Action   = ["sqs:GetQueueAttributes", "sqs:ListQueueTags"]
+      Resource = [aws_sqs_queue.jobs.arn, aws_sqs_queue.jobs_failed.arn]
+    }
+    error_message = "The plan role reads how the two queues are set up, which a plan compares them with, and nothing that is on them."
+  }
+
+  assert {
+    condition = length([
+      for statement in jsondecode(aws_iam_role_policy.plan.policy).Statement : statement
+      if anytrue([for action in statement.Action : startswith(action, "sqs:")]) && statement.Sid != "ReadTheQueues"
+    ]) == 0
+    error_message = "The plan role does nothing else with a queue."
+  }
+}
+
 run "the_host_runs_the_worker_beside_the_api" {
   assert {
     condition = (
