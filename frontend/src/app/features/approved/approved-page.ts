@@ -2,7 +2,8 @@ import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, inject, signal } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
-import { Button } from 'primeng/button';
+import { Copy } from '@primeicons/angular/copy';
+import { Button, ButtonDirective, ButtonIcon, ButtonLabel } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { Catalog, Catalogs, VersionSummary } from '../../core/catalogs';
 import { FixedLists } from '../../core/fixed-lists';
@@ -15,28 +16,43 @@ import { NewCatalogDialog } from '../../shared/new-catalog-dialog/new-catalog-di
  * with.
  */
 @Component({
-  imports: [DatePipe, Button, TableModule, AvailabilityMatrix, NewCatalogDialog],
+  imports: [
+    DatePipe,
+    Copy,
+    Button,
+    ButtonDirective,
+    ButtonIcon,
+    ButtonLabel,
+    TableModule,
+    AvailabilityMatrix,
+    NewCatalogDialog,
+  ],
   selector: 'app-approved-page',
   template: `
-    <div>
+    <div class="grid gap-6">
       @if (catalog(); as catalog) {
-        <header>
-          <h2 class="text-2xl font-semibold">{{ catalog.vehicleLine }} {{ catalog.modelYear }}</h2>
-          <p class="mt-2" aria-live="polite" data-shown>
-            Approved version {{ catalog.versionNumber }}, "{{ catalog.name }}", approved by
-            {{ catalog.approvedBy }} on {{ catalog.approvedAt | date: 'mediumDate' }}.
-          </p>
-          <p-button
-            class="mt-4 block"
-            label="Create working copy"
-            (onClick)="newCatalog.open(catalog)"
-          />
+        <header class="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 class="text-2xl font-semibold">
+              {{ catalog.vehicleLine }} {{ catalog.modelYear }}
+            </h2>
+            <p class="mt-1 text-muted-color" aria-live="polite" data-shown>
+              Approved version {{ catalog.versionNumber }}, "{{ catalog.name }}", approved by
+              {{ catalog.approvedBy }} on {{ catalog.approvedAt | date: 'mediumDate' }}.
+            </p>
+            <app-new-catalog-dialog #newCatalog />
+          </div>
+          <button pButton type="button" (click)="newCatalog.open(catalog)">
+            <svg data-p-icon="copy" pButtonIcon />
+            <span pButtonLabel>Create working copy</span>
+          </button>
         </header>
-        <app-new-catalog-dialog #newCatalog />
 
-        <section class="mt-8 max-w-5xl" aria-labelledby="versions">
-          <h2 id="versions" class="text-xl font-semibold">Versions</h2>
-          <p-table class="mt-2 block" size="small" [value]="versions()">
+        <section class="surface max-w-5xl" aria-labelledby="versions">
+          <div class="surface-header">
+            <h2 id="versions" class="font-semibold">Versions</h2>
+          </div>
+          <p-table [value]="versions()">
             <ng-template #header>
               <tr>
                 <th scope="col">Version</th>
@@ -52,13 +68,14 @@ import { NewCatalogDialog } from '../../shared/new-catalog-dialog/new-catalog-di
                 <td>{{ version.name }}</td>
                 <td>{{ version.approvedBy }}</td>
                 <td>{{ version.approvedAt | date: 'mediumDate' }}</td>
-                <td class="text-right">
+                <td class="text-right whitespace-nowrap">
                   @if (version.catalogId === catalog.snapshot.catalogId) {
                     Shown below
                   } @else {
                     <p-button
                       label="Show"
                       severity="secondary"
+                      size="small"
                       [text]="true"
                       [ariaLabel]="'Show version ' + version.versionNumber"
                       (onClick)="show(version)"
@@ -70,10 +87,12 @@ import { NewCatalogDialog } from '../../shared/new-catalog-dialog/new-catalog-di
           </p-table>
         </section>
 
-        <section class="mt-8" aria-labelledby="matrix">
-          <h2 id="matrix" class="text-xl font-semibold">Features</h2>
+        <section class="surface" aria-labelledby="matrix">
+          <div class="surface-header">
+            <h2 id="matrix" class="font-semibold">Features</h2>
+          </div>
           <app-availability-matrix
-            class="mt-2 h-[70vh] min-h-96"
+            class="h-[70vh] min-h-96"
             [contents]="catalog.snapshot"
             [categories]="fixedLists.categories()"
           />

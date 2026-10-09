@@ -34,6 +34,13 @@ export const STATUS_NAMES: Record<CatalogStatus, string> = {
   APPROVED: 'Approved',
 };
 
+/** How the tag of each status is colored, the same wherever a status is shown. */
+export const STATUS_SEVERITIES: Record<CatalogStatus, 'secondary' | 'info' | 'success'> = {
+  DRAFT: 'secondary',
+  SUBMITTED: 'info',
+  APPROVED: 'success',
+};
+
 /** A catalog: what describes it, and its contents as the matrix shows them. */
 export interface Catalog {
   name: string;

@@ -18,10 +18,25 @@
 
 @layer base {
   body {
-    background: light-dark(var(--p-surface-0), var(--p-surface-950));
+    background: light-dark(var(--p-surface-50), var(--p-surface-950));
     color: var(--p-text-color);
     /* A page's own text is set as the theme sets its controls. */
     font-family: var(--p-typography-font-family);
     font-size: var(--p-typography-font-size);
   }
+}
+
+/* A part of a page: a bordered, rounded panel on the page's ground. */
+@utility surface {
+  @apply overflow-hidden rounded-border border border-surface bg-surface-0 dark:bg-surface-900;
+}
+
+/* The row at the top of a surface, with its heading and its main action. */
+@utility surface-header {
+  @apply flex flex-wrap items-center justify-between gap-4 border-b border-surface px-4 py-3;
+}
+
+/* What a surface says when it has nothing to show. */
+@utility surface-empty {
+  @apply px-4 py-8 text-center text-muted-color;
 }
