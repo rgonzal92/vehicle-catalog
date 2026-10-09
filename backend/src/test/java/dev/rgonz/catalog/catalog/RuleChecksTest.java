@@ -414,4 +414,168 @@ class RuleChecksTest {
         .as("a global rule is the library's to put right")
         .isEmpty();
   }
+
+  /** Tow requires the hitch, the hitch requires cooling, and tow excludes cooling. */
+  private static List<Rule> aChain(RuleKind first) {
+    return List.of(
+        own("tow-hitch", first, null, null, TOW, HITCH),
+        own("hitch-cooling", RuleKind.REQUIRES, null, null, HITCH, COOLING),
+        own("tow-cooling", RuleKind.EXCLUDES, null, null, TOW, COOLING),
+        own("cooling-tow", RuleKind.EXCLUDES, null, null, COOLING, TOW));
+  }
+
+  private static List<Cell> onSportInNorthAmerica(Map<Long, String> values) {
+    var cells = new ArrayList<Cell>();
+    values.forEach((feature, value) -> add(cells, feature, "NA", value));
+    return cells;
+  }
+
+  /** The issues the chains raise, each as its code and the feature it is about, if any. */
+  private static List<String> chained(List<Issue> issues) {
+    return issues.stream()
+        .filter(
+            issue ->
+                issue.code() == Code.STANDARD_SET_CONFLICT
+                    || issue.code() == Code.FEATURE_UNSELECTABLE)
+        .map(issue -> issue.code() + " " + issue.featureId())
+        .toList();
+  }
+
+  @Test
+  void aConflictAmongWhatIsStandardAndWhatItBringsIsAConflictOfTheOffering() {
+    var cells = onSportInNorthAmerica(Map.of(TOW, "S", HITCH, "S", COOLING, "N"));
+
+    var issues = found(List.of(), aChain(RuleKind.REQUIRES), Set.of(), cells);
+
+    assertThat(chained(issues)).containsExactly("STANDARD_SET_CONFLICT null");
+    var conflict =
+        issues.stream().filter(issue -> issue.code() == Code.STANDARD_SET_CONFLICT).findFirst();
+    assertThat(conflict).isPresent();
+    assertThat(conflict.get().trimId()).isEqualTo(SPORT);
+    assertThat(conflict.get().regionCode()).isEqualTo("NA");
+    assertThat(conflict.get().severity()).isEqualTo(Severity.ERROR);
+    assertThat(conflict.get().relatedFeatureIds()).containsExactly(TOW, COOLING);
+    assertThat(conflict.get().rule()).isEqualTo(new RuleReference("CATALOG", "tow-cooling"));
+    assertThat(conflict.get().message())
+        .isEqualTo(
+            "What is Standard on Sport in North America cannot be built. Trailer Hitch Receiver"
+                + " brings Heavy-Duty Cooling. Tow Package and Heavy-Duty Cooling exclude each"
+                + " other.");
+  }
+
+  @Test
+  void anAvailableFeatureWhoseChainLeadsToWhatItExcludesCanNeverBeOrdered() {
+    var cells = onSportInNorthAmerica(Map.of(TOW, "A", HITCH, "A", COOLING, "A"));
+
+    var issues = found(List.of(), aChain(RuleKind.REQUIRES), Set.of(), cells);
+
+    assertThat(codes(issues))
+        .as("no rule is broken by itself")
+        .containsExactly("FEATURE_UNSELECTABLE");
+    var unselectable = issues.getFirst();
+    assertThat(unselectable.featureId()).as("the cell of the feature").isEqualTo(TOW);
+    assertThat(unselectable.trimId()).isEqualTo(SPORT);
+    assertThat(unselectable.message())
+        .isEqualTo(
+            "Tow Package can never be ordered on Sport in North America. Tow Package brings"
+                + " Trailer Hitch Receiver, which brings Heavy-Duty Cooling. Tow Package and"
+                + " Heavy-Duty Cooling exclude each other.");
+  }
+
+  @Test
+  void aChainThroughAnIncludesIsFollowedAsOneThroughARequiresIs() {
+    var cells = onSportInNorthAmerica(Map.of(TOW, "A", HITCH, "A", COOLING, "A"));
+
+    var issues = found(List.of(), aChain(RuleKind.INCLUDES), Set.of(), cells);
+
+    assertThat(chained(issues)).containsExactly("FEATURE_UNSELECTABLE " + TOW);
+  }
+
+  @Test
+  void aConflictThatADirectCheckReportsIsNotReportedAgainByTheChains() {
+    var bothStandard = onSportInNorthAmerica(Map.of(TOW, "S", HITCH, "S", COOLING, "S"));
+    var byStandard = onSportInNorthAmerica(Map.of(TOW, "S", HITCH, "S", COOLING, "A"));
+
+    assertThat(codes(found(List.of(), aChain(RuleKind.REQUIRES), Set.of(), bothStandard)))
+        .containsExactly("EXCLUDED_BOTH_STANDARD");
+    assertThat(codes(found(List.of(), aChain(RuleKind.REQUIRES), Set.of(), byStandard)))
+        .containsExactlyInAnyOrder("REQUIRED_NOT_STANDARD", "EXCLUDED_BY_STANDARD");
+  }
+
+  @Test
+  void aConflictWithinTheStandardSetIsReportedOnceHoweverManyFeaturesAreAvailable() {
+    var cells = onSportInNorthAmerica(Map.of(TOW, "S", HITCH, "A", COOLING, "N", WIRING, "A"));
+
+    var issues = found(List.of(), aChain(RuleKind.REQUIRES), Set.of(), cells);
+
+    assertThat(chained(issues)).containsExactly("STANDARD_SET_CONFLICT null");
+  }
+
+  @Test
+  void anAvailableFeatureThatExcludesWhatTheStandardSetBringsCanNeverBeOrdered() {
+    // The engine is Standard and brings the hitch, which is not offered; cooling excludes the
+    // hitch.
+    var rules =
+        List.of(
+            own("engine-hitch", RuleKind.REQUIRES, null, null, 1, HITCH),
+            own("cooling-hitch", RuleKind.EXCLUDES, null, null, COOLING, HITCH),
+            own("hitch-cooling", RuleKind.EXCLUDES, null, null, HITCH, COOLING));
+    var cells = onSportInNorthAmerica(Map.of(COOLING, "A"));
+
+    var issues = found(List.of(), rules, Set.of(), cells);
+
+    assertThat(chained(issues)).contains("FEATURE_UNSELECTABLE " + COOLING);
+    assertThat(
+            issues.stream()
+                .filter(issue -> issue.code() == Code.FEATURE_UNSELECTABLE)
+                .map(Issue::message))
+        .contains(
+            "Heavy-Duty Cooling can never be ordered on Sport in North America. Engine brings"
+                + " Trailer Hitch Receiver. Heavy-Duty Cooling and Trailer Hitch Receiver exclude"
+                + " each other.");
+  }
+
+  @Test
+  void aChainThatIsWholeOnlyAcrossTwoRegionsRaisesNothingWherePartOfItIsNotInEffect() {
+    var rules =
+        List.of(
+            own("tow-hitch", RuleKind.REQUIRES, null, Set.of("NA"), TOW, HITCH),
+            own("hitch-cooling", RuleKind.REQUIRES, null, Set.of("EU"), HITCH, COOLING),
+            own("tow-cooling", RuleKind.EXCLUDES, null, null, TOW, COOLING),
+            own("cooling-tow", RuleKind.EXCLUDES, null, null, COOLING, TOW));
+    var cells = new ArrayList<Cell>();
+    for (var region : List.of("NA", "EU")) {
+      add(cells, TOW, region, "A");
+      add(cells, HITCH, region, "A");
+      add(cells, COOLING, region, "A");
+    }
+
+    assertThat(found(List.of(), rules, Set.of(), cells)).isEmpty();
+    assertThat(codes(found(List.of(), aChain(RuleKind.REQUIRES), Set.of(), cells)))
+        .as("the same cells under a chain that is whole in each region")
+        .containsExactly("FEATURE_UNSELECTABLE", "FEATURE_UNSELECTABLE");
+  }
+
+  @Test
+  void aRequiresOneOfIsNotFollowed() {
+    var rules =
+        List.of(
+            new Rule(
+                Rule.Origin.CATALOG,
+                "one-of",
+                RuleKind.REQUIRES_ONE_OF,
+                TOW,
+                List.of(HITCH, COOLING),
+                true,
+                Set.of(),
+                true,
+                Set.of(),
+                null),
+            own("tow-cooling", RuleKind.EXCLUDES, null, null, TOW, COOLING),
+            own("cooling-tow", RuleKind.EXCLUDES, null, null, COOLING, TOW),
+            own("hitch-wiring", RuleKind.REQUIRES, null, null, HITCH, WIRING));
+    var cells = onSportInNorthAmerica(Map.of(TOW, "A", HITCH, "A", COOLING, "A"));
+
+    assertThat(chained(found(List.of(), rules, Set.of(), cells))).isEmpty();
+  }
 }
