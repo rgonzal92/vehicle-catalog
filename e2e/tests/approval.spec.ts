@@ -165,12 +165,94 @@ test('a catalog that another approval leaves behind is returned to its owner and
   await expect(update.getByText('Approved v1 brings nothing')).toBeVisible();
   await expect(
     update.getByRole('row', {
-      name: /^Cell 2\.0L Turbo I4 Engine, Sport in North America Available Not offered Standard$/,
+      name: /^Cell 2\.0L Turbo I4 Engine, Sport in North America Available Not offered Standard /,
     }),
   ).toBeVisible();
   await expectAccessible(page);
-  await update.getByRole('button', { name: 'Close' }).click();
+  await update.getByRole('button', { name: 'Cancel' }).click();
   await expect(update).toBeHidden();
+});
+
+// The pickup's 2028 lineage is this test's own: no other test reads or approves it.
+test('the owner of a stale catalog updates it from Approved and settles what both changed', async ({
+  page,
+}) => {
+  // The carpeted floor mats' cells: the code, four offerings in North America (Base, Sport, Luxury,
+  // Off-Road), and two in South America (Base, Off-Road).
+  const mats = page
+    .locator('app-availability-matrix')
+    .getByRole('row', { name: /FLOOR_CARPET_MATS/ })
+    .getByRole('cell');
+  const showTheMats = () =>
+    page
+      .getByRole('search', { name: 'Feature rows shown' })
+      .getByLabel('Code or name')
+      .fill('floor_carpet');
+  const set = async (cell: number, key: string) => {
+    const saved = nextSave(page);
+    await mats.nth(cell).focus();
+    await page.keyboard.press(key);
+    expect(await saved).toBe(200);
+  };
+
+  // The author makes the mats Available on Base and Standard on Off-Road, in North America.
+  await signIn(page, 'author');
+  const approved = await createWorkingCopy(page, 'Truck', 'Pickup Truck', '2028');
+  await showTheMats();
+  await expect(mats).toHaveText(['FLOOR_CARPET_MATS', '-', 'S', 'S', '-', '-', '-']);
+  await set(1, 'a');
+  await set(4, 's');
+  await submit(page);
+  await signOut(page);
+
+  // The manager starts from the same version, and makes them Standard on Base in North America
+  // and Available on Base in South America. Then the author's catalog is approved.
+  await signIn(page, 'manager');
+  const name = await createWorkingCopy(page, 'Truck', 'Pickup Truck', '2028');
+  await showTheMats();
+  await set(1, 's');
+  await set(5, 'a');
+  await page
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link', { name: 'Dashboard' })
+    .click();
+  await review(page, approved);
+  await page.getByRole('button', { name: 'Approve', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Approve catalog' })
+    .getByRole('button', { name: 'Approve', exact: true })
+    .click();
+  await expect(page).toHaveURL('/dashboard');
+
+  // The manager's own is stale now. The update brings in what was approved and asks about the
+  // cell both changed.
+  await page
+    .getByRole('region', { name: 'My catalogs' })
+    .getByRole('row', { name })
+    .getByRole('link', { name: `Open ${name}` })
+    .click();
+  await expect(page.locator('[data-notice="stale"]')).toBeVisible();
+  await showTheMats();
+  await page.getByRole('button', { name: 'Update from Approved' }).click();
+  const update = page.getByRole('dialog', { name: 'Update from Approved' });
+  await expect(
+    update.getByRole('row', {
+      name: /^Carpeted Floor Mats \(FLOOR_CARPET_MATS\) Off-Road in North America Not offered Standard$/,
+    }),
+  ).toBeVisible();
+  const conflict = update.getByRole('row', {
+    name: /^Cell Carpeted Floor Mats, Base in North America Not offered Standard Available /,
+  });
+  await expect(update.getByRole('button', { name: 'Update catalog' })).toBeDisabled();
+  await conflict.getByRole('radio', { name: 'Approved v1' }).check();
+  await expectAccessible(page);
+  await update.getByRole('button', { name: 'Update catalog' }).click();
+  await expect(update).toBeHidden();
+
+  // The catalog has what was approved, the side taken, and what its owner alone changed.
+  await expect(page.locator('[data-notice="stale"]')).toHaveCount(0);
+  await expect(mats).toHaveText(['FLOOR_CARPET_MATS', 'A', 'S', 'S', 'S', 'A', '-']);
+  await submit(page);
 });
 
 test('nobody decides on a catalog of their own', async ({ page }) => {

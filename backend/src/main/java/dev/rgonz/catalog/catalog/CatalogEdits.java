@@ -37,13 +37,13 @@ class CatalogEdits {
   private static final int MOST_CELLS = 500;
 
   /** The most trims a catalog has. */
-  private static final int MOST_TRIMS = 12;
+  static final int MOST_TRIMS = 12;
 
   /** The most regions a catalog has. */
-  private static final int MOST_REGIONS = 8;
+  static final int MOST_REGIONS = 8;
 
   /** The most feature rows a catalog has. */
-  private static final int MOST_FEATURE_ROWS = 500;
+  static final int MOST_FEATURE_ROWS = 500;
 
   /** What a save may set a cell to: S, A, or N. */
   private static final Set<String> AVAILABILITIES =

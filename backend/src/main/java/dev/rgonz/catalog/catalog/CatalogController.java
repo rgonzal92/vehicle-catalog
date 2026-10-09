@@ -21,6 +21,7 @@ import dev.rgonz.catalog.user.AppUsers;
 import jakarta.validation.Valid;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -43,8 +44,8 @@ import org.springframework.web.bind.annotation.RestController;
  * Shows everyone with a role the lineages, their Approved versions, and a catalog's contents, shows
  * managers and admins the catalogs that are waiting for review and lets them approve or reject one,
  * and lets each of them create, edit, rename, and delete working copies of their own, keep their
- * rules, submit them for review and withdraw them, see what an update from Approved would bring
- * into a stale one, and read a catalog's change history.
+ * rules, submit them for review and withdraw them, update a stale one from Approved after seeing
+ * what that brings, and read a catalog's change history.
  */
 @RestController
 class CatalogController {
@@ -476,6 +477,32 @@ class CatalogController {
   Preview mergePreview(@PathVariable long id, Authentication caller) {
     return updates.preview(id, people.idOf(caller));
   }
+
+  /**
+   * Updates the caller's stale Draft from its lineage's current Approved, with each conflict
+   * settled for the side the caller chose. It names the Approved version the caller saw the update
+   * worked out against, and is refused when another is the current one by now.
+   */
+  @PostMapping("/api/catalogs/{id}/merge")
+  ResponseEntity<Edited> merge(
+      @PathVariable long id,
+      @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+      @RequestBody Update given,
+      Authentication caller) {
+    return saved(
+        id,
+        caller,
+        updates.apply(
+            id, people.idOf(caller), ifMatch, given.approvedCatalogId(), given.resolutions()));
+  }
+
+  /**
+   * An update from Approved as its owner asks for it.
+   *
+   * @param approvedCatalogId the Approved version the update was worked out against
+   * @param resolutions for each conflict, by its id, whose version is taken
+   */
+  record Update(Long approvedCatalogId, Map<String, Merge.Side> resolutions) {}
 
   /**
    * What a saved edit answers with.
