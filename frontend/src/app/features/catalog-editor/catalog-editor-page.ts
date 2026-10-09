@@ -246,6 +246,20 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
             }
           </p>
         }
+        @if (stale() && catalog.snapshot.status !== 'APPROVED') {
+          <p class="notice" role="status" data-notice="stale">
+            <strong>This catalog is stale.</strong>
+            @if (catalog.stale && catalog.current; as current) {
+              Approved v{{ current.versionNumber }} is now the current version of
+              {{ catalog.vehicleLine }} {{ catalog.modelYear }}, and this catalog was made from an
+              earlier one.
+            } @else {
+              Another version of {{ catalog.vehicleLine }} {{ catalog.modelYear }} was approved
+              after this catalog was made.
+            }
+            It cannot be submitted until it has been updated from that version.
+          </p>
+        }
         @if (catalog.vehicleLineActive === false && catalog.snapshot.status !== 'APPROVED') {
           <p class="notice" role="status" data-notice="vehicle-line">
             The vehicle line {{ catalog.vehicleLine }} is deactivated. This catalog cannot be
@@ -520,6 +534,12 @@ export class CatalogEditorPage {
     () => this.issues().filter(({ severity }) => severity === 'ERROR').length,
   );
   protected readonly warnings = computed(() => this.issues().length - this.errors());
+
+  /**
+   * Whether the catalog is stale, as the latest answer about it said: its lineage's current
+   * Approved is no longer the version it was made from.
+   */
+  protected readonly stale = computed(() => this.catalogs.staleOf(this.id));
 
   /** Whether the address names no catalog, or one this person may not open. */
   protected readonly missing = signal(false);
@@ -844,6 +864,9 @@ export class CatalogEditorPage {
    * when it can be.
    */
   protected submitBlocked(catalog: Catalog): string {
+    if (this.stale()) {
+      return 'It is stale, and has to be updated from the current Approved version first.';
+    }
     if (catalog.vehicleLineActive === false) {
       return 'Its vehicle line is deactivated.';
     }

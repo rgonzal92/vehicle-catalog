@@ -1,6 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 import { createWorkingCopy, expectAccessible, signIn, signOut } from './support';
 
+// Each of these tests signs in as an owner and as a reviewer in turn, which takes its time.
+test.describe.configure({ timeout: 60_000 });
+
 /** Submits the working copy that the editor shows, with a note if there is one. */
 async function submit(page: Page, note = ''): Promise<void> {
   await page.getByRole('button', { name: 'Submit for review' }).click();
@@ -101,6 +104,48 @@ test('a manager rejects a submitted catalog with a reason, and its owner has it 
     history.getByRole('row', { name: /Rejected The hybrid needs its battery cooling\.$/ }),
   ).toBeVisible();
   await expect(history.getByRole('row', { name: /Submitted$/ })).toBeVisible();
+  await expectAccessible(page);
+});
+
+// The compact SUV's 2028 lineage is this test's own: no other test reads or approves it.
+test('a catalog that another approval leaves behind is returned to its owner and marked stale', async ({
+  page,
+}) => {
+  await signIn(page, 'author');
+  const approved = await createWorkingCopy(page, 'SUV', 'Compact SUV', '2028');
+  await submit(page);
+  await signOut(page);
+
+  // The manager has a catalog of the same lineage waiting for review too, and approves the other.
+  await signIn(page, 'manager');
+  const name = await createWorkingCopy(page, 'SUV', 'Compact SUV', '2028');
+  await submit(page);
+  await page
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link', { name: 'Dashboard' })
+    .click();
+  await review(page, approved);
+  await page.getByRole('button', { name: 'Approve', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Approve catalog' })
+    .getByRole('button', { name: 'Approve', exact: true })
+    .click();
+  await expect(page).toHaveURL('/dashboard');
+
+  const mine = page.getByRole('region', { name: 'My catalogs' }).getByRole('row', { name });
+  await expect(mine).toContainText('Draft');
+  await expect(mine).toContainText('Stale');
+  await mine.getByRole('link', { name: `Open ${name}` }).click();
+  await expect(page.locator('[data-notice="decision"]')).toContainText(
+    'another catalog of its lineage was approved first',
+  );
+  await expect(page.locator('[data-notice="stale"]')).toContainText(
+    'Approved v1 is now the current version of Compact SUV 2028',
+  );
+  await expect(page.getByRole('button', { name: 'Submit for review' })).toBeDisabled();
+  await expect(
+    page.getByText('It is stale, and has to be updated from the current Approved version first.'),
+  ).toBeVisible();
   await expectAccessible(page);
 });
 

@@ -591,6 +591,49 @@ describe('CatalogEditorPage', () => {
     });
   });
 
+  describe('a stale catalog', () => {
+    const notice = (element: HTMLElement) =>
+      element.querySelector('[data-notice="stale"]')?.textContent?.replace(/\s+/g, ' ').trim();
+
+    it('says which version is current now, and cannot be submitted until it is updated', async () => {
+      const element = await page({
+        ...workingCopy,
+        issues: [],
+        stale: true,
+        current: { catalogId: 13, versionNumber: 4 },
+      });
+
+      expect(notice(element)).toBe(
+        'This catalog is stale. Approved v4 is now the current version of Compact SUV 2027, and' +
+          ' this catalog was made from an earlier one. It cannot be submitted until it has been' +
+          ' updated from that version.',
+      );
+      expect(button(element, 'Submit for review')!.disabled).toBe(true);
+      expect(element.textContent).toContain(
+        'It is stale, and has to be updated from the current Approved version first.',
+      );
+      expect(matrixOf(element).textContent, 'it is edited like any other').toContain(
+        'editable: true',
+      );
+    });
+
+    it('says so as soon as the answer to an edit does', async () => {
+      const element = await page({ ...workingCopy, issues: [], stale: false });
+      expect(notice(element)).toBeUndefined();
+
+      matrixOf(element).click();
+      (await saveRequest()).flush({ revision: 5, issues: [], stale: true });
+
+      await vi.waitFor(() =>
+        expect(notice(element)).toBe(
+          'This catalog is stale. Another version of Compact SUV 2027 was approved after this' +
+            ' catalog was made. It cannot be submitted until it has been updated from that version.',
+        ),
+      );
+      expect(button(element, 'Submit for review')!.disabled).toBe(true);
+    });
+  });
+
   describe('a catalog that came back to its owner', () => {
     const notice = (element: HTMLElement) =>
       element.querySelector('[data-notice="decision"]')?.textContent?.replace(/\s+/g, ' ').trim();

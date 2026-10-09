@@ -72,10 +72,19 @@ import { reasonOf } from '../../shared/reason-of';
                 <td>{{ catalog.vehicleLine }}</td>
                 <td>{{ catalog.modelYear }}</td>
                 <td>
-                  <p-tag
-                    [severity]="statusSeverities[catalog.status]"
-                    [value]="statusNames[catalog.status]"
-                  />
+                  <span class="flex flex-wrap items-center gap-2">
+                    <p-tag
+                      [severity]="statusSeverities[catalog.status]"
+                      [value]="statusNames[catalog.status]"
+                    />
+                    @if (catalog.stale) {
+                      <p-tag
+                        severity="warn"
+                        value="Stale"
+                        title="Another version of its lineage was approved after it was made."
+                      />
+                    }
+                  </span>
                 </td>
                 <td>
                   <!-- A backend that is one release behind counts no issues. -->

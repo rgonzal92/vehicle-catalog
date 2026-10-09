@@ -45,6 +45,7 @@ export const AppPreset = definePreset(Aura, {
       error: { color: 'light-dark({red.700}, {red.400})' },
       warn: { color: 'light-dark({yellow.800}, {yellow.400})' },
       info: { color: 'light-dark({blue.700}, {blue.400})' },
+      success: { color: 'light-dark({green.700}, {green.400})' },
     },
     datatable: {
       headerCell: { padding: '0.5rem 0.75rem' },

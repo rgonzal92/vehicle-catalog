@@ -128,6 +128,7 @@ class Catalogs {
                    v.active AS vehicle_line_active, c.submit_note, c.submitted_at,
                    c.status <> 'APPROVED' AND l.current_catalog_id IS NOT NULL
                        AND l.current_catalog_id IS DISTINCT FROM c.base_catalog_id AS stale,
+                   cur.id AS current_catalog_id, cur.version_number AS current_version_number,
                    d.decision, d.reviewer AS decided_by, d.comment AS decision_comment,
                    d.created_at AS decided_at,
                    b.id AS base_catalog_id,
@@ -139,6 +140,7 @@ class Catalogs {
             LEFT JOIN app_user a ON a.id = c.approved_by
             LEFT JOIN catalog b ON b.id = c.base_catalog_id
             LEFT JOIN lineage bl ON bl.id = b.lineage_id
+            LEFT JOIN catalog cur ON cur.id = l.current_catalog_id
             -- The decision that sent a Draft back to its owner, until it is submitted again.
             LEFT JOIN LATERAL (
                 SELECT r.decision, ra.display_name AS reviewer, r.comment, r.created_at
@@ -173,6 +175,9 @@ class Catalogs {
                     header.submitNote(),
                     header.submittedAt(),
                     header.stale(),
+                    header.currentCatalogId() == null
+                        ? null
+                        : new Current(header.currentCatalogId(), header.currentVersionNumber()),
                     header.decision() == null
                         ? null
                         : new Decision(
@@ -414,6 +419,7 @@ class Catalogs {
    * @param submittedAt when it was last submitted, or null when it never was
    * @param stale whether it is a working copy whose base is no longer its lineage's current
    *     Approved, which cannot be submitted or approved until it has been updated from it
+   * @param current its lineage's current Approved, or null while the lineage has none
    * @param decision the rejection or the return that sent it back to its owner, while it stands:
    *     until it is submitted again
    * @param base the Approved version it was copied from, or null when it started empty
@@ -434,6 +440,7 @@ class Catalogs {
       String submitNote,
       Instant submittedAt,
       boolean stale,
+      Current current,
       Decision decision,
       Base base,
       CatalogSnapshot snapshot,
@@ -454,12 +461,16 @@ class Catalogs {
           submitNote,
           submittedAt,
           stale,
+          current,
           decision,
           base,
           snapshot,
           found);
     }
   }
+
+  /** The current Approved of a catalog's lineage: the catalog that is it, and its number. */
+  record Current(long catalogId, int versionNumber) {}
 
   /**
    * A decision that sent a catalog back to its owner.
@@ -492,6 +503,8 @@ class Catalogs {
       String submitNote,
       Instant submittedAt,
       boolean stale,
+      Long currentCatalogId,
+      Integer currentVersionNumber,
       String decision,
       String decidedBy,
       String decisionComment,
