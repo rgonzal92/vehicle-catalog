@@ -40,3 +40,18 @@
 @utility surface-empty {
   @apply px-4 py-8 text-center text-muted-color;
 }
+
+/*
+ * A cell of the matrix under an offering. It is one class and not a dozen because the matrix draws
+ * hundreds of them in a frame while it scrolls, and every class on a cell is looked up for each.
+ * A cell that takes the focus is outlined, and is scrolled into view clear of the header and the
+ * frozen cells, which would otherwise cover it.
+ */
+@utility matrix-cell {
+  @apply w-24 max-w-24 min-w-24 scroll-mt-16 scroll-ml-[30rem] truncate py-0 text-center focus:outline-2 focus:-outline-offset-2 focus:outline-primary;
+}
+
+/* A cell of the matrix that says Standard. */
+@utility matrix-standard {
+  @apply bg-highlight font-semibold;
+}
