@@ -137,6 +137,7 @@ class DemoResetIT extends ApplicationIT {
   void whatItLeavesIsWhatTheSeedFilesHold() throws Exception {
     jdbc.sql("DELETE FROM catalog_change").update();
     jdbc.sql("UPDATE trim SET name = name || ' (renamed)'").update();
+    jdbc.sql("DELETE FROM global_rule").update();
 
     reset.run();
 
@@ -146,6 +147,7 @@ class DemoResetIT extends ApplicationIT {
         .isEqualTo(namesIn("regions.json", "code"));
     assertThat(count("vehicle_line")).isEqualTo(namesIn("vehicle-lines.json", "code").size());
     assertThat(count("feature")).isEqualTo(namesIn("features.json", "code").size());
+    assertThat(count("global_rule")).isEqualTo(namesIn("global-rules.json", "kind").size());
     assertThat(count("catalog")).isEqualTo(namesIn("catalogs.json", "vehicleLine").size());
   }
 

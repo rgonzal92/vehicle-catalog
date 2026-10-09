@@ -16,6 +16,7 @@ import { Globe } from '@primeicons/angular/globe';
 import { Home } from '@primeicons/angular/home';
 import { List } from '@primeicons/angular/list';
 import { Moon } from '@primeicons/angular/moon';
+import { Sitemap } from '@primeicons/angular/sitemap';
 import { Sun } from '@primeicons/angular/sun';
 import { Tags } from '@primeicons/angular/tags';
 import { User } from '@primeicons/angular/user';
@@ -64,6 +65,7 @@ const SIDEBAR = 'sidebar';
     Home,
     List,
     Moon,
+    Sitemap,
     Sun,
     Tags,
     User,
@@ -193,6 +195,20 @@ const SIDEBAR = 'sidebar';
                         >
                           <svg data-p-icon="list" />
                           <span>Feature library</span>
+                        </a>
+                      </p-sidebar-menu-item>
+                      <p-sidebar-menu-item>
+                        <a
+                          #globalRules="routerLinkActive"
+                          pSidebarMenuButton
+                          routerLink="/admin/global-rules"
+                          routerLinkActive
+                          ariaCurrentWhenActive="page"
+                          title="Global rules"
+                          [isActive]="globalRules.isActive"
+                        >
+                          <svg data-p-icon="sitemap" />
+                          <span>Global rules</span>
                         </a>
                       </p-sidebar-menu-item>
                       <p-sidebar-menu-item>

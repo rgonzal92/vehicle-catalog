@@ -96,6 +96,7 @@ describe('Shell', () => {
       'Trims',
       'Regions',
       'Feature library',
+      'Global rules',
       'Users',
     ]);
   });

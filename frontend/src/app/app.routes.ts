@@ -83,6 +83,15 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'admin/global-rules',
+        title: 'Global rules · Vehicle Catalog',
+        canActivate: [holding('admin')],
+        loadComponent: () =>
+          import('./features/admin/global-rules/global-rules-page').then(
+            (page) => page.GlobalRulesPage,
+          ),
+      },
+      {
         path: 'admin/users',
         title: 'Users · Vehicle Catalog',
         canActivate: [holding('admin')],

@@ -22,7 +22,15 @@ const demoAccounts = [
     role: 'admin',
     name: 'Demo Admin',
     sections: ['My catalogs', 'Approved catalogs', 'Review queue'],
-    pages: ['Dashboard', 'Vehicle lines', 'Trims', 'Regions', 'Feature library', 'Users'],
+    pages: [
+      'Dashboard',
+      'Vehicle lines',
+      'Trims',
+      'Regions',
+      'Feature library',
+      'Global rules',
+      'Users',
+    ],
   },
 ];
 

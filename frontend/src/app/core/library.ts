@@ -85,4 +85,28 @@ export class Library {
     );
     return firstValueFrom(this.http.get<FeaturePage>('/api/features', { params }));
   }
+
+  /**
+   * Every active feature, in code order, for a rule to name. The backend gives them a page at a
+   * time, so this asks for page after page until it has them all.
+   */
+  async everyActiveFeature(): Promise<LibraryFeature[]> {
+    const all: LibraryFeature[] = [];
+    for (let page = 0; ; page++) {
+      const found = await this.activeFeatures({
+        query: '',
+        category: '',
+        kind: '',
+        page,
+        size: LARGEST_PAGE,
+      });
+      all.push(...found.items);
+      if (found.items.length === 0 || all.length >= found.total) {
+        return all;
+      }
+    }
+  }
 }
+
+/** The most features the backend gives in one page. */
+const LARGEST_PAGE = 100;
