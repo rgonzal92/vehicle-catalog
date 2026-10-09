@@ -63,9 +63,12 @@ services:
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://agent:4318/v1/traces
     # The log stays on this machine.
     logging: !reset null
-    # An image that never gets ready is known for one sooner than on the host.
+    # How long a container has to get ready is left to its image here, where the host's file gives
+    # every image four minutes. check.sh gives the backend's own image a minute. The images it
+    # makes for itself answer at once or never and are given no time at all, so one that never gets
+    # ready is known for one after three tries.
     healthcheck:
-      start_period: 1m
+      start_period: !reset null
 
   worker:
     environment:
@@ -74,7 +77,7 @@ services:
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://agent:4318/v1/traces
     logging: !reset null
     healthcheck:
-      start_period: 1m
+      start_period: !reset null
 
 configs:
   queue:

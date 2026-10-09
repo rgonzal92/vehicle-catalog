@@ -26,7 +26,8 @@ without_secrets() {
   ORIGIN_SECRET=unused DATABASE_PASSWORD=unused OIDC_CLIENT_SECRET=unused "$@"
 }
 trap 'without_secrets docker compose down --volumes >/dev/null 2>&1
-  docker rmi --force vehicle-catalog-backend:current vehicle-catalog-backend:previous >/dev/null 2>&1
+  docker rmi --force vehicle-catalog-backend:current vehicle-catalog-backend:previous \
+    vehicle-catalog-backend:as-built >/dev/null 2>&1
   rm -rf "$work"' EXIT
 
 # Runs a step that has nothing to say, and shows what it said if it fails.
@@ -109,7 +110,14 @@ offer() { # name, then how the image is built
 kept() { # name
   whether docker image inspect "${offered[$1]}"
 }
-offer real "$here/../../backend"
+# The backend's own image, with one thing laid over it for this check: the minute it has to get
+# ready. Docker gives a container the start period its image names when the stack's file names
+# none, and test/compose.yaml names none. The health check itself stays the one of the host's file.
+quietly docker build --quiet --tag vehicle-catalog-backend:as-built "$here/../../backend"
+offer real - <<EOF
+FROM vehicle-catalog-backend:as-built
+HEALTHCHECK --start-period=1m CMD ["true"]
+EOF
 # Says what reached it, and that it is ready whenever it is asked.
 offer echo - <<EOF
 FROM $caddy_image
