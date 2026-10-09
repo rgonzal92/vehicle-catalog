@@ -1,14 +1,23 @@
 import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, inject, signal } from '@angular/core';
+import {
+  afterNextRender,
+  Component,
+  computed,
+  ElementRef,
+  inject,
+  Injector,
+  signal,
+} from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { Copy } from '@primeicons/angular/copy';
 import { Button, ButtonDirective, ButtonIcon, ButtonLabel } from 'primeng/button';
 import { TableModule } from 'primeng/table';
-import { Catalog, Catalogs, VersionSummary } from '../../core/catalogs';
+import { Catalog, CatalogChanges, Catalogs, VersionSummary } from '../../core/catalogs';
 import { FixedLists } from '../../core/fixed-lists';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
 import { Issue } from '../../shared/availability-matrix/matrix';
+import { CatalogChangesList } from '../../shared/catalog-changes';
 import { IssueCounts, IssueList } from '../../shared/issues';
 import { NewCatalogDialog } from '../../shared/new-catalog-dialog/new-catalog-dialog';
 import { Loading, ReadFailed } from '../../shared/read-state';
@@ -16,7 +25,8 @@ import { Loading, ReadFailed } from '../../shared/read-state';
 /**
  * A lineage's Approved versions: the list of them, and the read-only matrix of the one being shown,
  * which is the current one until another is chosen. Each version shows the labels it was approved
- * with, and the issues it has against the library as it is today.
+ * with, and the issues it has against the library as it is today. Any other version can be compared
+ * with the one shown.
  */
 @Component({
   imports: [
@@ -28,6 +38,7 @@ import { Loading, ReadFailed } from '../../shared/read-state';
     ButtonLabel,
     TableModule,
     AvailabilityMatrix,
+    CatalogChangesList,
     IssueCounts,
     IssueList,
     NewCatalogDialog,
@@ -80,6 +91,19 @@ import { Loading, ReadFailed } from '../../shared/read-state';
                     Shown below
                   } @else {
                     <p-button
+                      label="Compare"
+                      severity="secondary"
+                      size="small"
+                      [text]="true"
+                      [ariaLabel]="
+                        'Compare version ' +
+                        version.versionNumber +
+                        ' with version ' +
+                        catalog.versionNumber
+                      "
+                      (onClick)="compare(version, catalog)"
+                    />
+                    <p-button
                       label="Show"
                       severity="secondary"
                       size="small"
@@ -93,6 +117,30 @@ import { Loading, ReadFailed } from '../../shared/read-state';
             </ng-template>
           </p-table>
         </section>
+
+        @if (comparison(); as compared) {
+          <section class="surface max-w-5xl" aria-labelledby="comparison">
+            <div class="surface-header">
+              <h2 id="comparison" class="font-semibold" tabindex="-1">
+                Changes from version {{ compared.from }} to version {{ compared.to }}
+              </h2>
+              <p-button
+                label="Close"
+                severity="secondary"
+                size="small"
+                [text]="true"
+                ariaLabel="Close the comparison"
+                (onClick)="comparison.set(null)"
+              />
+            </div>
+            <app-catalog-changes
+              class="py-4"
+              name="comparison"
+              none="Nothing differs between the two versions."
+              [changes]="compared.changes"
+            />
+          </section>
+        }
 
         <section class="surface max-w-5xl" aria-labelledby="issues">
           <div class="surface-header">
@@ -136,6 +184,8 @@ import { Loading, ReadFailed } from '../../shared/read-state';
 })
 export class ApprovedPage {
   private readonly catalogs = inject(Catalogs);
+  private readonly host: HTMLElement = inject(ElementRef).nativeElement;
+  private readonly injector = inject(Injector);
   protected readonly fixedLists = inject(FixedLists);
   private readonly lineageId = Number(inject(ActivatedRoute).snapshot.paramMap.get('lineageId'));
 
@@ -168,6 +218,35 @@ export class ApprovedPage {
     void this.open();
   }
 
+  /**
+   * The comparison being shown: the numbers of the two versions, the earlier one first, and what
+   * changed from it to the later one. Null while no two versions are compared.
+   */
+  protected readonly comparison = signal<{
+    from: number;
+    to: number;
+    changes: CatalogChanges;
+  } | null>(null);
+
+  /**
+   * Compares a version with the one being shown, from the earlier of the two to the later, and
+   * puts the focus on what it found.
+   */
+  protected async compare(version: VersionSummary, shown: Catalog): Promise<void> {
+    const other = { catalogId: shown.snapshot.catalogId, versionNumber: shown.versionNumber ?? 0 };
+    const [earlier, later] =
+      version.versionNumber < other.versionNumber ? [version, other] : [other, version];
+    try {
+      const changes = await this.catalogs.diff(later.catalogId, earlier.catalogId);
+      this.comparison.set({ from: earlier.versionNumber, to: later.versionNumber, changes });
+      afterNextRender(() => this.host.querySelector<HTMLElement>('#comparison')?.focus(), {
+        injector: this.injector,
+      });
+    } catch {
+      // The failure has already been shown as a message.
+    }
+  }
+
   /** How many versions have been asked for, so that a slow answer to an earlier choice is dropped. */
   private asked = 0;
 
@@ -178,6 +257,8 @@ export class ApprovedPage {
       const catalog = await this.catalogs.find(version.catalogId);
       if (mine === this.asked) {
         this.catalog.set(catalog);
+        // A comparison is with the version shown, so it goes when another is.
+        this.comparison.set(null);
       }
     } catch {
       // The failure has already been shown as a message.

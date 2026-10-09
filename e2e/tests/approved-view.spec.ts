@@ -90,6 +90,39 @@ for (const account of ['manager', 'admin']) {
   });
 }
 
+test('two Approved versions are compared, from the earlier to the later', async ({ page }) => {
+  await signIn(page, 'author');
+  await openCompactSuv2026(page);
+
+  await page
+    .getByRole('region', { name: 'Versions' })
+    .getByRole('button', { name: 'Compare version 1 with version 2' })
+    .click();
+
+  const comparison = page.getByRole('region', { name: 'Changes from version 1 to version 2' });
+  await expect(
+    comparison.getByRole('heading', { name: 'Changes from version 1 to version 2' }),
+  ).toBeFocused();
+  await expect(
+    comparison.getByRole('row', {
+      name: /^Added Feature row Hybrid Powertrain \(POWERTRAIN_HYBRID\)$/,
+    }),
+  ).toBeVisible();
+  await expect(
+    comparison.getByRole('row', {
+      name: /^Added Hybrid Powertrain requires Regenerative Braking$/,
+    }),
+  ).toBeVisible();
+  // A changed cell says its availability before and after in words.
+  await expect(
+    comparison.getByRole('region', { name: 'Cells' }).getByRole('row').nth(1),
+  ).toContainText(/(Standard|Available|Not offered).*(Standard|Available|Not offered)/);
+  await expectAccessible(page);
+
+  await comparison.getByRole('button', { name: 'Close the comparison' }).click();
+  await expect(comparison).toHaveCount(0);
+});
+
 test('an address that names no lineage says so', async ({ page }) => {
   await signIn(page, 'author');
   await page.goto('/approved/987654321');

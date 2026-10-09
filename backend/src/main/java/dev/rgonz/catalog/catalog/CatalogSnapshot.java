@@ -23,6 +23,12 @@ record CatalogSnapshot(
     List<Cell> cells,
     List<Rule> rules) {
 
+  /** A catalog with nothing in it, which is what a catalog that started empty is compared with. */
+  static CatalogSnapshot empty() {
+    return new CatalogSnapshot(
+        0, 0, Status.DRAFT, 0, List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+  }
+
   /** Whether a catalog is a working copy, in Draft or Submitted, or an Approved version. */
   enum Status {
     DRAFT,
