@@ -11,5 +11,8 @@
   body {
     background: light-dark(var(--p-surface-0), var(--p-surface-950));
     color: var(--p-text-color);
+    /* A page's own text is set as the theme sets its controls. */
+    font-family: var(--p-typography-font-family);
+    font-size: var(--p-typography-font-size);
   }
 }
