@@ -77,7 +77,7 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
       [rowTrackBy]="rowIdentity"
     >
       <ng-template #caption>
-        <p class="text-sm font-normal">
+        <p class="text-sm font-normal text-muted-color">
           S is Standard, A is Available, and - is Not offered.
           <span class="ml-2" aria-live="polite" data-note>{{ note() }}</span>
         </p>
@@ -87,7 +87,11 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
           <th pFrozenColumn scope="col" rowspan="2" [class]="codeCell">Code</th>
           <th pFrozenColumn scope="col" rowspan="2" [class]="nameCell">Feature</th>
           @for (group of byRegion(); track group.region.code) {
-            <th scope="colgroup" [class]="regionStart" [attr.colspan]="group.trims.length">
+            <th
+              scope="colgroup"
+              [class]="$first ? '' : regionStart"
+              [attr.colspan]="group.trims.length"
+            >
               <span [class]="regionName">{{ group.region.name }}</span>
             </th>
           }
@@ -103,16 +107,16 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
       <ng-template #body let-row>
         @if (row.category; as category) {
           <tr [style.height.px]="rowHeight">
-            <td pFrozenColumn colspan="2" class="bg-emphasis py-0 font-semibold">
+            <td pFrozenColumn colspan="2" [class]="categoryCell">
               {{ category.name }}
             </td>
             @if (offerings().length > 0) {
-              <td class="bg-emphasis py-0" [attr.colspan]="offerings().length"></td>
+              <td [class]="categoryCell" [attr.colspan]="offerings().length"></td>
             }
           </tr>
         } @else {
           <tr [style.height.px]="rowHeight">
-            <td pFrozenColumn [class]="codeCell">{{ row.feature.code }}</td>
+            <td pFrozenColumn [class]="codeValue">{{ row.feature.code }}</td>
             <td
               pFrozenColumn
               role="rowheader"
@@ -126,7 +130,7 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
                   <button
                     type="button"
                     tabindex="-1"
-                    class="ml-auto size-6 shrink-0 cursor-pointer rounded text-muted-color hover:text-red-700 dark:hover:text-red-400"
+                    class="ml-auto size-6 shrink-0 cursor-pointer rounded-border text-muted-color hover:text-red-700 focus-visible:outline-2 focus-visible:outline-primary dark:hover:text-red-400"
                     [attr.data-remove]="row.feature.id"
                     [attr.aria-label]="'Remove ' + row.feature.name"
                     [title]="'Remove ' + row.feature.name"
@@ -142,9 +146,10 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
             </td>
             @for (offering of offerings(); track offering.key) {
               @let failure = whyNotSaved(row.feature, offering);
+              @let value = valueOf(row.feature, offering);
               <td
                 #cell
-                [class]="failure ? offering.classes + notSavedCell : offering.classes"
+                [class]="offering.classes + (failure ? notSavedCell : valueCell[value])"
                 [attr.title]="failure"
                 [attr.tabindex]="editable() ? -1 : null"
                 (keydown)="onKey($event, row.feature, offering)"
@@ -152,7 +157,7 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
               >
                 @if (editable() && editing() === cell) {
                   <select
-                    class="w-full rounded border border-(--p-form-field-border-color) bg-(--p-form-field-background) text-center"
+                    class="w-full rounded-border border border-(--p-form-field-border-color) bg-(--p-form-field-background) text-center font-normal text-color"
                     [attr.aria-label]="
                       row.feature.name + ', ' + offering.trim.name + ' in ' + offering.region.name
                     "
@@ -160,16 +165,13 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
                     (blur)="editing.set(null)"
                   >
                     @for (availability of availabilities; track availability) {
-                      <option
-                        [value]="availability"
-                        [selected]="availability === valueOf(row.feature, offering)"
-                      >
+                      <option [value]="availability" [selected]="availability === value">
                         {{ symbols[availability] }}
                       </option>
                     }
                   </select>
                 } @else {
-                  {{ symbols[valueOf(row.feature, offering)] }}
+                  {{ symbols[value] }}
                 }
                 @if (failure) {
                   <span aria-hidden="true">!</span>
@@ -232,10 +234,22 @@ export class AvailabilityMatrix {
   // The frozen code and name cells are 13rem and 16rem wide. With a little room to spare, 30rem is
   // where the offerings begin, however far the matrix has scrolled sideways.
   protected readonly codeCell = 'w-52 min-w-52 max-w-52 truncate py-0';
-  protected readonly nameCell = 'w-64 min-w-64 max-w-64 truncate py-0';
+  // The name cell carries the line that edges the frozen cells, which stays when the matrix scrolls.
+  protected readonly nameCell = 'w-64 min-w-64 max-w-64 truncate py-0 border-r border-surface';
 
-  /** A region's name stays beside the frozen cells while any of its offerings is in view. */
-  protected readonly regionName = 'sticky left-[30rem]';
+  /** A feature's code is set smaller and in a fixed-width font, as a thing to look up by. */
+  protected readonly codeValue = `${this.codeCell} font-mono text-xs text-muted-color`;
+
+  /** A category's row is set apart from the feature rows under it. */
+  protected readonly categoryCell =
+    'bg-emphasis py-0 text-xs font-semibold tracking-wide uppercase';
+
+  /**
+   * A region's name stays beside the frozen cells while any of its offerings is in view. It is set
+   * smaller than the names of the trims under it.
+   */
+  protected readonly regionName =
+    'sticky left-[30rem] text-xs font-semibold tracking-wide text-muted-color uppercase';
 
   /** The line that divides one region's offerings from the region before. */
   protected readonly regionStart = 'border-l border-surface';
@@ -244,8 +258,17 @@ export class AvailabilityMatrix {
    * A cell that takes the focus is scrolled into view clear of the header and the frozen cells,
    * which would otherwise cover it.
    */
-  private readonly offeringCell =
-    'w-24 min-w-24 max-w-24 truncate py-0 text-center scroll-mt-16 scroll-ml-[30rem]';
+  private readonly offeringCell = 'matrix-cell';
+
+  /**
+   * How each availability looks, so that the three are told apart at a glance. The letter says
+   * which it is; the look only helps.
+   */
+  protected readonly valueCell: Record<Availability, string> = {
+    S: ' matrix-standard',
+    A: '',
+    N: ' text-muted-color',
+  };
 
   /**
    * How a cell looks while it is marked: red, and with an exclamation mark after its value, so the
@@ -264,12 +287,16 @@ export class AvailabilityMatrix {
   );
 
   protected readonly offerings = computed<ShownOffering[]>(() =>
-    this.byRegion().flatMap(({ region, trims }) =>
+    this.byRegion().flatMap(({ region, trims }, regionIndex) =>
       trims.map((trim, index) => ({
         key: `${trim.id}:${region.code}`,
         trim,
         region,
-        classes: index === 0 ? `${this.offeringCell} ${this.regionStart}` : this.offeringCell,
+        // The first region begins at the line that edges the frozen cells.
+        classes:
+          index === 0 && regionIndex > 0
+            ? `${this.offeringCell} ${this.regionStart}`
+            : this.offeringCell,
       })),
     ),
   );
