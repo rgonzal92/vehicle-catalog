@@ -15,12 +15,22 @@ concurrency:
 permissions:
   contents: read
 
+# Three of these checks use container images, most of them from Docker Hub. Each keeps the images
+# it uses from one run to the next, in the pipeline's cache, and pulls only what is not there: a
+# run does not wait on Docker Hub then. NAMED_IN lists the files that name a check's images, and
+# .github/scripts/kept-images.sh has the rest.
 jobs:
   backend:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
+    env:
+      NAMED_IN: backend/src/test/java/dev/rgonz/catalog/ApplicationIT.java
+      # Testcontainers would start a container of its own to clear up after the tests, from an
+      # image that no file here names. This machine is thrown away after the run, so nothing
+      # needs clearing up.
+      TESTCONTAINERS_RYUK_DISABLED: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
@@ -30,8 +40,23 @@ jobs:
           java-version: '25'
           cache: maven
           cache-dependency-path: backend/pom.xml
+      - name: Name the images this check uses
+        id: images
+        run: ${{ github.workspace }}/.github/scripts/kept-images.sh named >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: kept
+        with:
+          path: ${{ runner.temp }}/kept-images/images.tar
+          key: images-backend-${{ steps.images.outputs.key }}
+          restore-keys: images-backend-
+      - name: Load the images that were kept
+        run: ${{ github.workspace }}/.github/scripts/kept-images.sh load
       - name: Verify
         run: ./mvnw -B verify
+      - name: Gather the images to keep
+        run: ${{ github.workspace }}/.github/scripts/kept-images.sh keep
+        env:
+          RESTORED_AS_NAMED: ${{ steps.kept.outputs.cache-hit }}
 
   frontend:
     runs-on: ubuntu-latest
@@ -71,6 +96,8 @@ jobs:
     defaults:
       run:
         working-directory: e2e
+    env:
+      NAMED_IN: compose.yaml e2e/compose.yaml backend/Dockerfile
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -80,6 +107,17 @@ jobs:
           cache-dependency-path: |
             frontend/package-lock.json
             e2e/package-lock.json
+      - name: Name the images this check uses
+        id: images
+        run: ${{ github.workspace }}/.github/scripts/kept-images.sh named >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: kept
+        with:
+          path: ${{ runner.temp }}/kept-images/images.tar
+          key: images-browser-tests-${{ steps.images.outputs.key }}
+          restore-keys: images-browser-tests-
+      - name: Load the images that were kept
+        run: ${{ github.workspace }}/.github/scripts/kept-images.sh load
       - name: Install
         run: npm ci --prefix ../frontend && npm ci
       - name: Install the browser
@@ -94,6 +132,10 @@ jobs:
           SHARD: ${{ matrix.half }}/2
           # Empty on pull requests from forks and from Dependabot; the build passes without it.
           PRIMEUI_LICENSE_KEY: ${{ secrets.PRIMEUI_LICENSE_KEY }}
+      - name: Gather the images to keep
+        run: ${{ github.workspace }}/.github/scripts/kept-images.sh keep
+        env:
+          RESTORED_AS_NAMED: ${{ steps.kept.outputs.cache-hit }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
@@ -116,10 +158,27 @@ jobs:
   # What the host answers, tried on this machine against a stand-in for the certificate authority.
   host:
     runs-on: ubuntu-latest
+    env:
+      NAMED_IN: deploy/compose.yaml deploy/test/compose.yaml backend/Dockerfile
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Name the images this check uses
+        id: images
+        run: ${{ github.workspace }}/.github/scripts/kept-images.sh named >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: kept
+        with:
+          path: ${{ runner.temp }}/kept-images/images.tar
+          key: images-host-${{ steps.images.outputs.key }}
+          restore-keys: images-host-
+      - name: Load the images that were kept
+        run: ${{ github.workspace }}/.github/scripts/kept-images.sh load
       - name: Check the host's stack
         run: deploy/test/check.sh
+      - name: Gather the images to keep
+        run: ${{ github.workspace }}/.github/scripts/kept-images.sh keep
+        env:
+          RESTORED_AS_NAMED: ${{ steps.kept.outputs.cache-hit }}
 
   infra:
     runs-on: ubuntu-latest
