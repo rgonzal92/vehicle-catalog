@@ -122,6 +122,48 @@ test('an exclusion of a working copy is kept, shown, and deleted as a pair', asy
   await expect(rules.getByRole('row', { name: /Excludes.*Catalog/ })).toHaveCount(2);
 });
 
+test('a broken rule of a working copy is an issue, which shows the rule', async ({ page }) => {
+  await signIn(page, 'author');
+  await createWorkingCopy(page, 'SUV', 'Compact SUV', '2026');
+  const counts = page.locator('[data-issue-counts]');
+  await expect(counts).not.toContainText('Error');
+  await page.getByRole('tab', { name: 'Rules' }).click();
+  const rules = page.getByRole('tabpanel', { name: 'Rules' });
+
+  // Leather seats are Standard on Touring, where the hybrid powertrain is only Available.
+  await rules.getByRole('button', { name: 'Add rule' }).click();
+  const adding = page.getByRole('dialog', { name: 'Add rule' });
+  await choose(adding, 'Source', 'Leather Seats');
+  await adding.getByText('Choose feature rows').click();
+  await page.getByRole('option', { name: 'Hybrid Powertrain', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('listbox')).toBeHidden();
+  await adding.getByRole('button', { name: 'Save' }).click();
+  await expect(adding).toBeHidden();
+  await expect(counts).toContainText('2 Errors');
+
+  await page.getByRole('tab', { name: 'Issues' }).click();
+  const issue = page.getByRole('tabpanel', { name: 'Issues' }).getByRole('row', {
+    name: /Leather Seats is Standard on Touring in North America and requires Hybrid Powertrain/,
+  });
+  await expect(issue).toContainText('Catalog rule');
+  await issue.getByRole('button', { name: /^Show the rule of this issue/ }).click();
+
+  await expect(page.getByRole('tab', { name: 'Rules' })).toHaveAttribute('aria-selected', 'true');
+  const shown = rules.locator('tr[data-shown-rule]');
+  await expect(shown).toHaveCount(1);
+  await expect(shown).toContainText('Leather Seats');
+  await expect(shown).toContainText('Hybrid Powertrain');
+  await expect(shown).toBeFocused();
+  await expectAccessible(page);
+
+  await shown.getByRole('button', { name: /^Delete the rule/ }).click();
+  const asking = page.getByRole('dialog', { name: 'Delete rule' });
+  await asking.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(asking).toBeHidden();
+  await expect(counts).not.toContainText('Error');
+});
+
 test('an Approved version shows its rules, and nobody changes them', async ({ page }) => {
   await signIn(page, 'author');
   const lineages = (await (await page.request.get('/api/lineages')).json()) as {

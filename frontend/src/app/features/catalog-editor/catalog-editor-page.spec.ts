@@ -1045,6 +1045,45 @@ describe('CatalogEditorPage', () => {
       );
     });
 
+    it('shows the rule of an issue that comes from a rule of the catalog', async () => {
+      const rule = {
+        key: 'roof-needs-tow',
+        kind: 'REQUIRES',
+        sourceFeatureId: 1,
+        targetFeatureIds: [2],
+        allTrims: true,
+        trimIds: [],
+        allRegions: true,
+        regionCodes: [],
+        pairKey: null,
+      };
+      const ofTheCatalog = { ...roofOnBase, rule: { origin: 'CATALOG', key: rule.key } };
+      const element = await page({
+        ...workingCopy,
+        snapshot: { ...workingCopy.snapshot, rules: [rule] },
+        issues: [roofOnBase, ofTheCatalog],
+      });
+      tab(element, 'Issues').click();
+      const show = await vi.waitFor(() => {
+        const found = element.querySelectorAll<HTMLElement>(
+          'button[aria-label^="Show the rule of this issue"]',
+        );
+        expect(found, 'only the issue of the rule of the catalog').toHaveLength(1);
+        return found[0];
+      });
+      expect(listed(element)[1][3]).toBe('Catalog rule');
+
+      show.click();
+
+      (await vi.waitFor(() => backend.expectOne('/api/global-rules'))).flush([]);
+      await vi.waitFor(() =>
+        expect(
+          element.querySelector('tr[data-rule="roof-needs-tow"]')?.hasAttribute('data-shown-rule'),
+        ).toBe(true),
+      );
+      expect(tab(element, 'Rules').getAttribute('aria-selected')).toBe('true');
+    });
+
     it('says so when the catalog has no issues', async () => {
       const element = await page({ ...workingCopy, issues: [] });
 
