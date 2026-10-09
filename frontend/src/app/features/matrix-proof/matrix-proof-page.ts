@@ -1,7 +1,7 @@
 import { ApplicationRef, Component, ElementRef, inject, signal } from '@angular/core';
 import { Button } from 'primeng/button';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
-import { Cell, MatrixContents } from '../../shared/availability-matrix/matrix';
+import { Cell, MatrixChanges, MatrixContents } from '../../shared/availability-matrix/matrix';
 
 const CATEGORIES = [
   'Powertrain',
@@ -84,6 +84,11 @@ function summary(durations: number[]): string {
           [label]="editable() ? 'Make read-only' : 'Make editable'"
           (onClick)="editable.set(!editable())"
         />
+        <p-button
+          severity="secondary"
+          [label]="marking() ? 'Unmark changes' : 'Mark changes'"
+          (onClick)="marking.set(!marking())"
+        />
         <p-button label="Measure" [disabled]="measuring()" (onClick)="measure()" />
       </header>
       <p aria-live="polite">{{ lastChange() }}</p>
@@ -99,6 +104,7 @@ function summary(durations: number[]): string {
         [contents]="contents"
         [categories]="categories"
         [editable]="editable()"
+        [changes]="marking() ? changes : null"
         (cellChange)="show($event)"
       />
     </main>
@@ -111,6 +117,28 @@ export class MatrixProofPage {
   protected readonly contents = largestCatalog();
   protected readonly categories = CATEGORIES;
   protected readonly editable = signal(true);
+
+  /**
+   * Whether the matrix marks changes, as it does for a reviewer. Here every third stored cell of
+   * every tenth feature row has changed, which is 800 cells; every tenth feature row was added, and
+   * every eighth offering.
+   */
+  protected readonly marking = signal(false);
+  protected readonly changes: MatrixChanges = {
+    before: new Map(
+      this.contents.cells
+        .filter((cell, index) => cell.featureId % 10 === 3 && index % 3 === 0)
+        .map((cell) => [`${cell.featureId}:${cell.trimId}:${cell.regionCode}`, 'N']),
+    ),
+    addedFeatures: new Set(
+      this.contents.featureRows.filter((_, index) => index % 10 === 0).map(({ id }) => id),
+    ),
+    addedOfferings: new Set(
+      this.contents.offerings
+        .filter((_, index) => index % 8 === 0)
+        .map(({ trimId, regionCode }) => `${trimId}:${regionCode}`),
+    ),
+  };
   protected readonly lastChange = signal('No cell has been changed.');
   protected readonly measuring = signal(false);
   protected readonly results = signal<string[]>([]);

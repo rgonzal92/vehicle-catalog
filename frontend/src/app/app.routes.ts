@@ -45,6 +45,13 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'catalogs/:id/review',
+        title: 'Review · Vehicle Catalog',
+        canActivate: [holding('manager')],
+        loadComponent: () =>
+          import('./features/review/review-page').then((page) => page.ReviewPage),
+      },
+      {
         path: 'admin/vehicle-lines',
         title: 'Vehicle lines · Vehicle Catalog',
         canActivate: [holding('admin')],

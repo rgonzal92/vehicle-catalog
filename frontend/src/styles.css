@@ -80,3 +80,11 @@
 @utility matrix-warning {
   @apply inset-ring-2 inset-ring-amber-600 dark:inset-ring-amber-400;
 }
+
+/*
+ * A cell of the matrix whose availability is another than it was: a bar under the cell, which
+ * leaves its ground and any ring of an issue as they are. The cell says what it was in words too.
+ */
+@utility matrix-changed {
+  @apply shadow-[inset_0_-3px_0_var(--p-primary-color)];
+}

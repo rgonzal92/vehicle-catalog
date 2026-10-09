@@ -68,6 +68,19 @@ export interface Issue {
   message: string;
 }
 
+/**
+ * What a catalog changed against another, for the matrix to mark: the cells whose availability is
+ * another than it was, and the feature rows and offerings that were added.
+ */
+export interface MatrixChanges {
+  /** The availability each changed cell had before, by `featureId:trimId:regionCode`. */
+  before: ReadonlyMap<string, Availability>;
+  /** The ids of the features whose rows were added. */
+  addedFeatures: ReadonlySet<number>;
+  /** The offerings that were added, each as `trimId:regionCode`. */
+  addedOfferings: ReadonlySet<string>;
+}
+
 /** What the matrix shows of a catalog. Cells are sparse: a missing cell is Not offered. */
 export interface MatrixContents {
   trims: MatrixTrim[];

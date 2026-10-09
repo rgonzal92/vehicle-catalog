@@ -19,6 +19,7 @@ import {
   Cell,
   FeatureRow,
   Issue,
+  MatrixChanges,
   MatrixContents,
   MatrixRegion,
   matrixRows,
@@ -81,6 +82,10 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
       <ng-template #caption>
         <p class="text-sm font-normal text-muted-color">
           S is Standard, A is Available, and - is Not offered.
+          @if (changes()) {
+            A cell that changed says what it was, and + marks a feature row or an offering that was
+            added.
+          }
           <span class="ml-2" aria-live="polite" data-note>{{ note() }}</span>
         </p>
       </ng-template>
@@ -100,8 +105,17 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
         </tr>
         <tr>
           @for (offering of offerings(); track offering.key) {
-            <th scope="col" [class]="offering.classes" [title]="offering.trim.name">
+            @let added = changes()?.addedOfferings?.has(offering.key);
+            <th
+              scope="col"
+              [class]="offering.classes"
+              [title]="offering.trim.name + (added ? ', added' : '')"
+            >
               {{ offering.trim.name }}
+              @if (added) {
+                <span aria-hidden="true">+</span>
+                <span class="sr-only">, added</span>
+              }
             </th>
           }
         </tr>
@@ -119,14 +133,18 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
         } @else {
           <!-- Most catalogs have no issue about a cell, and then no cell looks itself up. -->
           @let marks = marked();
+          @let changed = changes();
+          @let addedRow = changed?.addedFeatures?.has(row.feature.id);
+          <!-- Most rows of a catalog under review have no changed cell, and then none looks. -->
+          @let changedRow = changed ? changedRows().has(row.feature.id) : false;
           <tr [style.height.px]="rowHeight" [attr.data-feature]="row.feature.id">
             <td pFrozenColumn [class]="codeValue">{{ row.feature.code }}</td>
             <td
               pFrozenColumn
               role="rowheader"
               [class]="nameCell"
-              [title]="row.feature.name"
-              [attr.aria-label]="row.feature.name"
+              [title]="row.feature.name + (addedRow ? ', added' : '')"
+              [attr.aria-label]="row.feature.name + (addedRow ? ', added' : '')"
             >
               @if (editable()) {
                 <span class="flex items-center gap-1">
@@ -144,6 +162,11 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
                     ×
                   </button>
                 </span>
+              } @else if (addedRow) {
+                <span class="flex items-center gap-1">
+                  <span class="truncate">{{ row.feature.name }}</span>
+                  <span class="ml-auto shrink-0 font-semibold" aria-hidden="true">+</span>
+                </span>
               } @else {
                 {{ row.feature.name }}
               }
@@ -152,14 +175,17 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
               @let failure = whyNotSaved(row.feature, offering);
               @let value = valueOf(row.feature, offering);
               @let mark = marks && markOf(marks, row.feature, offering);
+              @let was =
+                changedRow ? changed!.before.get(row.feature.id + ':' + offering.key) : null;
               <td
                 #cell
                 [class]="
                   offering.classes +
                   (failure ? notSavedCell : valueCell[value]) +
-                  (mark ? (mark.error ? errorCell : warningCell) : '')
+                  (mark ? (mark.error ? errorCell : warningCell) : '') +
+                  (was ? changedCell : '')
                 "
-                [attr.title]="failure ?? mark?.says"
+                [attr.title]="failure ?? mark?.says ?? (was ? 'Was ' + names[was] : null)"
                 [attr.tabindex]="editable() ? -1 : null"
                 (keydown)="onKey($event, row.feature, offering)"
                 (click)="edit($event)"
@@ -181,6 +207,9 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
                   </select>
                 } @else {
                   {{ symbols[value] }}
+                }
+                @if (was) {
+                  <span class="text-xs font-normal">was {{ symbols[was] }}</span>
                 }
                 @if (failure) {
                   <span aria-hidden="true">!</span>
@@ -228,6 +257,12 @@ export class AvailabilityMatrix {
 
   /** The catalog's issues. One that is about a cell marks that cell; the others mark nothing. */
   readonly issues = input<Issue[]>([]);
+
+  /**
+   * What the catalog changed against another one, which the matrix then marks: each changed cell
+   * with what it was, and the feature rows and offerings that were added. Null marks nothing.
+   */
+  readonly changes = input<MatrixChanges | null>(null);
 
   /** The cell a person just set, with its new availability. */
   readonly cellChange = output<Cell>();
@@ -300,6 +335,19 @@ export class AvailabilityMatrix {
    */
   protected readonly errorCell = ' matrix-error';
   protected readonly warningCell = ' matrix-warning';
+
+  /** How a cell looks whose availability is another than it was. */
+  protected readonly changedCell = ' matrix-changed';
+  protected readonly names = AVAILABILITY_NAMES;
+
+  /** The ids of the features that have a changed cell, so that the other rows look nothing up. */
+  protected readonly changedRows = computed(() => {
+    const rows = new Set<number>();
+    for (const cell of this.changes()?.before.keys() ?? []) {
+      rows.add(Number(cell.slice(0, cell.indexOf(':'))));
+    }
+    return rows;
+  });
 
   protected readonly symbols = SYMBOLS;
   protected readonly availabilities = Object.keys(SYMBOLS) as Availability[];

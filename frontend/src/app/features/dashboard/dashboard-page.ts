@@ -245,10 +245,10 @@ import { reasonOf } from '../../shared/reason-of';
                     } @else {
                       <a
                         class="font-medium text-primary hover:underline"
-                        [routerLink]="['/catalogs', submitted.id]"
-                        [attr.aria-label]="'Open ' + submitted.name + ' by ' + submitted.owner"
+                        [routerLink]="['/catalogs', submitted.id, 'review']"
+                        [attr.aria-label]="'Review ' + submitted.name + ' by ' + submitted.owner"
                       >
-                        Open
+                        Review
                       </a>
                     }
                   </td>
