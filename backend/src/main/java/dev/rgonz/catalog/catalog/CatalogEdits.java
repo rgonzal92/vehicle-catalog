@@ -386,6 +386,9 @@ class CatalogEdits {
           jdbc.sql("DELETE FROM catalog_change WHERE catalog_id = :id")
               .param("id", catalogId)
               .update();
+          jdbc.sql("DELETE FROM catalog_export WHERE catalog_id = :id")
+              .param("id", catalogId)
+              .update();
           jdbc.sql("DELETE FROM catalog_review WHERE catalog_id = :id")
               .param("id", catalogId)
               .update();

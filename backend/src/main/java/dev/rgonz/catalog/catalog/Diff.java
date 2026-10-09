@@ -7,7 +7,6 @@ import dev.rgonz.catalog.catalog.CatalogSnapshot.Offering;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Region;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Trim;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -190,16 +189,8 @@ final class Diff {
           List.of(featureId, offering.trimId(), offering.regionCode()), Availability.N);
     }
 
-    /** The catalog's offerings as its matrix has them: region by region, and trims in order. */
     List<Offering> offeringsInOrder() {
-      var regionPlaces = new HashMap<String, Integer>();
-      snapshot.regions().forEach(region -> regionPlaces.put(region.code(), regionPlaces.size()));
-      return snapshot.offerings().stream()
-          .sorted(
-              Comparator.comparing((Offering offering) -> regionPlaces.get(offering.regionCode()))
-                  .thenComparing(offering -> trims.get(offering.trimId()).sortOrder())
-                  .thenComparing(Offering::trimId))
-          .toList();
+      return snapshot.offeringsInOrder();
     }
 
     List<OfferingNamed> offerings(java.util.function.Predicate<Offering> wanted) {

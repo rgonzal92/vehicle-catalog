@@ -1,8 +1,8 @@
 name: vehicle-catalog
 
 # Local development stack. The frontend dev server at http://localhost:4200 proxies /api to the
-# backend's published port, the login server stands in for Amazon Cognito, and the queue for
-# Amazon SQS.
+# backend's published port, the login server stands in for Amazon Cognito, the queue for Amazon SQS,
+# and the storage for Amazon S3.
 services:
   db:
     image: postgres:18.6
@@ -142,6 +142,10 @@ services:
       # Set LARGEST_CATALOG=true to start with the largest catalog there can be as well, 500 feature
       # rows by 96 offerings, to see and measure the app at that size.
       APP_LARGESTCATALOG: ${LARGEST_CATALOG:-false}
+      # Where exported spreadsheets are kept. The API hands out links to them, which a browser
+      # follows from outside this stack.
+      EXPORTS_BUCKET: exports
+      EXPORTS_ENDPOINT: http://localhost:8094
     ports:
       - "127.0.0.1:8090:8080"
     # Ready means startup has finished, which includes filling an empty library.
@@ -165,10 +169,14 @@ services:
         condition: service_healthy
       queue:
         condition: service_started
+      storage:
+        condition: service_started
     environment:
       <<: *backend-settings
       SPRING_PROFILES_ACTIVE: worker
       JOBS_QUEUE_URL: http://queue:9324/queue/jobs
+      # The worker puts the exported spreadsheets where this stack keeps them.
+      EXPORTS_ENDPOINT: http://storage:9090
     healthcheck:
       test:
         - CMD
@@ -179,6 +187,15 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
+
+  # Stands in for Amazon S3 and keeps the one bucket of exported spreadsheets. The worker writes a
+  # file there, and a browser reads it through a link the API hands out, so it is published.
+  storage:
+    image: adobe/s3mock:5.2.3
+    environment:
+      COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS: exports
+    ports:
+      - "127.0.0.1:8094:9090"
 
   # Stands in for Amazon SQS, whose protocol it speaks. It keeps the queue the jobs' messages travel
   # on and the dead-letter queue beside it, as AWS does: a message that a worker has received is

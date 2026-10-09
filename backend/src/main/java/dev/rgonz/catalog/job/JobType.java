@@ -5,5 +5,7 @@ public enum JobType {
   /** What follows an approval: the catalog's owner is told. */
   AFTER_APPROVAL,
   /** What follows a change of the library: a lineage's current Approved is validated again. */
-  RECHECK_APPROVED
+  RECHECK_APPROVED,
+  /** What follows a request for a catalog as a spreadsheet: the file is built and kept. */
+  EXPORT
 }

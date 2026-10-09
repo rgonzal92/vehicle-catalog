@@ -256,6 +256,17 @@ try of each said. Once what made a job fail is put right, Retry there has it tri
 it has been done, the worker takes its message out of the dead-letter queue within a minute, and
 the alarm is quiet again.
 
+## Exported spreadsheets
+
+Whoever may open a catalog can have it as a spreadsheet. The worker builds the file and writes it
+to the bucket `rgonz-vehicle-catalog-exports`, under the export's id. The API then sends whoever
+asked for it to a link that it has signed, which works for five minutes. Nothing in the bucket is
+public, and a file is gone a day after it was written: it is built anew whenever someone asks.
+
+```sh
+aws s3 ls s3://rgonz-vehicle-catalog-exports/
+```
+
 ## Backups
 
 Every night at 02:30 UTC the host writes a copy of the database to the bucket
