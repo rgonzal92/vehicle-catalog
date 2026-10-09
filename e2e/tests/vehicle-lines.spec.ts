@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
-import { choose, expectAccessible, signIn } from './support';
+import { expect } from '@playwright/test';
+import { choose, expectAccessible, signIn, test } from './support';
 
 test('an admin adds, changes, deactivates, and reactivates a vehicle line', async ({ page }) => {
   const unique = Date.now();

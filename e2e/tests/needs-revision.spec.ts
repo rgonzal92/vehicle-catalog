@@ -1,5 +1,13 @@
-import { expect, test, type Page } from '@playwright/test';
-import { choose, createWorkingCopy, expectAccessible, nextSave, signIn, signOut } from './support';
+import { expect, type Page } from '@playwright/test';
+import {
+  choose,
+  createWorkingCopy,
+  expectAccessible,
+  nextSave,
+  signIn,
+  signOut,
+  test,
+} from './support';
 
 // Three people sign in, one after the other, and a catalog is built from nothing.
 test.describe.configure({ timeout: 90_000 });

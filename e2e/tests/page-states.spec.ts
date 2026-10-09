@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
-import { createWorkingCopy, expectAccessible, signIn } from './support';
+import { expect } from '@playwright/test';
+import { createWorkingCopy, expectAccessible, signIn, test } from './support';
 
 test('the dashboard stands in for a list that is slow, and says so when one cannot be read', async ({
   page,

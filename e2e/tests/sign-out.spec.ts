@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
-import { signIn, signOut } from './support';
+import { expect } from '@playwright/test';
+import { signIn, signOut, test } from './support';
 
 test('signing out returns to the landing page and closes the dashboard', async ({ page }) => {
   await signIn(page, 'author');

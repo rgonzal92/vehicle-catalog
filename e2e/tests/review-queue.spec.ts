@@ -1,5 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
-import { createWorkingCopy, expectAccessible, nextSave, signIn, signOut } from './support';
+import { expect, type Page } from '@playwright/test';
+import { createWorkingCopy, expectAccessible, nextSave, signIn, signOut, test } from './support';
 
 /** Submits the working copy that the editor shows, with a note. */
 async function submit(page: Page, note: string): Promise<void> {

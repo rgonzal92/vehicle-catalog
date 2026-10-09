@@ -1,5 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
-import { expectAccessible, signIn } from './support';
+import { expect, type Page } from '@playwright/test';
+import { expectAccessible, signIn, test } from './support';
 
 /** The library's two ordered lists as their screens word them. Only a region has a code. */
 const lists = [

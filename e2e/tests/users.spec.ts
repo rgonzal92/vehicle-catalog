@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
-import { choose, expectAccessible, signIn } from './support';
+import { expect } from '@playwright/test';
+import { choose, expectAccessible, signIn, test } from './support';
 
 test('an admin sees the sandbox accounts and changes the role of one that is not protected', async ({
   page,

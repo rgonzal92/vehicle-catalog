@@ -1,5 +1,5 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
-import { choose, createWorkingCopy, expectAccessible, signIn } from './support';
+import { expect, type Locator, type Page } from '@playwright/test';
+import { choose, createWorkingCopy, expectAccessible, signIn, test } from './support';
 
 /** Opens the feature picker from the catalog editor. */
 async function pick(page: Page): Promise<Locator> {

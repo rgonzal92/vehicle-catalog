@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { expect, test } from '@playwright/test';
-import { choose, expectAccessible, signIn, signOut } from './support';
+import { expect } from '@playwright/test';
+import { choose, expectAccessible, signIn, signOut, test } from './support';
 
 /** Runs a statement in the database of the stack the tests run against, and answers with its output. */
 function inTheDatabase(statement: string): string {

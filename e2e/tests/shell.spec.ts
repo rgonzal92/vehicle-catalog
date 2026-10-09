@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
-import { expectAccessible, signIn } from './support';
+import { expect } from '@playwright/test';
+import { expectAccessible, signIn, test } from './support';
 
 test('the frame leads to each page, and says which one is open', async ({ page }) => {
   await signIn(page, 'admin');
