@@ -3,12 +3,13 @@ package dev.rgonz.catalog.catalog;
 import java.util.List;
 
 /**
- * A catalog's contents as one in-memory value: its trims, regions, offerings, feature rows, and
- * cells, with the labels to show for them. An Approved version carries the labels it had when it
- * was approved; a working copy carries the library's current ones.
+ * A catalog's contents as one in-memory value: its trims, regions, offerings, feature rows, cells,
+ * and rules, with the labels to show for them. An Approved version carries the labels it had when
+ * it was approved; a working copy carries the library's current ones.
  *
  * @param regions in the library's order
  * @param cells only Standard and Available; a missing cell is Not offered
+ * @param rules the rules that belong to the catalog, by the code of their source
  */
 record CatalogSnapshot(
     long catalogId,
@@ -19,7 +20,8 @@ record CatalogSnapshot(
     List<Region> regions,
     List<Offering> offerings,
     List<FeatureRow> featureRows,
-    List<Cell> cells) {
+    List<Cell> cells,
+    List<Rule> rules) {
 
   /** Whether a catalog is a working copy, in Draft or Submitted, or an Approved version. */
   enum Status {

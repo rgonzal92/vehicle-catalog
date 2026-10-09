@@ -6,7 +6,9 @@ import dev.rgonz.catalog.catalog.CatalogSnapshot.Offering;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Region;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Trim;
+import dev.rgonz.catalog.library.RuleKind;
 import java.time.Instant;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -83,9 +85,9 @@ class Catalogs {
   }
 
   /**
-   * A catalog with its contents, if the viewer may open it: one query for the catalog itself and
-   * one for each content table. The queries share one view of the database, so the contents always
-   * belong to the revision.
+   * A catalog with its contents, if the viewer may open it: one query for the catalog itself, one
+   * for each content table, and one for its rules. The queries share one view of the database, so
+   * the contents always belong to the revision.
    */
   @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
   Optional<CatalogView> find(long id, long viewerId) {
@@ -175,7 +177,7 @@ class Catalogs {
                     new Rule(
                         Rule.Origin.GLOBAL,
                         String.valueOf(row.getLong("id")),
-                        Rule.Kind.valueOf(row.getString("kind")),
+                        RuleKind.valueOf(row.getString("kind")),
                         row.getLong("source_feature_id"),
                         List.of((Long[]) row.getArray("targets").getArray()),
                         true,
@@ -277,7 +279,53 @@ class Catalogs {
         regions,
         offerings,
         featureRows,
-        cells);
+        cells,
+        rules(header.id()));
+  }
+
+  /**
+   * The catalog's own rules, read with one query: each with its targets by their codes, and with
+   * the trims and regions it lists in the library's order.
+   */
+  private List<Rule> rules(long catalogId) {
+    return jdbc.sql(
+            """
+            SELECT r.rule_key, r.kind, r.source_feature_id, r.all_trims, r.all_regions, r.pair_key,
+                   ARRAY(SELECT t.feature_id
+                         FROM catalog_rule_target t
+                         JOIN feature tf ON tf.id = t.feature_id
+                         WHERE t.catalog_id = r.catalog_id AND t.rule_key = r.rule_key
+                         ORDER BY tf.code) AS targets,
+                   ARRAY(SELECT t.trim_id
+                         FROM catalog_rule_trim t
+                         JOIN trim tr ON tr.id = t.trim_id
+                         WHERE t.catalog_id = r.catalog_id AND t.rule_key = r.rule_key
+                         ORDER BY tr.sort_order, tr.id) AS trims,
+                   ARRAY(SELECT s.region_code
+                         FROM catalog_rule_region s
+                         JOIN region rg ON rg.code = s.region_code
+                         WHERE s.catalog_id = r.catalog_id AND s.rule_key = r.rule_key
+                         ORDER BY rg.sort_order, rg.code) AS regions
+            FROM catalog_rule r
+            JOIN feature f ON f.id = r.source_feature_id
+            WHERE r.catalog_id = :id
+            ORDER BY f.code, r.kind, r.rule_key
+            """)
+        .param("id", catalogId)
+        .query(
+            (row, _) ->
+                new Rule(
+                    Rule.Origin.CATALOG,
+                    row.getString("rule_key"),
+                    RuleKind.valueOf(row.getString("kind")),
+                    row.getLong("source_feature_id"),
+                    List.of((Long[]) row.getArray("targets").getArray()),
+                    row.getBoolean("all_trims"),
+                    new LinkedHashSet<>(List.of((Long[]) row.getArray("trims").getArray())),
+                    row.getBoolean("all_regions"),
+                    new LinkedHashSet<>(List.of((String[]) row.getArray("regions").getArray())),
+                    row.getString("pair_key")))
+        .list();
   }
 
   private <T> List<T> content(String sql, Header of, Class<T> type) {

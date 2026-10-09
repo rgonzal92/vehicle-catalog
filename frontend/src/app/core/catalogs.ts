@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, signal } from '@angular/core';
 import { firstValueFrom, timeout } from 'rxjs';
 import { Cell, Issue, MatrixContents } from '../shared/availability-matrix/matrix';
+import { RuleKind } from './global-rules';
 
 /** A lineage with its current Approved version, as the dashboard lists it. */
 export interface LineageSummary {
@@ -41,6 +42,30 @@ export const STATUS_SEVERITIES: Record<CatalogStatus, 'secondary' | 'info' | 'su
   APPROVED: 'success',
 };
 
+/**
+ * A rule that belongs to one catalog: a source feature, its targets, and the trims and regions it
+ * holds in. An exclusion holds both ways, so it is kept as two paired rules that are made, changed,
+ * and deleted as one.
+ */
+export interface CatalogRule {
+  /** What identifies the rule within its catalog. It stays with the rule through every change. */
+  key: string;
+  kind: RuleKind;
+  sourceFeatureId: number;
+  targetFeatureIds: number[];
+  allTrims: boolean;
+  /** The trims the rule holds on, in the library's order. They count only when not every trim. */
+  trimIds: number[];
+  allRegions: boolean;
+  /** The regions the rule holds in, in the library's order. */
+  regionCodes: string[];
+  /** What a paired rule shares with its pair, or null for a rule that has none. */
+  pairKey: string | null;
+}
+
+/** What an owner gives to add a catalog rule or to change one. */
+export type CatalogRuleContent = Omit<CatalogRule, 'key' | 'pairKey'>;
+
 /** A catalog: what describes it, and its contents as the matrix shows them. */
 export interface Catalog {
   name: string;
@@ -63,6 +88,8 @@ export interface Catalog {
     lineageId: number;
     status: CatalogStatus;
     revision: number;
+    /** The rules that belong to the catalog, by the code of their source. */
+    rules: CatalogRule[];
   };
   /** What validation finds in it against the library as it is today, Errors before Warnings. */
   issues: Issue[];
@@ -104,8 +131,9 @@ export interface Change {
   trim: string | null;
   region: string | null;
   /**
-   * What the change replaced, and what it was replaced with: a cell's availability (S, A, or N), or
-   * a catalog's name.
+   * What the change replaced, and what it was replaced with: a cell's availability (S, A, or N), a
+   * catalog's name, or a rule in words. A rule that was added has no old value, and one that was
+   * removed no new one.
    */
   oldValue: string | null;
   newValue: string | null;
@@ -274,6 +302,26 @@ export class Catalogs {
     return this.edit(catalogId, 'PUT', `/trims/${trimId}/regions`, revision, {
       regionCodes,
     });
+  }
+
+  /** Adds a rule to a working copy. An Excludes rule is added as a pair for each of its targets. */
+  addRule(catalogId: number, revision: number, rule: CatalogRuleContent): Promise<number> {
+    return this.edit(catalogId, 'POST', '/rules', revision, rule);
+  }
+
+  /** Changes a rule of a working copy, and its pair with it. Its kind stays what it was. */
+  changeRule(
+    catalogId: number,
+    revision: number,
+    ruleKey: string,
+    rule: CatalogRuleContent,
+  ): Promise<number> {
+    return this.edit(catalogId, 'PUT', `/rules/${ruleKey}`, revision, rule);
+  }
+
+  /** Deletes a rule of a working copy, and its pair with it. */
+  deleteRule(catalogId: number, revision: number, ruleKey: string): Promise<number> {
+    return this.edit(catalogId, 'DELETE', `/rules/${ruleKey}`, revision);
   }
 
   /**

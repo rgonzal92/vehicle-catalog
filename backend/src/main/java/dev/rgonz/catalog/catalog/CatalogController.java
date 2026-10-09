@@ -1,6 +1,7 @@
 package dev.rgonz.catalog.catalog;
 
 import dev.rgonz.catalog.catalog.CatalogEdits.CellChange;
+import dev.rgonz.catalog.catalog.CatalogRules.RuleContent;
 import dev.rgonz.catalog.catalog.Catalogs.CatalogView;
 import dev.rgonz.catalog.catalog.Catalogs.LineageSummary;
 import dev.rgonz.catalog.catalog.Catalogs.VersionSummary;
@@ -12,6 +13,7 @@ import dev.rgonz.catalog.core.ApiException;
 import dev.rgonz.catalog.user.AppUsers;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -30,8 +32,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Shows everyone with a role the lineages, their Approved versions, and a catalog's contents, and
- * lets each of them create, edit, rename, and delete working copies of their own and read a
- * catalog's change history.
+ * lets each of them create, edit, rename, and delete working copies of their own, keep their rules,
+ * and read a catalog's change history.
  */
 @RestController
 class CatalogController {
@@ -110,14 +112,19 @@ class CatalogController {
     return saved(id, caller, edits.addTrims(id, people.idOf(caller), ifMatch, given.trimIds()));
   }
 
-  /** Removes a trim from the caller's working copy, with its offerings and their cells. */
+  /**
+   * Removes a trim from the caller's working copy, with its offerings and their cells, and with the
+   * rules that covered no other trim.
+   */
   @DeleteMapping("/api/catalogs/{id}/trims/{trimId}")
   ResponseEntity<Edited> removeTrim(
       @PathVariable long id,
       @PathVariable long trimId,
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       Authentication caller) {
-    return saved(id, caller, edits.removeTrim(id, people.idOf(caller), ifMatch, trimId));
+    var removed = edits.removeTrim(id, people.idOf(caller), ifMatch, trimId);
+
+    return saved(id, caller, removed.revision(), removed.rulesDeleted());
   }
 
   /** Adds library regions to the caller's working copy. */
@@ -131,14 +138,19 @@ class CatalogController {
         id, caller, edits.addRegions(id, people.idOf(caller), ifMatch, given.regionCodes()));
   }
 
-  /** Removes a region from the caller's working copy, with its offerings and their cells. */
+  /**
+   * Removes a region from the caller's working copy, with its offerings and their cells, and with
+   * the rules that covered no other region.
+   */
   @DeleteMapping("/api/catalogs/{id}/regions/{regionCode}")
   ResponseEntity<Edited> removeRegion(
       @PathVariable long id,
       @PathVariable String regionCode,
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       Authentication caller) {
-    return saved(id, caller, edits.removeRegion(id, people.idOf(caller), ifMatch, regionCode));
+    var removed = edits.removeRegion(id, people.idOf(caller), ifMatch, regionCode);
+
+    return saved(id, caller, removed.revision(), removed.rulesDeleted());
   }
 
   /** Says in which of the catalog's regions a trim is sold: in exactly the ones given. */
@@ -195,15 +207,56 @@ class CatalogController {
   }
 
   /**
-   * An edit answers with the revision the catalog is at afterwards, which is also the entity tag,
-   * and with every issue the catalog then has. The revision is the one the edit was made from when
-   * the edit changed nothing.
+   * Adds a rule to the caller's working copy. An Excludes rule is added as a pair for each of its
+   * targets.
    */
+  @PostMapping("/api/catalogs/{id}/rules")
+  ResponseEntity<Edited> addRule(
+      @PathVariable long id,
+      @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+      @RequestBody RuleContent given,
+      Authentication caller) {
+    return saved(id, caller, edits.addRule(id, people.idOf(caller), ifMatch, given));
+  }
+
+  /** Changes a rule of the caller's working copy, and its pair with it. */
+  @PutMapping("/api/catalogs/{id}/rules/{ruleKey}")
+  ResponseEntity<Edited> changeRule(
+      @PathVariable long id,
+      @PathVariable UUID ruleKey,
+      @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+      @RequestBody RuleContent given,
+      Authentication caller) {
+    return saved(id, caller, edits.changeRule(id, people.idOf(caller), ifMatch, ruleKey, given));
+  }
+
+  /** Deletes a rule of the caller's working copy, and its pair with it. */
+  @DeleteMapping("/api/catalogs/{id}/rules/{ruleKey}")
+  ResponseEntity<Edited> deleteRule(
+      @PathVariable long id,
+      @PathVariable UUID ruleKey,
+      @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+      Authentication caller) {
+    return saved(id, caller, edits.deleteRule(id, people.idOf(caller), ifMatch, ruleKey));
+  }
+
   private ResponseEntity<Edited> saved(long id, Authentication caller, long revision) {
+    return saved(id, caller, revision, List.of());
+  }
+
+  /**
+   * An edit answers with the revision the catalog is at afterwards, which is also the entity tag,
+   * with every issue the catalog then has, and with the rules it deleted along the way. The
+   * revision is the one the edit was made from when the edit changed nothing.
+   */
+  private ResponseEntity<Edited> saved(
+      long id, Authentication caller, long revision, List<String> rulesDeleted) {
     var issues =
         catalogs.find(id, people.idOf(caller)).map(CatalogView::issues).orElseGet(List::of);
 
-    return ResponseEntity.ok().eTag(String.valueOf(revision)).body(new Edited(revision, issues));
+    return ResponseEntity.ok()
+        .eTag(String.valueOf(revision))
+        .body(new Edited(revision, issues, rulesDeleted));
   }
 
   /** The name a working copy is to have. */
@@ -234,8 +287,12 @@ class CatalogController {
     return history.page(id, page, size);
   }
 
-  /** What a saved edit answers with. */
-  record Edited(long revision, List<Issue> issues) {}
+  /**
+   * What a saved edit answers with.
+   *
+   * @param rulesDeleted the rules that went with a trim or a region the edit removed, in words
+   */
+  record Edited(long revision, List<Issue> issues, List<String> rulesDeleted) {}
 
   /** A catalog with its contents. Its revision is the entity tag, which later writes name. */
   @GetMapping("/api/catalogs/{id}")

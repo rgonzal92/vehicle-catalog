@@ -16,7 +16,7 @@ export function kindInWords(kind: string): string {
 /**
  * What a change touched, in words, with the value before and after where it has them: "Panoramic
  * Roof (ROOF_PANORAMIC), Sport in Europe: was Not offered, now Available". It uses whatever the
- * change names, so it reads for every kind of change. A feature is named with its code, since two
+ * change names, so it reads for every kind of change: a rule that was added reads as the rule. A feature is named with its code, since two
  * features can share a name.
  */
 export function changeInWords(change: Change): string {
@@ -26,10 +26,11 @@ export function changeInWords(change: Change): string {
   const touched = [feature, offering].filter(Boolean).join(', ');
   // Only a cell's values are availabilities. Any other value, such as a name, reads as it is.
   const worded = change.kind === 'CELL_SET' ? availabilityName : (value: string) => value;
+  // A change with one value alone, such as a rule that was added, says that value.
   const values =
     oldValue !== null && newValue !== null
       ? `was ${worded(oldValue)}, now ${worded(newValue)}`
-      : '';
+      : (newValue ?? oldValue ?? '');
 
   return [touched, values].filter(Boolean).join(': ');
 }

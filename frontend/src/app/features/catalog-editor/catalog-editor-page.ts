@@ -47,11 +47,12 @@ import { AddFeaturesDialog } from './add-features-dialog';
 import { counted, sentence } from './counted';
 import { HistoryTab } from './history-tab';
 import { ManageOfferingsDialog } from './manage-offerings-dialog';
+import { RulesTab } from './rules-tab';
 import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
 
 /**
- * A catalog as its owner works on it: what describes it, its matrix on the Features tab, and its
- * change history on the History tab. The owner of a working copy in status Draft renames it in the
+ * A catalog as its owner works on it: what describes it, its matrix on the Features tab, its rules
+ * on the Rules tab, its issues on the Issues tab, and its change history on the History tab. The owner of a working copy in status Draft renames it in the
  * header. A working copy shows the library's current labels.
  *
  * The owner of a working copy in status Draft sets its cells, adds and removes feature rows, and
@@ -92,6 +93,7 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
     AddFeaturesDialog,
     HistoryTab,
     ManageOfferingsDialog,
+    RulesTab,
   ],
   selector: 'app-catalog-editor-page',
   template: `
@@ -194,6 +196,7 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
         <p-tabs class="surface" [(value)]="tab">
           <p-tablist>
             <p-tab value="features">Features</p-tab>
+            <p-tab value="rules">Rules</p-tab>
             <p-tab value="issues">Issues</p-tab>
             <p-tab value="history">History</p-tab>
           </p-tablist>
@@ -343,6 +346,11 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
                 [run]="restructure"
                 [editable]="editable()"
               />
+            </p-tabpanel>
+            <p-tabpanel value="rules">
+              @if (tab() === 'rules') {
+                <app-rules-tab [catalog]="catalog" [run]="restructure" [editable]="editable()" />
+              }
             </p-tabpanel>
             <p-tabpanel value="issues">
               @if (issues().length > 0) {
@@ -616,10 +624,9 @@ export class CatalogEditorPage {
   }
 
   /**
-   * Sends a change of the catalog's feature rows, trims, regions, or offerings behind the saves on
-   * their way, and
-   * reads the catalog again once it is saved, since such a change alters what the matrix is made
-   * of. It fails with the backend's refusal when the change is not saved.
+   * Sends a change of the catalog's feature rows, trims, regions, offerings, or rules behind the
+   * saves on their way, and reads the catalog again once it is saved, since such a change alters
+   * what the page is made of. It fails with the backend's refusal when the change is not saved.
    */
   protected readonly restructure = async (edit: CatalogEdit): Promise<void> => {
     const saves = this.saves();

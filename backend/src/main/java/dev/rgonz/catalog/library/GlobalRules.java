@@ -3,7 +3,6 @@ package dev.rgonz.catalog.library;
 import dev.rgonz.catalog.core.ApiException;
 import jakarta.validation.constraints.NotNull;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -26,29 +25,10 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class GlobalRules {
-  /** The most targets a rule has. */
-  static final int MOST_TARGETS = 20;
-
   private final JdbcClient jdbc;
 
   GlobalRules(JdbcClient jdbc) {
     this.jdbc = jdbc;
-  }
-
-  /** What a rule says of its source and its targets. */
-  enum Kind {
-    REQUIRES("requires", 1),
-    REQUIRES_ONE_OF("requires one of", 2),
-    INCLUDES("includes", 1),
-    EXCLUDES("excludes", 1);
-
-    private final String words;
-    private final int fewestTargets;
-
-    Kind(String words, int fewestTargets) {
-      this.words = words;
-      this.fewestTargets = fewestTargets;
-    }
   }
 
   /** Every rule, by the code of its source. */
@@ -63,7 +43,7 @@ public class GlobalRules {
    */
   @Transactional
   List<GlobalRule> add(RuleContent given) {
-    if (given.kind() != Kind.EXCLUDES) {
+    if (given.kind() != RuleKind.EXCLUDES) {
       check(given, Set.of());
       return List.of(find(insert(given, null)));
     }
@@ -89,7 +69,7 @@ public class GlobalRules {
           "A rule's kind cannot be changed. Delete the rule and add another.");
     }
     var pair = before.pairKey() == null ? List.of(id) : idsOfPair(before.pairKey());
-    if (given.kind() == Kind.EXCLUDES && given.targetFeatureIds().size() != 1) {
+    if (given.kind() == RuleKind.EXCLUDES && given.targetFeatureIds().size() != 1) {
       throw ApiException.invalid("An Excludes rule has exactly one target.");
     }
     check(given, Set.copyOf(pair));
@@ -336,20 +316,13 @@ public class GlobalRules {
   private void checkWhatARuleNames(RuleContent given) {
     var kind = given.kind();
     var targets = given.targetFeatureIds();
-    if (targets.size() > MOST_TARGETS) {
-      throw ApiException.limitExceeded("A rule has at most %d targets.".formatted(MOST_TARGETS));
+    if (targets.size() > RuleKind.MOST_TARGETS) {
+      throw ApiException.limitExceeded(
+          "A rule has at most %d targets.".formatted(RuleKind.MOST_TARGETS));
     }
-    if (targets.size() < kind.fewestTargets) {
-      throw ApiException.invalid(
-          kind == Kind.REQUIRES_ONE_OF
-              ? "A Requires one of rule has at least 2 targets."
-              : "Choose at least one target.");
-    }
-    if (new HashSet<>(targets).size() < targets.size()) {
-      throw ApiException.invalid("Name each target once.");
-    }
-    if (targets.contains(given.sourceFeatureId())) {
-      throw ApiException.invalid("A rule's source cannot be one of its targets.");
+    var refusal = kind.refusalOf(given.sourceFeatureId(), targets);
+    if (refusal != null) {
+      throw ApiException.invalid(refusal);
     }
 
     var named = new ArrayList<>(targets);
@@ -371,7 +344,8 @@ public class GlobalRules {
             "%s is retired, and a rule cannot name it.".formatted(feature.name()));
       }
     }
-    if (kind == Kind.INCLUDES && !features.get(given.sourceFeatureId()).kind().equals("PACKAGE")) {
+    if (kind == RuleKind.INCLUDES
+        && !features.get(given.sourceFeatureId()).kind().equals("PACKAGE")) {
       throw ApiException.invalid("Only a package includes other features.");
     }
 
@@ -428,7 +402,7 @@ public class GlobalRules {
    *     every region
    */
   record RuleContent(
-      @NotNull(message = "Choose a kind.") Kind kind,
+      @NotNull(message = "Choose a kind.") RuleKind kind,
       @NotNull(message = "Choose a source.") Long sourceFeatureId,
       @NotNull(message = "Choose at least one target.") List<@NotNull Long> targetFeatureIds,
       boolean allRegions,
@@ -453,7 +427,7 @@ public class GlobalRules {
    */
   record GlobalRule(
       long id,
-      Kind kind,
+      RuleKind kind,
       FeatureName source,
       List<FeatureName> targets,
       boolean allRegions,
@@ -466,7 +440,7 @@ public class GlobalRules {
           "%s %s %s"
               .formatted(
                   source.name(),
-                  kind.words,
+                  kind.words(),
                   targets.stream().map(FeatureName::name).collect(Collectors.joining(", ")));
       return allRegions
           ? said
@@ -484,14 +458,14 @@ public class GlobalRules {
 
   private record Header(
       long id,
-      Kind kind,
+      RuleKind kind,
       boolean allRegions,
       UUID pairKey,
       long sourceId,
       String sourceCode,
       String sourceName) {}
 
-  private record Locked(Kind kind, UUID pairKey) {}
+  private record Locked(RuleKind kind, UUID pairKey) {}
 
   private record Target(long ruleId, long id, String code, String name) {}
 

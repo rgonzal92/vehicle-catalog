@@ -14,6 +14,7 @@ import dev.rgonz.catalog.catalog.Issue.Code;
 import dev.rgonz.catalog.catalog.Issue.RuleReference;
 import dev.rgonz.catalog.catalog.Issue.Severity;
 import dev.rgonz.catalog.catalog.Validation.Library;
+import dev.rgonz.catalog.library.RuleKind;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -43,7 +44,7 @@ class RuleChecksTest {
           HITCH, "Trailer Hitch Receiver",
           WIRING, "Trailer Wiring");
 
-  private static Rule global(Rule.Kind kind, long source, Long... targets) {
+  private static Rule global(RuleKind kind, long source, Long... targets) {
     return new Rule(
         Rule.Origin.GLOBAL,
         "12",
@@ -54,7 +55,7 @@ class RuleChecksTest {
         Set.of(),
         true,
         Set.of(),
-        kind == Rule.Kind.EXCLUDES ? "a-pair" : null);
+        kind == RuleKind.EXCLUDES ? "a-pair" : null);
   }
 
   /** What validation finds from rules when the features have the cells given, in North America. */
@@ -83,7 +84,8 @@ class RuleChecksTest {
                 new FeatureRow(TOW, "PACKAGE_TOW", Kind.PACKAGE, "Tow Package", "PACKAGES"),
                 new FeatureRow(COOLING, "COOLING", Kind.FEATURE, "Heavy-Duty Cooling", "THERMAL"),
                 new FeatureRow(HITCH, "HITCH", Kind.FEATURE, "Trailer Hitch Receiver", "CHASSIS")),
-            cells);
+            cells,
+            List.of());
 
     return Validation.issues(catalog, new Library(Set.of(), Set.of(), Set.of(), rules, NAMES))
         .stream()
@@ -120,8 +122,7 @@ class RuleChecksTest {
   void requires(String source, String target, String code) {
     var issues =
         found(
-            List.of(global(Rule.Kind.REQUIRES, TOW, COOLING)),
-            Map.of(TOW, source, COOLING, target));
+            List.of(global(RuleKind.REQUIRES, TOW, COOLING)), Map.of(TOW, source, COOLING, target));
 
     assertThat(codes(issues)).isEqualTo(expected(code));
   }
@@ -140,7 +141,7 @@ class RuleChecksTest {
   })
   void excludes(String one, String other, String code) {
     var issues =
-        found(List.of(global(Rule.Kind.EXCLUDES, TOW, COOLING)), Map.of(TOW, one, COOLING, other));
+        found(List.of(global(RuleKind.EXCLUDES, TOW, COOLING)), Map.of(TOW, one, COOLING, other));
 
     assertThat(codes(issues)).isEqualTo(expected(code));
   }
@@ -159,7 +160,7 @@ class RuleChecksTest {
   })
   void includes(String pack, String target, String code) {
     var issues =
-        found(List.of(global(Rule.Kind.INCLUDES, TOW, HITCH)), Map.of(TOW, pack, HITCH, target));
+        found(List.of(global(RuleKind.INCLUDES, TOW, HITCH)), Map.of(TOW, pack, HITCH, target));
 
     assertThat(codes(issues)).isEqualTo(expected(code));
   }
@@ -177,7 +178,7 @@ class RuleChecksTest {
   void requiresOneOf(String source, String first, String second, String code) {
     var issues =
         found(
-            List.of(global(Rule.Kind.REQUIRES_ONE_OF, TOW, COOLING, HITCH)),
+            List.of(global(RuleKind.REQUIRES_ONE_OF, TOW, COOLING, HITCH)),
             Map.of(TOW, source, COOLING, first, HITCH, second));
 
     assertThat(codes(issues)).isEqualTo(expected(code));
@@ -186,7 +187,7 @@ class RuleChecksTest {
   @Test
   void anIssueNamesItsOfferingItsCellTheOtherFeatureAndItsRule() {
     var issues =
-        found(List.of(global(Rule.Kind.REQUIRES, TOW, COOLING)), Map.of(TOW, "A", COOLING, "N"));
+        found(List.of(global(RuleKind.REQUIRES, TOW, COOLING)), Map.of(TOW, "A", COOLING, "N"));
 
     assertThat(issues)
         .containsExactly(
@@ -205,7 +206,7 @@ class RuleChecksTest {
   @Test
   void theOnlyWarningIsAPackageWhoseTargetIsAlreadyStandard() {
     var issues =
-        found(List.of(global(Rule.Kind.INCLUDES, TOW, HITCH)), Map.of(TOW, "A", HITCH, "S"));
+        found(List.of(global(RuleKind.INCLUDES, TOW, HITCH)), Map.of(TOW, "A", HITCH, "S"));
 
     assertThat(issues).singleElement().extracting(Issue::severity).isEqualTo(Severity.WARNING);
     assertThat(issues.getFirst().message())
@@ -216,7 +217,7 @@ class RuleChecksTest {
 
   @Test
   void anAvailableFeatureThatAStandardOneExcludesIsTheOneTheIssueIsAbout() {
-    var rule = global(Rule.Kind.EXCLUDES, TOW, COOLING);
+    var rule = global(RuleKind.EXCLUDES, TOW, COOLING);
 
     var standardFirst = found(List.of(rule), Map.of(TOW, "S", COOLING, "A"));
     var availableFirst = found(List.of(rule), Map.of(TOW, "A", COOLING, "S"));
@@ -232,8 +233,8 @@ class RuleChecksTest {
 
   @Test
   void anExclusionIsReportedOnceForItsPairAndNotOnceForEachOfItsTwoRules() {
-    var forward = global(Rule.Kind.EXCLUDES, TOW, COOLING);
-    var mirrored = global(Rule.Kind.EXCLUDES, COOLING, TOW);
+    var forward = global(RuleKind.EXCLUDES, TOW, COOLING);
+    var mirrored = global(RuleKind.EXCLUDES, COOLING, TOW);
 
     var issues = found(List.of(forward, mirrored), Map.of(TOW, "S", COOLING, "S"));
 
@@ -246,7 +247,7 @@ class RuleChecksTest {
 
   @Test
   void aFeatureWithoutARowCountsAsNotOfferedAndIsCalledWhatTheLibraryCallsIt() {
-    var issues = found(List.of(global(Rule.Kind.INCLUDES, TOW, WIRING)), Map.of(TOW, "S"));
+    var issues = found(List.of(global(RuleKind.INCLUDES, TOW, WIRING)), Map.of(TOW, "S"));
 
     assertThat(codes(issues)).containsExactly("INCLUDED_NOT_OFFERED");
     assertThat(issues.getFirst().message())
@@ -260,7 +261,7 @@ class RuleChecksTest {
         new Rule(
             Rule.Origin.GLOBAL,
             "13",
-            Rule.Kind.REQUIRES,
+            RuleKind.REQUIRES,
             TOW,
             List.of(COOLING),
             true,
@@ -279,7 +280,7 @@ class RuleChecksTest {
   void aRequiresWithSeveralTargetsRaisesAnIssueForEachTargetThatFails() {
     var issues =
         found(
-            List.of(global(Rule.Kind.REQUIRES, TOW, COOLING, HITCH, WIRING)),
+            List.of(global(RuleKind.REQUIRES, TOW, COOLING, HITCH, WIRING)),
             Map.of(TOW, "S", COOLING, "S", HITCH, "A"));
 
     assertThat(codes(issues)).containsExactly("REQUIRED_NOT_STANDARD", "REQUIRED_NOT_OFFERED");

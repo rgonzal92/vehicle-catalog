@@ -177,6 +177,16 @@ describe('changeInWords', () => {
     expect(changeInWords(renamed)).toBe('was S, now toString');
   });
 
+  it('says a value that stands alone as it is, such as a rule that was added or removed', () => {
+    const rule = { ...cellSet, ...nothingNamed, kind: 'RULE_ADDED', oldValue: null };
+    const said = 'Tow Package requires Heavy-Duty Cooling (on Sport)';
+
+    expect(changeInWords({ ...rule, newValue: said })).toBe(said);
+    expect(changeInWords({ ...rule, kind: 'RULE_REMOVED', oldValue: said, newValue: null })).toBe(
+      said,
+    );
+  });
+
   it('shows a value it has no name for as it is', () => {
     expect(changeInWords({ ...cellSet, ...nothingNamed, oldValue: 'X', newValue: 'S' })).toBe(
       'was X, now Standard',

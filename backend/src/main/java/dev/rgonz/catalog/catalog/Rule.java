@@ -1,6 +1,7 @@
 package dev.rgonz.catalog.catalog;
 
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Offering;
+import dev.rgonz.catalog.library.RuleKind;
 import java.util.List;
 import java.util.Set;
 
@@ -17,7 +18,7 @@ import java.util.Set;
 record Rule(
     Origin origin,
     String key,
-    Kind kind,
+    RuleKind kind,
     long sourceFeatureId,
     List<Long> targetFeatureIds,
     boolean allTrims,
@@ -30,14 +31,6 @@ record Rule(
   enum Origin {
     GLOBAL,
     CATALOG
-  }
-
-  /** What a rule says of its source and its targets. */
-  enum Kind {
-    REQUIRES,
-    REQUIRES_ONE_OF,
-    INCLUDES,
-    EXCLUDES
   }
 
   /** Whether the rule is in effect for the offering. */
