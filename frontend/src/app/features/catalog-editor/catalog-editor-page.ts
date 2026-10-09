@@ -10,10 +10,18 @@ import {
   viewChild,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import {
+  FormsModule,
+  NonNullableFormBuilder,
+  ReactiveFormsModule,
+  Validators,
+} from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { MessageService } from 'primeng/api';
-import { Button } from 'primeng/button';
+import { Cog } from '@primeicons/angular/cog';
+import { Plus } from '@primeicons/angular/plus';
+import { Button, ButtonDirective, ButtonIcon, ButtonLabel } from 'primeng/button';
+import { Checkbox } from 'primeng/checkbox';
 import { Dialog } from 'primeng/dialog';
 import { InputText } from 'primeng/inputtext';
 import { Message } from 'primeng/message';
@@ -26,6 +34,7 @@ import {
   Catalogs,
   LONGEST_CATALOG_NAME,
   STATUS_NAMES,
+  STATUS_SEVERITIES,
 } from '../../core/catalogs';
 import { FixedLists } from '../../core/fixed-lists';
 import { FeatureKind, KIND_FILTERS } from '../../core/library';
@@ -57,6 +66,13 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
   imports: [
     ReactiveFormsModule,
     Button,
+    ButtonDirective,
+    ButtonIcon,
+    ButtonLabel,
+    Checkbox,
+    Cog,
+    Plus,
+    FormsModule,
     Dialog,
     InputText,
     Message,
@@ -74,9 +90,9 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
   ],
   selector: 'app-catalog-editor-page',
   template: `
-    <div>
+    <div class="grid gap-6">
       @if (catalog(); as catalog) {
-        <header>
+        <header class="grid gap-3">
           @if (renaming()) {
             <!-- The page keeps its heading while the name is a box to type in. -->
             <h2 class="sr-only">{{ catalog.name }}</h2>
@@ -104,7 +120,7 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
               <p-button label="Cancel" severity="secondary" (onClick)="stopRenaming()" />
             </form>
             @if (renameRefusal()) {
-              <p-message class="mt-2 block" severity="error">{{ renameRefusal() }}</p-message>
+              <p-message class="block" severity="error">{{ renameRefusal() }}</p-message>
             }
           } @else {
             <div class="flex flex-wrap items-center gap-2">
@@ -121,7 +137,7 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
               }
             </div>
           }
-          <dl class="mt-2 flex flex-wrap gap-x-8 gap-y-2">
+          <dl class="flex flex-wrap gap-x-8 gap-y-2">
             <div>
               <dt class="text-sm text-muted-color">Vehicle line</dt>
               <dd>{{ catalog.vehicleLine }}</dd>
@@ -132,7 +148,12 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
             </div>
             <div>
               <dt class="text-sm text-muted-color">Status</dt>
-              <dd><p-tag severity="secondary" [value]="statusNames[catalog.snapshot.status]" /></dd>
+              <dd>
+                <p-tag
+                  [severity]="statusSeverities[catalog.snapshot.status]"
+                  [value]="statusNames[catalog.snapshot.status]"
+                />
+              </dd>
             </div>
             <div>
               <dt class="text-sm text-muted-color">Base</dt>
@@ -142,7 +163,7 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
         </header>
 
         @if (reloadNeeded(); as why) {
-          <p-message class="mt-4 block" severity="error">
+          <p-message class="block" severity="error">
             <span>{{ why }}</span>
             <p-button
               class="ml-4"
@@ -154,14 +175,73 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
           </p-message>
         }
 
-        <p-tabs class="mt-6 block" [(value)]="tab">
+        <p-tabs class="surface" [(value)]="tab">
           <p-tablist>
             <p-tab value="features">Features</p-tab>
             <p-tab value="history">History</p-tab>
           </p-tablist>
           <p-tabpanels>
             <p-tabpanel value="features">
-              <div class="mb-2 flex flex-wrap items-center justify-between gap-4">
+              <div class="mb-3 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+                <form
+                  class="flex flex-wrap items-end gap-4"
+                  role="search"
+                  aria-label="Feature rows shown"
+                  [formGroup]="rowFilters"
+                >
+                  <div class="grid gap-1">
+                    <label for="row-query">Code or name</label>
+                    <input pInputText id="row-query" type="search" formControlName="query" />
+                  </div>
+                  <div class="grid gap-1">
+                    <label id="row-category-label" for="row-category">Category</label>
+                    <p-select
+                      inputId="row-category"
+                      ariaLabelledBy="row-category-label"
+                      formControlName="category"
+                      optionLabel="name"
+                      optionValue="code"
+                      [options]="fixedLists.categoryFilters()"
+                    />
+                  </div>
+                  <div class="grid gap-1">
+                    <label id="row-kind-label" for="row-kind">Kind</label>
+                    <p-select
+                      inputId="row-kind"
+                      ariaLabelledBy="row-kind-label"
+                      formControlName="kind"
+                      optionLabel="name"
+                      optionValue="code"
+                      [options]="kindFilters"
+                    />
+                  </div>
+                </form>
+                @if (editable() || managing()) {
+                  <div class="flex flex-wrap gap-2">
+                    <button
+                      pButton
+                      type="button"
+                      severity="secondary"
+                      [disabled]="managing()"
+                      (click)="adding.open()"
+                    >
+                      <svg data-p-icon="plus" pButtonIcon />
+                      <span pButtonLabel>Add features</span>
+                    </button>
+                    <button
+                      pButton
+                      type="button"
+                      severity="secondary"
+                      [disabled]="managing()"
+                      (click)="manage(offerings)"
+                    >
+                      <svg data-p-icon="cog" pButtonIcon />
+                      <span pButtonLabel>Manage trims and regions</span>
+                    </button>
+                  </div>
+                }
+              </div>
+              <div class="mb-2 flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
                 <div>
                   @if (catalog.snapshot.regions.length > 0) {
                     <fieldset class="flex flex-wrap items-center gap-4">
@@ -169,12 +249,12 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
                         Regions shown
                       </legend>
                       @for (region of catalog.snapshot.regions; track region.code) {
-                        <label class="flex items-center gap-1">
-                          <input
-                            type="checkbox"
-                            class="size-4"
-                            [checked]="!hiddenRegions().has(region.code)"
-                            (change)="showRegion(region.code, $any($event.target).checked)"
+                        <label class="flex items-center gap-2">
+                          <p-checkbox
+                            [binary]="true"
+                            [ngModel]="!hiddenRegions().has(region.code)"
+                            [ngModelOptions]="{ standalone: true }"
+                            (ngModelChange)="showRegion(region.code, $event)"
                           />
                           {{ region.name }}
                         </label>
@@ -182,59 +262,10 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
                     </fieldset>
                   }
                 </div>
-                @if (editable() || managing()) {
-                  <div class="flex flex-wrap gap-2">
-                    <p-button
-                      label="Add features"
-                      severity="secondary"
-                      [disabled]="managing()"
-                      (onClick)="adding.open()"
-                    />
-                    <p-button
-                      label="Manage trims and regions"
-                      severity="secondary"
-                      [disabled]="managing()"
-                      (onClick)="manage(offerings)"
-                    />
-                  </div>
-                }
-              </div>
-              <form
-                class="mb-2 flex flex-wrap items-end gap-4"
-                role="search"
-                aria-label="Feature rows shown"
-                [formGroup]="rowFilters"
-              >
-                <div class="grid gap-1">
-                  <label for="row-query">Code or name</label>
-                  <input pInputText id="row-query" type="search" formControlName="query" />
-                </div>
-                <div class="grid gap-1">
-                  <label id="row-category-label" for="row-category">Category</label>
-                  <p-select
-                    inputId="row-category"
-                    ariaLabelledBy="row-category-label"
-                    formControlName="category"
-                    optionLabel="name"
-                    optionValue="code"
-                    [options]="fixedLists.categoryFilters()"
-                  />
-                </div>
-                <div class="grid gap-1">
-                  <label id="row-kind-label" for="row-kind">Kind</label>
-                  <p-select
-                    inputId="row-kind"
-                    ariaLabelledBy="row-kind-label"
-                    formControlName="kind"
-                    optionLabel="name"
-                    optionValue="code"
-                    [options]="kindFilters"
-                  />
-                </div>
-                <p class="pb-2 text-sm text-muted-color" aria-live="polite" data-rows-shown>
+                <p class="text-sm text-muted-color" aria-live="polite" data-rows-shown>
                   {{ rowsShownInWords() }}
                 </p>
-              </form>
+              </div>
               <app-availability-matrix
                 #matrix
                 class="h-[70vh] min-h-96"
@@ -321,6 +352,7 @@ export class CatalogEditorPage {
   protected readonly missing = signal(false);
 
   protected readonly statusNames = STATUS_NAMES;
+  protected readonly statusSeverities = STATUS_SEVERITIES;
 
   /** The tab being shown. */
   protected readonly tab = signal<string | number | undefined>('features');
