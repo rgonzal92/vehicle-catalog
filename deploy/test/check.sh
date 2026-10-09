@@ -202,8 +202,8 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 expect "the agent is sent that request's trace" yes "$(whether grep -qE "$span" <<<"$said")"
-expect "the agent is sent five metrics and no other" \
-  "catalog.copy catalog.edit health http.server.requests jvm.heap.used" \
+expect "the agent is sent nine metrics and no other" \
+  "catalog.approved catalog.copy catalog.edit catalog.merged catalog.rejected catalog.submit.refused health http.server.requests jvm.heap.used" \
   "$(sed -n 's/^ *-> Name: //p' <<<"$said" | sort -u | paste -sd ' ')"
 expect "the log holds none of the secrets" 0 \
   "$(logged | grep -cF -e "$secret" -e a-password-for-this-check -e a-client-secret-for-this-check || true)"

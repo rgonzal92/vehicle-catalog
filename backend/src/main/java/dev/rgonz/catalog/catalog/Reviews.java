@@ -3,6 +3,8 @@ package dev.rgonz.catalog.catalog;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
 import dev.rgonz.catalog.catalog.Issue.Severity;
 import dev.rgonz.catalog.core.ApiException;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Objects;
 import java.util.regex.Pattern;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -25,11 +27,22 @@ class Reviews {
   private final JdbcClient jdbc;
   private final TransactionTemplate transactions;
   private final Catalogs catalogs;
+  private final Counter approvals;
+  private final Counter rejections;
 
-  Reviews(JdbcClient jdbc, TransactionTemplate transactions, Catalogs catalogs) {
+  Reviews(
+      JdbcClient jdbc, TransactionTemplate transactions, Catalogs catalogs, MeterRegistry metrics) {
     this.jdbc = jdbc;
     this.transactions = transactions;
     this.catalogs = catalogs;
+    this.approvals =
+        Counter.builder("catalog.approved")
+            .description("How many catalogs were approved")
+            .register(metrics);
+    this.rejections =
+        Counter.builder("catalog.rejected")
+            .description("How many catalogs were rejected")
+            .register(metrics);
   }
 
   /**
@@ -47,47 +60,48 @@ class Reviews {
    * @param comment what the reviewer says about it, if anything
    */
   long approve(long catalogId, long reviewerId, String ifMatch, String comment) {
-    return transactions.execute(
-        transaction -> {
-          var lineage =
-              jdbc.sql(
-                      """
+    long approved =
+        transactions.execute(
+            transaction -> {
+              var lineage =
+                  jdbc.sql(
+                          """
                       SELECT l.id, l.current_catalog_id
                       FROM lineage l
                       JOIN catalog c ON c.lineage_id = l.id
                       WHERE c.id = :id
                       FOR UPDATE OF l
                       """)
-                  .param("id", catalogId)
-                  .query(Lineage.class)
-                  .optional()
-                  .orElseThrow(ApiException::notFound);
-          var submitted = lockToDecide(catalogId, reviewerId, ifMatch);
-          var said = commentOf(comment);
-          if (lineage.currentCatalogId() != null
-              && !Objects.equals(lineage.currentCatalogId(), submitted.baseCatalogId())) {
-            throw ApiException.conflict(
-                "STALE",
-                "Another version of this catalog's lineage was approved after it was made. Its"
-                    + " owner has to update it from that version first.");
-          }
-          var catalog =
-              catalogs.find(catalogId, reviewerId, true).orElseThrow(ApiException::notFound);
-          if (!catalog.vehicleLineActive()) {
-            throw ApiException.conflict(
-                "VEHICLE_LINE_INACTIVE",
-                "The vehicle line %s is deactivated, so its catalogs cannot be approved."
-                    .formatted(catalog.vehicleLine()));
-          }
-          if (catalog.issues().stream().anyMatch(issue -> issue.severity() == Severity.ERROR)) {
-            throw ApiException.hasErrors(
-                "This catalog has Errors, so it cannot be approved.", catalog.issues());
-          }
+                      .param("id", catalogId)
+                      .query(Lineage.class)
+                      .optional()
+                      .orElseThrow(ApiException::notFound);
+              var submitted = lockToDecide(catalogId, reviewerId, ifMatch);
+              var said = commentOf(comment);
+              if (lineage.currentCatalogId() != null
+                  && !Objects.equals(lineage.currentCatalogId(), submitted.baseCatalogId())) {
+                throw ApiException.conflict(
+                    "STALE",
+                    "Another version of this catalog's lineage was approved after it was made. Its"
+                        + " owner has to update it from that version first.");
+              }
+              var catalog =
+                  catalogs.find(catalogId, reviewerId, true).orElseThrow(ApiException::notFound);
+              if (!catalog.vehicleLineActive()) {
+                throw ApiException.conflict(
+                    "VEHICLE_LINE_INACTIVE",
+                    "The vehicle line %s is deactivated, so its catalogs cannot be approved."
+                        .formatted(catalog.vehicleLine()));
+              }
+              if (catalog.issues().stream().anyMatch(issue -> issue.severity() == Severity.ERROR)) {
+                throw ApiException.hasErrors(
+                    "This catalog has Errors, so it cannot be approved.", catalog.issues());
+              }
 
-          freezeLabels(catalogId);
-          var revision =
-              jdbc.sql(
-                      """
+              freezeLabels(catalogId);
+              var revision =
+                  jdbc.sql(
+                          """
                       UPDATE catalog
                       SET status = 'APPROVED',
                           version_number =
@@ -98,20 +112,23 @@ class Reviews {
                       WHERE id = :id
                       RETURNING revision
                       """)
+                      .param("lineage", lineage.id())
+                      .param("reviewer", reviewerId)
+                      .param("id", catalogId)
+                      .query(Long.class)
+                      .single();
+              jdbc.sql("UPDATE lineage SET current_catalog_id = :catalog WHERE id = :lineage")
+                  .param("catalog", catalogId)
                   .param("lineage", lineage.id())
-                  .param("reviewer", reviewerId)
-                  .param("id", catalogId)
-                  .query(Long.class)
-                  .single();
-          jdbc.sql("UPDATE lineage SET current_catalog_id = :catalog WHERE id = :lineage")
-              .param("catalog", catalogId)
-              .param("lineage", lineage.id())
-              .update();
-          returnTheOthers(lineage.id(), catalogId);
-          record(catalogId, reviewerId, "APPROVED", said);
+                  .update();
+              returnTheOthers(lineage.id(), catalogId);
+              record(catalogId, reviewerId, "APPROVED", said);
 
-          return revision;
-        });
+              return revision;
+            });
+    approvals.increment();
+
+    return approved;
   }
 
   /**
@@ -119,26 +136,30 @@ class Reviews {
    * revision it is at afterwards. A rejection says why.
    */
   long reject(long catalogId, long reviewerId, String ifMatch, String comment) {
-    return transactions.execute(
-        transaction -> {
-          lockToDecide(catalogId, reviewerId, ifMatch);
-          var said = commentOf(comment);
-          if (said == null) {
-            throw ApiException.invalid("Say why the catalog is rejected.");
-          }
-          record(catalogId, reviewerId, "REJECTED", said);
+    long rejected =
+        transactions.execute(
+            transaction -> {
+              lockToDecide(catalogId, reviewerId, ifMatch);
+              var said = commentOf(comment);
+              if (said == null) {
+                throw ApiException.invalid("Say why the catalog is rejected.");
+              }
+              record(catalogId, reviewerId, "REJECTED", said);
 
-          return jdbc.sql(
-                  """
+              return jdbc.sql(
+                      """
                   UPDATE catalog
                   SET status = 'DRAFT', revision = revision + 1, updated_at = now()
                   WHERE id = :id
                   RETURNING revision
                   """)
-              .param("id", catalogId)
-              .query(Long.class)
-              .single();
-        });
+                  .param("id", catalogId)
+                  .query(Long.class)
+                  .single();
+            });
+    rejections.increment();
+
+    return rejected;
   }
 
   /**

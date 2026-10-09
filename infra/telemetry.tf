@@ -242,6 +242,47 @@ resource "aws_cloudwatch_dashboard" "backend" {
           ]
         }
       },
+      {
+        type = "metric", x = 12, y = 18, width = 12, height = 6
+        properties = {
+          title  = "Catalogs approved, rejected, and updated from Approved, a minute"
+          region = data.aws_region.current.region
+          view   = "timeSeries"
+          period = 60
+          metrics = [
+            [{
+              expression = "SEARCH('${local.backend_metric} MetricName=\"catalog.approved\"', 'Sum', 60)"
+              id         = "approved"
+              label      = "approved"
+            }],
+            [{
+              expression = "SEARCH('${local.backend_metric} MetricName=\"catalog.rejected\"', 'Sum', 60)"
+              id         = "rejected"
+              label      = "rejected"
+            }],
+            [{
+              expression = "SEARCH('${local.backend_metric} MetricName=\"catalog.merged\"', 'Sum', 60)"
+              id         = "merged"
+              label      = "updated from Approved"
+            }],
+          ]
+        }
+      },
+      {
+        type = "metric", x = 0, y = 24, width = 12, height = 6
+        properties = {
+          title   = "Submits refused a minute, by reason"
+          region  = data.aws_region.current.region
+          view    = "timeSeries"
+          period  = 60
+          stacked = true
+          metrics = [[{
+            expression = "SEARCH('${local.backend_metric} MetricName=\"catalog.submit.refused\"', 'Sum', 60)"
+            id         = "refused"
+            label      = "$${PROP('Dim.reason')}"
+          }]]
+        }
+      },
     ]
   })
 }

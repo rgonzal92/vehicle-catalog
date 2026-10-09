@@ -2,8 +2,10 @@ package dev.rgonz.catalog.catalog;
 
 import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.core.Role;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.assertj.MockMvcTester.MockMvcRequestBuilder;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
@@ -13,6 +15,13 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  * What the tests of working copies share: people on record, and ways to create, open, and edit one.
  */
 abstract class WorkingCopyTests extends ApplicationIT {
+  @Autowired protected MeterRegistry meters;
+
+  /** How often something has been counted so far, told apart by the tags as keys and values. */
+  protected double counted(String counter, String... tags) {
+    return meters.get(counter).tags(tags).counter().count();
+  }
+
   /** Ana, an author who is on record. */
   protected RequestPostProcessor ana() {
     return signedInAs(Role.AUTHOR, "ana");

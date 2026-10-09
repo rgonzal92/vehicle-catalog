@@ -42,8 +42,10 @@ class StaleIT extends WorkingCopyTests {
     assertThat(opened).bodyJson().extractingPath("$.current.catalogId").isEqualTo((int) anas);
     assertThat(opened).bodyJson().extractingPath("$.base.versionNumber").isEqualTo(2);
     assertThat(listed(ben(), bens)).containsEntry("stale", true);
+    var counted = counted("catalog.submit.refused", "reason", "STALE");
     var refused = submit(ben(), bens);
     assertThat(refused).hasStatus(409).bodyJson().extractingPath("$.code").isEqualTo("STALE");
+    assertThat(counted("catalog.submit.refused", "reason", "STALE")).isEqualTo(counted + 1);
     assertThat(refused).bodyJson().extractingPath("$.detail").asString().contains("Approved v3");
     var edited = setCells(ben(), bens, "\"0\"", cell("TRANS_MANUAL", "Base", "NA", "A"));
     assertThat(edited).as("a stale Draft is edited like any other").hasStatusOk();

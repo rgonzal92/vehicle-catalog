@@ -75,6 +75,26 @@ class ReviewsIT extends WorkingCopyTests {
   }
 
   @Test
+  void approvalsAndRejectionsAreCountedAndARefusedDecisionIsNot() {
+    var approved = counted("catalog.approved");
+    var rejected = counted("catalog.rejected");
+
+    assertThat(decide(mia(), "reject", copy, "\"1\"", null)).as("without a reason").hasStatus(422);
+    assertThat(decide(mia(), "approve", copy, "\"7\"", null))
+        .as("from another revision")
+        .hasStatus(412);
+    assertThat(counted("catalog.approved")).isEqualTo(approved);
+    assertThat(counted("catalog.rejected")).isEqualTo(rejected);
+
+    assertThat(decide(mia(), "reject", copy, "\"1\"", "Not yet.")).hasStatusOk();
+    submit(ana(), copy, "\"2\"");
+    assertThat(decide(mia(), "approve", copy, "\"3\"", null)).hasStatusOk();
+
+    assertThat(counted("catalog.approved")).isEqualTo(approved + 1);
+    assertThat(counted("catalog.rejected")).isEqualTo(rejected + 1);
+  }
+
+  @Test
   void aLineagesFirstApprovalGivesVersionOne() {
     var first = workingCopy(ana(), "PICKUP_TRUCK", 2027);
     submit(ana(), first, "\"0\"");

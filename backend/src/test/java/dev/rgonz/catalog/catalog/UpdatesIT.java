@@ -67,8 +67,11 @@ class UpdatesIT extends WorkingCopyTests {
   void theOwnerSettlesTheConflictAndTheCatalogHasWhatWasApprovedAndItsOwnChanges() {
     bothChangeTheManualAndAnasIsApproved();
     var revision = revision(bens);
+    var updates = counted("catalog.merged");
 
     var updated = update(ben(), bens, rev(bens), anas, Map.of(manualOnBase(), "THEIRS"));
+
+    assertThat(counted("catalog.merged")).isEqualTo(updates + 1);
 
     assertThat(updated).hasStatusOk().headers().hasValue("ETag", "\"" + (revision + 1) + "\"");
     assertThat(updated).bodyJson().extractingPath("$.revision").isEqualTo((int) revision + 1);
@@ -96,8 +99,11 @@ class UpdatesIT extends WorkingCopyTests {
   void anUpdateWithAConflictLeftOpenIsRefused() {
     bothChangeTheManualAndAnasIsApproved();
     var revision = revision(bens);
+    var updates = counted("catalog.merged");
 
     var refused = update(ben(), bens, rev(bens), anas, Map.of());
+
+    assertThat(counted("catalog.merged")).as("a refused update is not counted").isEqualTo(updates);
 
     assertThat(refused)
         .hasStatus(422)

@@ -265,14 +265,19 @@ It all goes to Amazon CloudWatch.
 | `jvm.heap.used` | the memory the backend's heap uses | nothing |
 | `catalog.edit` | how long saving an edit of a working copy took | nothing |
 | `catalog.copy` | how long copying a catalog into a new working copy took | nothing |
+| `catalog.submit.refused` | how many submits were refused for the state the catalog was in | `reason`, of which there are three: `STALE`, `VEHICLE_LINE_INACTIVE`, `HAS_ERRORS` |
+| `catalog.approved` | how many catalogs were approved | nothing |
+| `catalog.rejected` | how many catalogs were rejected | nothing |
+| `catalog.merged` | how many working copies were updated from Approved | nothing |
 | `mem_used_percent` | the share of the host's memory in use | nothing |
 | `disk_used_percent` | the share of the host's disk in use | nothing that varies |
 
-CloudWatch counts a metric once for every value of what it is told apart by, which makes ten of
-these, and charges for each one beyond ten. So the backend sends no metric that the alarm or the
-dashboard does not use: `Telemetry.java` in the backend turns down every other. A metric is there
-once it has first been sent, so the two times and the fourth outcome, a request that fails in the
-backend, appear when there has been one.
+CloudWatch counts a metric once for every value of what it is told apart by, which makes sixteen
+of these, and charges for each one beyond ten: six, at about $0.30 a month each. So the backend
+sends no metric that the alarm or the dashboard does not use: `Telemetry.java` in the backend turns
+down every other. A metric is there once it has first been sent, so the two times and the fourth
+outcome, a request that fails in the backend, appear when there has been one. The six that count
+catalogs are sent from the start, as zero in a minute when there was none.
 
 The agent adds four labels of its own to each of the backend's metrics, and one of them is the
 version of the library that sent it. The alarm and the dashboard therefore find a metric by its

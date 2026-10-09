@@ -12,6 +12,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.List;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -81,7 +82,25 @@ class TelemetryIT extends ApplicationIT {
     await().untilAsserted(() -> assertThat(counted("CLIENT_ERROR")).isPositive());
     assertThat(meters.getMeters().stream().map(Meter::getId).map(Meter.Id::getName).distinct())
         .containsExactlyInAnyOrder(
-            "health", "http.server.requests", "jvm.heap.used", "catalog.edit", "catalog.copy");
+            "health",
+            "http.server.requests",
+            "jvm.heap.used",
+            "catalog.edit",
+            "catalog.copy",
+            "catalog.submit.refused",
+            "catalog.approved",
+            "catalog.rejected",
+            "catalog.merged");
+  }
+
+  @Test
+  void aRefusedSubmitIsToldApartByThreeReasonsAndByNothingElse() {
+    assertThat(meters.find("catalog.submit.refused").counters())
+        .extracting(counter -> counter.getId().getTags())
+        .containsExactlyInAnyOrder(
+            List.of(Tag.of("reason", "HAS_ERRORS")),
+            List.of(Tag.of("reason", "STALE")),
+            List.of(Tag.of("reason", "VEHICLE_LINE_INACTIVE")));
   }
 
   @Test
