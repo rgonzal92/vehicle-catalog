@@ -15,6 +15,9 @@ export default defineConfig({
   // The pipeline's machine has four processors. A test keeps to catalogs of its own, so the
   // tests run side by side there as they do on a developer's machine.
   workers: process.env.CI ? 4 : undefined,
+  // Four at a time on that machine, a test takes about 1.7 times as long as it does alone, and
+  // the longest came within a second or two of the thirty a test has unless it is given more.
+  timeout: 60_000,
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL: 'http://localhost:8092',
