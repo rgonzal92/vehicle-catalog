@@ -56,6 +56,7 @@ import { ManageOfferingsDialog } from './manage-offerings-dialog';
 import { rulesInWords } from './rule-words';
 import { RulesTab } from './rules-tab';
 import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
+import { UpdateDialog } from './update-dialog';
 
 /**
  * A catalog as its owner works on it: what describes it, its matrix on the Features tab, its rules
@@ -105,6 +106,7 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
     HistoryTab,
     ManageOfferingsDialog,
     RulesTab,
+    UpdateDialog,
   ],
   selector: 'app-catalog-editor-page',
   template: `
@@ -247,18 +249,30 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
           </p>
         }
         @if (stale() && catalog.snapshot.status !== 'APPROVED') {
-          <p class="notice" role="status" data-notice="stale">
-            <strong>This catalog is stale.</strong>
-            @if (catalog.stale && catalog.current; as current) {
-              Approved v{{ current.versionNumber }} is now the current version of
-              {{ catalog.vehicleLine }} {{ catalog.modelYear }}, and this catalog was made from an
-              earlier one.
-            } @else {
-              Another version of {{ catalog.vehicleLine }} {{ catalog.modelYear }} was approved
-              after this catalog was made.
+          <div class="notice flex flex-wrap items-center justify-between gap-3">
+            <p role="status" data-notice="stale">
+              <strong>This catalog is stale.</strong>
+              @if (catalog.stale && catalog.current; as current) {
+                Approved v{{ current.versionNumber }} is now the current version of
+                {{ catalog.vehicleLine }} {{ catalog.modelYear }}, and this catalog was made from an
+                earlier one.
+              } @else {
+                Another version of {{ catalog.vehicleLine }} {{ catalog.modelYear }} was approved
+                after this catalog was made.
+              }
+              It cannot be submitted until it has been updated from that version.
+            </p>
+            @if (catalog.owned && catalog.snapshot.status === 'DRAFT') {
+              <p-button
+                label="Update from Approved"
+                severity="secondary"
+                [disabled]="!editable()"
+                [loading]="previewing()"
+                (onClick)="previewUpdate(updating)"
+              />
+              <app-update-dialog #updating [catalogId]="catalog.snapshot.catalogId" />
             }
-            It cannot be submitted until it has been updated from that version.
-          </p>
+          </div>
         }
         @if (catalog.vehicleLineActive === false && catalog.snapshot.status !== 'APPROVED') {
           <p class="notice" role="status" data-notice="vehicle-line">
@@ -642,6 +656,9 @@ export class CatalogEditorPage {
   /** Whether a withdrawal is on its way. */
   protected readonly withdrawing = signal(false);
 
+  /** Whether an update from Approved is being worked out. */
+  protected readonly previewing = signal(false);
+
   /** The feature row the person is asked to confirm the removal of, or null while there is none. */
   protected readonly removing = signal<{ feature: FeatureRow; cells: number } | null>(null);
 
@@ -906,6 +923,23 @@ export class CatalogEditorPage {
       }
     } finally {
       this.submittingNow.set(false);
+    }
+  }
+
+  /**
+   * Opens the dialog that shows what an update from Approved would do. It is worked out from the
+   * catalog as it is saved, so the saves on their way go first.
+   */
+  protected async previewUpdate(dialog: UpdateDialog): Promise<void> {
+    const saves = this.saves();
+    this.previewing.set(true);
+    try {
+      await saves?.whenIdle();
+      if (!saves?.stopped()) {
+        await dialog.open();
+      }
+    } finally {
+      this.previewing.set(false);
     }
   }
 

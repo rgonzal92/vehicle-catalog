@@ -9,6 +9,7 @@ import dev.rgonz.catalog.catalog.Catalogs.VersionSummary;
 import dev.rgonz.catalog.catalog.ChangeHistory.ChangePage;
 import dev.rgonz.catalog.catalog.Diff.Changes;
 import dev.rgonz.catalog.catalog.Issue.Severity;
+import dev.rgonz.catalog.catalog.Updates.Preview;
 import dev.rgonz.catalog.catalog.WorkingCopies.NewWorkingCopy;
 import dev.rgonz.catalog.catalog.WorkingCopies.StartPoint;
 import dev.rgonz.catalog.catalog.WorkingCopies.Submitted;
@@ -42,7 +43,8 @@ import org.springframework.web.bind.annotation.RestController;
  * Shows everyone with a role the lineages, their Approved versions, and a catalog's contents, shows
  * managers and admins the catalogs that are waiting for review and lets them approve or reject one,
  * and lets each of them create, edit, rename, and delete working copies of their own, keep their
- * rules, submit them for review and withdraw them, and read a catalog's change history.
+ * rules, submit them for review and withdraw them, see what an update from Approved would bring
+ * into a stale one, and read a catalog's change history.
  */
 @RestController
 class CatalogController {
@@ -51,6 +53,7 @@ class CatalogController {
   private final CatalogEdits edits;
   private final Submissions submissions;
   private final Reviews reviews;
+  private final Updates updates;
   private final ChangeHistory history;
   private final AppUsers people;
   private final RoleHierarchy roles;
@@ -61,10 +64,12 @@ class CatalogController {
       CatalogEdits edits,
       Submissions submissions,
       Reviews reviews,
+      Updates updates,
       ChangeHistory history,
       AppUsers people,
       RoleHierarchy roles) {
     this.reviews = reviews;
+    this.updates = updates;
     this.roles = roles;
     this.catalogs = catalogs;
     this.workingCopies = workingCopies;
@@ -460,6 +465,16 @@ class CatalogController {
             : catalogs.contents(other, viewer, reviews(caller)).orElseThrow(ApiException::notFound);
 
     return Diff.between(before, catalog.snapshot());
+  }
+
+  /**
+   * What an update from its lineage's current Approved would do to the caller's stale Draft: what
+   * it brings in without asking, and the conflicts the owner would have to settle. It saves
+   * nothing.
+   */
+  @PostMapping("/api/catalogs/{id}/merge-preview")
+  Preview mergePreview(@PathVariable long id, Authentication caller) {
+    return updates.preview(id, people.idOf(caller));
   }
 
   /**
