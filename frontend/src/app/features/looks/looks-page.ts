@@ -49,8 +49,8 @@ import { CATEGORIES, largestCatalog } from '../matrix-proof/matrix-proof-page';
   selector: 'app-looks-page',
   template: `
     <div class="grid gap-6">
-      <section [class]="surface" aria-labelledby="catalogs">
-        <div [class]="surfaceHeader">
+      <section class="surface" aria-labelledby="catalogs">
+        <div class="surface-header">
           <h2 id="catalogs" class="font-semibold">My catalogs</h2>
           <button pButton type="button" (click)="asking.set(true)">
             <svg data-p-icon="plus" pButtonIcon />
@@ -92,15 +92,15 @@ import { CATEGORIES, largestCatalog } from '../matrix-proof/matrix-proof-page';
         </p-table>
       </section>
 
-      <section [class]="surface" aria-labelledby="queue">
-        <div [class]="surfaceHeader">
+      <section class="surface" aria-labelledby="queue">
+        <div class="surface-header">
           <h2 id="queue" class="font-semibold">Review queue</h2>
         </div>
         <p class="px-4 py-8 text-center text-muted-color">Nothing is waiting for review.</p>
       </section>
 
-      <section [class]="surface" aria-labelledby="form">
-        <div [class]="surfaceHeader">
+      <section class="surface" aria-labelledby="form">
+        <div class="surface-header">
           <h2 id="form" class="font-semibold">A form</h2>
         </div>
         <div class="grid max-w-xl gap-4 p-4">
@@ -170,8 +170,8 @@ import { CATEGORIES, largestCatalog } from '../matrix-proof/matrix-proof-page';
         </div>
       </p-dialog>
 
-      <section [class]="surface" aria-labelledby="matrix">
-        <div [class]="surfaceHeader">
+      <section class="surface" aria-labelledby="matrix">
+        <div class="surface-header">
           <h2 id="matrix" class="font-semibold">A catalog's tabs, filters, and matrix</h2>
           <div class="flex gap-2">
             <button pButton type="button" severity="secondary" (click)="editable.set(!editable())">
@@ -246,12 +246,6 @@ export class LooksPage {
     ...catalog,
     severity: { Draft: 'secondary', Submitted: 'info', Approved: 'success' }[catalog.status],
   }));
-
-  /** A part of a page: a bordered panel on the page's ground. */
-  protected readonly surface =
-    'overflow-hidden rounded-border border border-surface bg-surface-0 dark:bg-surface-900';
-  protected readonly surfaceHeader =
-    'flex flex-wrap items-center justify-between gap-4 border-b border-surface px-4 py-3';
 
   protected markNotSaved(): void {
     const [feature] = this.contents.featureRows;

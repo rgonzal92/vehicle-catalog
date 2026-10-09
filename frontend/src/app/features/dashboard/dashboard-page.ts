@@ -3,28 +3,52 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, ElementRef, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { MessageService } from 'primeng/api';
-import { Button } from 'primeng/button';
+import { Plus } from '@primeicons/angular/plus';
+import { Button, ButtonDirective, ButtonIcon, ButtonLabel } from 'primeng/button';
 import { Dialog } from 'primeng/dialog';
 import { Message } from 'primeng/message';
 import { TableModule } from 'primeng/table';
-import { Catalogs, LineageSummary, STATUS_NAMES, WorkingCopy } from '../../core/catalogs';
+import { Tag } from 'primeng/tag';
+import {
+  Catalogs,
+  LineageSummary,
+  STATUS_NAMES,
+  STATUS_SEVERITIES,
+  WorkingCopy,
+} from '../../core/catalogs';
 import { Session } from '../../core/session';
 import { NewCatalogDialog } from '../../shared/new-catalog-dialog/new-catalog-dialog';
 import { reasonOf } from '../../shared/reason-of';
 
 /** The first page a signed-in person sees, with a section for each thing their role can do. */
 @Component({
-  imports: [DatePipe, RouterLink, Button, Dialog, Message, TableModule, NewCatalogDialog],
+  imports: [
+    DatePipe,
+    RouterLink,
+    Plus,
+    Button,
+    ButtonDirective,
+    ButtonIcon,
+    ButtonLabel,
+    Dialog,
+    Message,
+    TableModule,
+    Tag,
+    NewCatalogDialog,
+  ],
   selector: 'app-dashboard-page',
   template: `
-    <div class="max-w-5xl">
-      <section aria-labelledby="my-catalogs">
-        <div class="flex items-center justify-between gap-4">
-          <h2 id="my-catalogs" class="text-xl font-semibold" tabindex="-1">My catalogs</h2>
-          <p-button label="New catalog" (onClick)="newCatalog.open()" />
+    <div class="grid max-w-6xl gap-6">
+      <section class="surface" aria-labelledby="my-catalogs">
+        <div class="surface-header">
+          <h2 id="my-catalogs" class="font-semibold" tabindex="-1">My catalogs</h2>
+          <button pButton type="button" (click)="newCatalog.open()">
+            <svg data-p-icon="plus" pButtonIcon />
+            <span pButtonLabel>New catalog</span>
+          </button>
         </div>
         @if (mine()?.length) {
-          <p-table class="mt-2 block" [value]="mine() ?? []">
+          <p-table [value]="mine() ?? []">
             <ng-template #header>
               <tr>
                 <th scope="col">Name</th>
@@ -40,11 +64,16 @@ import { reasonOf } from '../../shared/reason-of';
                 <td>{{ catalog.name }}</td>
                 <td>{{ catalog.vehicleLine }}</td>
                 <td>{{ catalog.modelYear }}</td>
-                <td>{{ statusNames[catalog.status] }}</td>
+                <td>
+                  <p-tag
+                    [severity]="statusSeverities[catalog.status]"
+                    [value]="statusNames[catalog.status]"
+                  />
+                </td>
                 <td>{{ catalog.updatedAt | date: 'medium' }}</td>
-                <td class="text-right">
+                <td class="text-right whitespace-nowrap">
                   <a
-                    class="text-primary underline"
+                    class="font-medium text-primary hover:underline"
                     [routerLink]="['/catalogs', catalog.id]"
                     [attr.aria-label]="'Open ' + catalog.name"
                   >
@@ -67,7 +96,7 @@ import { reasonOf } from '../../shared/reason-of';
             </ng-template>
           </p-table>
         } @else if (mine()) {
-          <p class="mt-2 text-muted-color">You have no catalogs.</p>
+          <p class="surface-empty">You have no catalogs.</p>
         }
         <app-new-catalog-dialog #newCatalog />
         <p-dialog
@@ -104,10 +133,12 @@ import { reasonOf } from '../../shared/reason-of';
         </p-dialog>
       </section>
 
-      <section class="mt-10" aria-labelledby="approved-catalogs">
-        <h2 id="approved-catalogs" class="text-xl font-semibold">Approved catalogs</h2>
+      <section class="surface" aria-labelledby="approved-catalogs">
+        <div class="surface-header">
+          <h2 id="approved-catalogs" class="font-semibold">Approved catalogs</h2>
+        </div>
         @if (lineages()?.length) {
-          <p-table class="mt-2 block" [value]="lineages() ?? []">
+          <p-table [value]="lineages() ?? []">
             <ng-template #header>
               <tr>
                 <th scope="col">Vehicle line</th>
@@ -121,7 +152,7 @@ import { reasonOf } from '../../shared/reason-of';
               <tr>
                 <td>
                   <a
-                    class="text-primary underline"
+                    class="font-medium text-primary hover:underline"
                     [routerLink]="['/approved', lineage.id]"
                     [attr.aria-label]="'Open ' + lineage.vehicleLine + ' ' + lineage.modelYear"
                   >
@@ -136,14 +167,16 @@ import { reasonOf } from '../../shared/reason-of';
             </ng-template>
           </p-table>
         } @else if (lineages()) {
-          <p class="mt-2 text-muted-color">There are no Approved catalogs.</p>
+          <p class="surface-empty">There are no Approved catalogs.</p>
         }
       </section>
 
       @if (session.holds('manager')) {
-        <section class="mt-10" aria-labelledby="review-queue">
-          <h2 id="review-queue" class="text-xl font-semibold">Review queue</h2>
-          <p class="mt-2 text-muted-color">Nothing is waiting for review.</p>
+        <section class="surface" aria-labelledby="review-queue">
+          <div class="surface-header">
+            <h2 id="review-queue" class="font-semibold">Review queue</h2>
+          </div>
+          <p class="surface-empty">Nothing is waiting for review.</p>
         </section>
       }
     </div>
@@ -165,6 +198,8 @@ export class DashboardPage {
   protected readonly mine = signal<WorkingCopy[] | null>(null);
 
   protected readonly statusNames: Record<string, string> = STATUS_NAMES;
+  protected readonly statusSeverities: Record<string, 'secondary' | 'info' | 'success'> =
+    STATUS_SEVERITIES;
 
   /** The working copy the person is asked to confirm the deletion of, or null while there is none. */
   protected readonly deleting = signal<WorkingCopy | null>(null);

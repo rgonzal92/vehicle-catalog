@@ -100,7 +100,7 @@ describe('ApprovedPage', () => {
     (await catalogRequest(12)).flush(catalog(versions[0], [{}, {}, {}]));
 
     await vi.waitFor(() =>
-      expect(element.querySelector('h2')?.textContent).toBe('Compact SUV 2026'),
+      expect(element.querySelector('h2')?.textContent?.trim()).toBe('Compact SUV 2026'),
     );
     const shown = element.querySelector('[data-shown]')?.textContent ?? '';
     expect(shown).toContain('Approved version 2');

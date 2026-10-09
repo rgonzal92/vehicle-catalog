@@ -7,12 +7,14 @@ import { Session } from '../../core/session';
   imports: [Button],
   selector: 'app-no-role-page',
   template: `
-    <main class="mx-auto max-w-3xl px-6 py-16">
-      <h1 class="text-4xl font-semibold">No role assigned</h1>
-      <p class="mt-4 text-lg text-muted-color">
-        You are signed in, but your account has no role yet. An admin can assign one.
-      </p>
-      <p-button class="mt-8 block" label="Sign out" (onClick)="session.signOut()" />
+    <main class="mx-auto max-w-xl px-6 py-24">
+      <div class="surface grid justify-items-center gap-4 p-8 text-center">
+        <h1 class="text-2xl font-semibold">No role assigned</h1>
+        <p class="text-muted-color">
+          You are signed in, but your account has no role yet. An admin can assign one.
+        </p>
+        <p-button label="Sign out" severity="secondary" (onClick)="session.signOut()" />
+      </div>
     </main>
   `,
 })
