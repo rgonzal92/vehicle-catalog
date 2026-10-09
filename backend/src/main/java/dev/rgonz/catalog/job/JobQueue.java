@@ -3,6 +3,7 @@ package dev.rgonz.catalog.job;
 import jakarta.annotation.PreDestroy;
 import java.net.URI;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -21,6 +22,9 @@ import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
 @Component
 @TalksToTheQueue
 class JobQueue {
+  /** The name of the attribute, and of the header elsewhere, that carries a message's trace. */
+  static final String TRACE = "traceparent";
+
   /** The most messages one request receives, which is the most SQS gives at once. */
   static final int MOST_AT_ONCE = 10;
 
@@ -57,19 +61,30 @@ class JobQueue {
     sqs.close();
   }
 
-  void send(String body, String type) {
+  /**
+   * Sends a message for a job.
+   *
+   * @param traceparent the trace the job was written in, or null when it was written in none
+   */
+  void send(String body, String type, String traceparent) {
+    var attributes = new HashMap<String, MessageAttributeValue>();
+    attributes.put("type", text(type));
+    if (traceparent != null) {
+      attributes.put(TRACE, text(traceparent));
+    }
     sqs.sendMessage(
-        message ->
-            message
-                .queueUrl(url)
-                .messageBody(body)
-                .messageAttributes(
-                    Map.of(
-                        "type",
-                        MessageAttributeValue.builder()
-                            .dataType("String")
-                            .stringValue(type)
-                            .build())));
+        message -> message.queueUrl(url).messageBody(body).messageAttributes(attributes));
+  }
+
+  private static MessageAttributeValue text(String value) {
+    return MessageAttributeValue.builder().dataType("String").stringValue(value).build();
+  }
+
+  /** What a message says beside its body: its job's type, and its trace when it has one. */
+  static Map<String, String> attributesOf(Message message) {
+    var said = new HashMap<String, String>();
+    message.messageAttributes().forEach((name, value) -> said.put(name, value.stringValue()));
+    return said;
   }
 
   /**
@@ -83,6 +98,7 @@ class JobQueue {
                 request
                     .queueUrl(url)
                     .maxNumberOfMessages(MOST_AT_ONCE)
+                    .messageAttributeNames("All")
                     .waitTimeSeconds((int) wait.toSeconds()))
         .messages();
   }

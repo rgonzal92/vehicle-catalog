@@ -2,6 +2,8 @@ package dev.rgonz.catalog.job;
 
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
+import io.micrometer.observation.transport.Kind;
+import io.micrometer.observation.transport.ReceiverContext;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -56,7 +58,7 @@ class Consumer {
     var messages = queue.receive(wait);
     for (var message : messages) {
       try {
-        run(message.body());
+        run(message.body(), JobQueue.attributesOf(message));
         queue.delete(message);
       } catch (RuntimeException failure) {
         log.warn("A job was not done, and its message will be delivered again", failure);
@@ -67,13 +69,23 @@ class Consumer {
 
   /**
    * Runs the job a message names and writes a line for it: which job, how it ended, and how long
-   * that took. The job is traced while it runs, so its line carries a trace id, as a request's line
-   * does.
+   * that took. The job is traced while it runs, as part of the trace its message carries, which is
+   * the trace of the request that wrote the job. So one trace shows the request and its job, and
+   * the job's line carries that trace's id. A message that carries no trace starts one.
+   *
+   * @param said what the message says beside its body: its job's type, and its trace if it has one
    */
-  private void run(String body) {
+  private void run(String body, Map<String, String> said) {
     long id = json.readTree(body).required("jobId").asLong();
     var started = System.nanoTime();
-    var observation = Observation.start("job.run", observations);
+    var received = new ReceiverContext<Map<String, String>>(Map::get, Kind.CONSUMER);
+    received.setCarrier(said);
+    var type = said.getOrDefault("type", "unknown");
+    var observation =
+        Observation.createNotStarted("job.run", () -> received, observations)
+            .contextualName(type + " job")
+            .lowCardinalityKeyValue("type", type)
+            .start();
     try (var traced = observation.openScope()) {
       var ended = runOnce(id);
       log.info("{} in {} ms", ended.formatted(id), (System.nanoTime() - started) / 1_000_000);

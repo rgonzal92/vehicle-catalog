@@ -41,6 +41,9 @@ class JobsIT extends ApplicationIT {
                 .query(String.class)
                 .single())
         .isEqualTo("QUEUED 7");
+    assertThat(count("outbox WHERE traceparent IS NULL"))
+        .as("a job that no request caused carries no trace")
+        .isOne();
   }
 
   @Test
