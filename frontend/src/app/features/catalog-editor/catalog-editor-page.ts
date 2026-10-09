@@ -26,6 +26,7 @@ import { Dialog } from 'primeng/dialog';
 import { InputText } from 'primeng/inputtext';
 import { Message } from 'primeng/message';
 import { Select } from 'primeng/select';
+import { TableModule } from 'primeng/table';
 import { Tab, TabList, TabPanel, TabPanels, Tabs } from 'primeng/tabs';
 import { Tag } from 'primeng/tag';
 import {
@@ -39,7 +40,7 @@ import {
 import { FixedLists } from '../../core/fixed-lists';
 import { FeatureKind, KIND_FILTERS } from '../../core/library';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
-import { Cell, FeatureRow } from '../../shared/availability-matrix/matrix';
+import { Cell, FeatureRow, Issue } from '../../shared/availability-matrix/matrix';
 import { Loading, ReadFailed } from '../../shared/read-state';
 import { reasonOf } from '../../shared/reason-of';
 import { AddFeaturesDialog } from './add-features-dialog';
@@ -70,6 +71,7 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
     ButtonDirective,
     ButtonIcon,
     ButtonLabel,
+    TableModule,
     Checkbox,
     Cog,
     Plus,
@@ -163,6 +165,17 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
               <dd data-base>{{ baseInWords(catalog) }}</dd>
             </div>
           </dl>
+          <p class="flex flex-wrap items-center gap-2" aria-live="polite" data-issue-counts>
+            @if (errors() > 0) {
+              <p-tag severity="danger" [value]="counted(errors(), 'Error')" />
+            }
+            @if (warnings() > 0) {
+              <p-tag severity="warn" [value]="counted(warnings(), 'Warning')" />
+            }
+            @if (issues().length === 0) {
+              <p-tag severity="success" value="No issues" />
+            }
+          </p>
         </header>
 
         @if (reloadNeeded(); as why) {
@@ -181,6 +194,7 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
         <p-tabs class="surface" [(value)]="tab">
           <p-tablist>
             <p-tab value="features">Features</p-tab>
+            <p-tab value="issues">Issues</p-tab>
             <p-tab value="history">History</p-tab>
           </p-tablist>
           <p-tabpanels>
@@ -277,6 +291,7 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
                 [editable]="editable()"
                 [hiddenRegions]="hiddenRegions()"
                 [featureFilter]="featureFilter()"
+                [issues]="issues()"
                 (cellChange)="save($event)"
                 (featureRemove)="askToRemove($event)"
               />
@@ -329,6 +344,46 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
                 [editable]="editable()"
               />
             </p-tabpanel>
+            <p-tabpanel value="issues">
+              @if (issues().length > 0) {
+                <p-table size="small" [value]="issues()">
+                  <ng-template #header>
+                    <tr>
+                      <th scope="col">Severity</th>
+                      <th scope="col">Issue</th>
+                      <th scope="col">About</th>
+                      <th scope="col"><span class="sr-only">Actions</span></th>
+                    </tr>
+                  </ng-template>
+                  <ng-template #body let-issue>
+                    <tr>
+                      <td>
+                        <p-tag
+                          [severity]="issue.severity === 'ERROR' ? 'danger' : 'warn'"
+                          [value]="issue.severity === 'ERROR' ? 'Error' : 'Warning'"
+                        />
+                      </td>
+                      <td>{{ issue.message }}</td>
+                      <td>{{ about(issue, catalog) }}</td>
+                      <td class="text-right whitespace-nowrap">
+                        @if (isAboutACell(issue)) {
+                          <p-button
+                            label="Show cell"
+                            severity="secondary"
+                            size="small"
+                            [text]="true"
+                            [ariaLabel]="'Show the cell of this issue: ' + issue.message"
+                            (onClick)="showCell(issue, matrix)"
+                          />
+                        }
+                      </td>
+                    </tr>
+                  </ng-template>
+                </p-table>
+              } @else {
+                <p class="surface-empty">This catalog has no issues.</p>
+              }
+            </p-tabpanel>
             <p-tabpanel value="history">
               @if (historyShown()) {
                 <app-history-tab [catalogId]="id" />
@@ -354,6 +409,14 @@ export class CatalogEditorPage {
   protected readonly id = Number(inject(ActivatedRoute).snapshot.paramMap.get('id'));
 
   protected readonly catalog = signal<Catalog | null>(null);
+
+  /** The catalog's issues as the latest answer about it gave them, Errors before Warnings. */
+  protected readonly issues = computed(() => this.catalogs.issuesOf(this.id));
+  protected readonly errors = computed(
+    () => this.issues().filter(({ severity }) => severity === 'ERROR').length,
+  );
+  protected readonly warnings = computed(() => this.issues().length - this.errors());
+  protected readonly counted = counted;
 
   /** Whether the address names no catalog, or one this person may not open. */
   protected readonly missing = signal(false);
@@ -692,6 +755,37 @@ export class CatalogEditorPage {
   }
 
   /** Shows or hides a region's offerings in the matrix. */
+  protected isAboutACell(issue: Issue): boolean {
+    return issue.featureId !== null && issue.trimId !== null && issue.regionCode !== null;
+  }
+
+  /** What an issue is about, by the names the catalog has for it: a cell, an offering, or less. */
+  protected about(issue: Issue, { snapshot }: Catalog): string {
+    const feature = snapshot.featureRows.find(({ id }) => id === issue.featureId)?.name;
+    const trim = snapshot.trims.find(({ id }) => id === issue.trimId)?.name;
+    const region = snapshot.regions.find(({ code }) => code === issue.regionCode)?.name;
+    const offering = trim && region ? `${trim} in ${region}` : (trim ?? region);
+
+    return [feature, offering].filter(Boolean).join(', ') || 'The catalog';
+  }
+
+  /**
+   * Shows the Features tab with the cell an issue is about in view. A filter on the rows, or a
+   * region left out of the matrix, would keep the cell from view, so both give way.
+   */
+  protected showCell(issue: Issue, matrix: AvailabilityMatrix): void {
+    const { featureId, trimId, regionCode } = issue;
+    if (featureId === null || trimId === null || regionCode === null) {
+      return;
+    }
+    this.rowFilters.reset();
+    this.showRegion(regionCode, true);
+    this.tab.set('features');
+    afterNextRender(() => matrix.show({ featureId, trimId, regionCode }), {
+      injector: this.injector,
+    });
+  }
+
   protected showRegion(code: string, shown: boolean): void {
     this.hiddenRegions.update((hidden) => {
       const next = new Set(hidden);

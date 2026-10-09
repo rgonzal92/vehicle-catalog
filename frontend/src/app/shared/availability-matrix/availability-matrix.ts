@@ -9,14 +9,16 @@ import {
   linkedSignal,
   output,
   signal,
+  viewChild,
 } from '@angular/core';
-import { TableModule } from 'primeng/table';
+import { Table, TableModule } from 'primeng/table';
 import { Named } from '../../core/fixed-lists';
 import {
   Availability,
   AVAILABILITY_NAMES,
   Cell,
   FeatureRow,
+  Issue,
   MatrixContents,
   MatrixRegion,
   matrixRows,
@@ -115,7 +117,9 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
             }
           </tr>
         } @else {
-          <tr [style.height.px]="rowHeight">
+          <!-- Most catalogs have no issue about a cell, and then no cell looks itself up. -->
+          @let marks = marked();
+          <tr [style.height.px]="rowHeight" [attr.data-feature]="row.feature.id">
             <td pFrozenColumn [class]="codeValue">{{ row.feature.code }}</td>
             <td
               pFrozenColumn
@@ -147,10 +151,15 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
             @for (offering of offerings(); track offering.key) {
               @let failure = whyNotSaved(row.feature, offering);
               @let value = valueOf(row.feature, offering);
+              @let mark = marks && markOf(marks, row.feature, offering);
               <td
                 #cell
-                [class]="offering.classes + (failure ? notSavedCell : valueCell[value])"
-                [attr.title]="failure"
+                [class]="
+                  offering.classes +
+                  (failure ? notSavedCell : valueCell[value]) +
+                  (mark ? (mark.error ? errorCell : warningCell) : '')
+                "
+                [attr.title]="failure ?? mark?.says"
                 [attr.tabindex]="editable() ? -1 : null"
                 (keydown)="onKey($event, row.feature, offering)"
                 (click)="edit($event)"
@@ -176,6 +185,9 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
                 @if (failure) {
                   <span aria-hidden="true">!</span>
                   <span class="sr-only">{{ failure }}</span>
+                } @else if (mark) {
+                  <span aria-hidden="true">{{ mark.error ? '●' : '○' }}</span>
+                  <span class="sr-only">{{ mark.says }}</span>
                 }
               </td>
             }
@@ -188,6 +200,7 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
 export class AvailabilityMatrix {
   private readonly injector = inject(Injector);
   private readonly host: HTMLElement = inject(ElementRef).nativeElement;
+  private readonly table = viewChild.required(Table);
 
   /**
    * The trims, regions, offerings, feature rows, and cells to show. New contents replace everything
@@ -212,6 +225,9 @@ export class AvailabilityMatrix {
    * out is still part of the contents, and keeps what was set in it.
    */
   readonly featureFilter = input<(feature: FeatureRow) => boolean>(everyFeature);
+
+  /** The catalog's issues. One that is about a cell marks that cell; the others mark nothing. */
+  readonly issues = input<Issue[]>([]);
 
   /** The cell a person just set, with its new availability. */
   readonly cellChange = output<Cell>();
@@ -276,6 +292,14 @@ export class AvailabilityMatrix {
    */
   protected readonly notSavedCell =
     ' bg-red-100 font-semibold text-red-900 dark:bg-red-950 dark:text-red-200';
+
+  /**
+   * How a cell with an issue looks: a ring in the color of the worst of its issues, and after its
+   * value a filled circle for an Error or a hollow one for a Warning, so the mark does not rest on
+   * color alone.
+   */
+  protected readonly errorCell = ' matrix-error';
+  protected readonly warningCell = ' matrix-warning';
 
   protected readonly symbols = SYMBOLS;
   protected readonly availabilities = Object.keys(SYMBOLS) as Availability[];
@@ -379,6 +403,35 @@ export class AvailabilityMatrix {
   );
 
   /** What the cell's mark says about the save that failed, or null when the cell is not marked. */
+  /** What marks each cell that has an issue: whether any of them is an Error, and what they say. */
+  private readonly marks = computed(() => {
+    const marks = new Map<string, { error: boolean; says: string }>();
+    for (const issue of this.issues()) {
+      if (issue.featureId === null || issue.trimId === null || issue.regionCode === null) {
+        continue;
+      }
+      const key = cellKey(issue.featureId, issue.trimId, issue.regionCode);
+      const before = marks.get(key);
+      const says = `${issue.severity === 'ERROR' ? 'Error' : 'Warning'}: ${issue.message}`;
+      marks.set(key, {
+        error: issue.severity === 'ERROR' || (before?.error ?? false),
+        says: before ? `${before.says} ${says}` : says,
+      });
+    }
+    return marks;
+  });
+
+  /** The marks, or null when no cell has one. */
+  protected readonly marked = computed(() => (this.marks().size > 0 ? this.marks() : null));
+
+  protected markOf(
+    marks: ReadonlyMap<string, { error: boolean; says: string }>,
+    feature: FeatureRow,
+    offering: ShownOffering,
+  ) {
+    return marks.get(keyOf(feature, offering)) ?? null;
+  }
+
   protected whyNotSaved(feature: FeatureRow, offering: ShownOffering): string | null {
     const failures = this.failures();
 
@@ -458,6 +511,36 @@ export class AvailabilityMatrix {
       const drawn = this.lastFocused?.isConnected ? this.lastFocused : null;
       (drawn ?? this.firstStop())?.focus();
     }
+  }
+
+  /**
+   * Brings a cell into view, and puts the focus on it when the matrix is editable. A cell of a row
+   * or of a region that the matrix does not show stays where it is.
+   */
+  show({ featureId, trimId, regionCode }: Pick<Cell, 'featureId' | 'trimId' | 'regionCode'>): void {
+    const row = this.rows().findIndex((candidate) => candidate.feature?.id === featureId);
+    const offering = this.offerings().findIndex(
+      (candidate) => candidate.trim.id === trimId && candidate.region.code === regionCode,
+    );
+    if (row < 0 || offering < 0) {
+      return;
+    }
+    this.table().scrollToVirtualIndex(row);
+    // The row is drawn once the table has heard of the scroll, which takes a frame or two.
+    const reach = (framesLeft: number) => {
+      const cell = this.host.querySelector(`tr[data-feature="${featureId}"]`)?.children[
+        offering + 2
+      ] as HTMLElement | undefined;
+      if (cell) {
+        cell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        if (this.editable()) {
+          cell.focus();
+        }
+      } else if (framesLeft > 0) {
+        requestAnimationFrame(() => reach(framesLeft - 1));
+      }
+    };
+    reach(10);
   }
 
   /**

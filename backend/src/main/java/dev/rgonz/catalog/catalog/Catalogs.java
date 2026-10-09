@@ -9,6 +9,8 @@ import dev.rgonz.catalog.catalog.CatalogSnapshot.Trim;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Isolation;
@@ -123,13 +125,51 @@ class Catalogs {
                             header.baseCatalogId(),
                             header.baseModelYear(),
                             header.baseVersionNumber()),
-                    snapshot(header)));
+                    snapshot(header),
+                    List.of()))
+        .map(catalog -> catalog.withIssues(Validation.issues(catalog.snapshot(), library(id))));
   }
 
   /**
-   * Each label is the one frozen at approval, or the library's current one where none was frozen,
-   * which is every label of a working copy.
+   * What validation needs of the library as it is today: which of the catalog's features are
+   * retired, and which of its trims and regions are inactive. It is read with one query.
    */
+  private Validation.Library library(long catalogId) {
+    var out =
+        jdbc.sql(
+                """
+                SELECT 'FEATURE' AS kind, f.id::text AS key
+                FROM catalog_feature c
+                JOIN feature f ON f.id = c.feature_id
+                WHERE c.catalog_id = :id AND f.status = 'RETIRED'
+                UNION ALL
+                SELECT 'TRIM', t.id::text
+                FROM catalog_trim c
+                JOIN trim t ON t.id = c.trim_id
+                WHERE c.catalog_id = :id AND NOT t.active
+                UNION ALL
+                SELECT 'REGION', r.code
+                FROM catalog_region c
+                JOIN region r ON r.code = c.region_code
+                WHERE c.catalog_id = :id AND NOT r.active
+                """)
+            .param("id", catalogId)
+            .query(OutOfUse.class)
+            .list();
+
+    return new Validation.Library(
+        keys(out, "FEATURE").map(Long::valueOf).collect(Collectors.toSet()),
+        keys(out, "TRIM").map(Long::valueOf).collect(Collectors.toSet()),
+        keys(out, "REGION").collect(Collectors.toSet()));
+  }
+
+  private static Stream<String> keys(List<OutOfUse> out, String kind) {
+    return out.stream().filter(entry -> entry.kind().equals(kind)).map(OutOfUse::key);
+  }
+
+  /** A retired feature or an inactive trim or region of a catalog, by what identifies it. */
+  private record OutOfUse(String kind, String key) {}
+
   private CatalogSnapshot snapshot(Header header) {
     var trims =
         content(
@@ -212,10 +252,12 @@ class Catalogs {
       long catalogId, int versionNumber, String name, String approvedBy, Instant approvedAt) {}
 
   /**
-   * A catalog as the API shows it: what describes it, and its contents.
+   * A catalog as the API shows it: what describes it, its contents, and its issues.
    *
    * @param owned whether the viewer owns it, which lets them edit it while it is in status Draft
    * @param base the Approved version it was copied from, or null when it started empty
+   * @param issues what validation finds in the contents against the library as it is today, Errors
+   *     before Warnings
    */
   record CatalogView(
       String name,
@@ -227,7 +269,24 @@ class Catalogs {
       Instant approvedAt,
       boolean owned,
       Base base,
-      CatalogSnapshot snapshot) {}
+      CatalogSnapshot snapshot,
+      List<Issue> issues) {
+
+    CatalogView withIssues(List<Issue> found) {
+      return new CatalogView(
+          name,
+          versionNumber,
+          vehicleLineId,
+          vehicleLine,
+          modelYear,
+          approvedBy,
+          approvedAt,
+          owned,
+          base,
+          snapshot,
+          found);
+    }
+  }
 
   /** A catalog's base. After a carryover its model year is an earlier one than the catalog's. */
   record Base(long catalogId, int modelYear, int versionNumber) {}

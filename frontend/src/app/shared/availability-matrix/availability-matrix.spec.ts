@@ -2,7 +2,7 @@ import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { AvailabilityMatrix } from './availability-matrix';
-import { Cell, FeatureRow, MatrixContents } from './matrix';
+import { Cell, FeatureRow, Issue, MatrixContents } from './matrix';
 
 const contents: MatrixContents = {
   trims: [
@@ -47,6 +47,7 @@ const categories = [
       [editable]="editable()"
       [hiddenRegions]="hiddenRegions()"
       [featureFilter]="featureFilter()"
+      [issues]="issues()"
       (cellChange)="changes.push($event)"
       (featureRemove)="removals.push($event)"
     />
@@ -58,6 +59,7 @@ class Host {
   readonly editable = signal(false);
   readonly hiddenRegions = signal(new Set<string>());
   readonly featureFilter = signal<(feature: FeatureRow) => boolean>(() => true);
+  readonly issues = signal<Issue[]>([]);
   readonly changes: Cell[] = [];
   readonly removals: { feature: FeatureRow; cells: number }[] = [];
 }
@@ -531,5 +533,116 @@ describe('AvailabilityMatrix', () => {
     await vi.waitFor(() =>
       expect(rows(element)[1]).toEqual(['ENGINE_20T', '2.0L Turbo', '-', '-', '-']),
     );
+  });
+
+  /** An issue about the 2.0L Turbo on Base in North America, which is Standard there. */
+  const issue = (
+    severity: Issue['severity'],
+    message: string,
+    about: Partial<Issue> = {},
+  ): Issue => ({
+    code: 'REQUIRED_NOT_OFFERED',
+    severity,
+    trimId: 1,
+    regionCode: 'NA',
+    featureId: 11,
+    relatedFeatureIds: [],
+    rule: null,
+    message,
+    ...about,
+  });
+
+  const said = (element: Element) => element.textContent?.replace(/\s+/g, ' ').trim();
+
+  it('marks a cell that has an Error by more than its color, and says what the issue is', async () => {
+    const { fixture, element, host } = await matrix(false);
+
+    host.issues.set([issue('ERROR', 'The turbo requires premium fuel.')]);
+    await fixture.whenStable();
+
+    const marked = cell(element, 1, 0);
+    expect(said(marked)).toBe('S ●Error: The turbo requires premium fuel.');
+    expect(marked.querySelector('.sr-only')?.textContent).toBe(
+      'Error: The turbo requires premium fuel.',
+    );
+    expect(marked.title).toBe('Error: The turbo requires premium fuel.');
+    expect(marked.className).toContain('matrix-error');
+    expect(cell(element, 1, 1).className).not.toContain('matrix-error');
+    expect(said(cell(element, 1, 1))).toBe('-');
+  });
+
+  it('marks a cell that has nothing worse than a Warning in another way', async () => {
+    const { fixture, element, host } = await matrix(false);
+
+    host.issues.set([issue('WARNING', 'The package adds nothing here.')]);
+    await fixture.whenStable();
+
+    const marked = cell(element, 1, 0);
+    expect(said(marked)).toBe('S ○Warning: The package adds nothing here.');
+    expect(marked.className).toContain('matrix-warning');
+    expect(marked.className).not.toContain('matrix-error');
+  });
+
+  it('marks a cell with an Error and a Warning as an Error, and says both', async () => {
+    const { fixture, element, host } = await matrix(false);
+
+    host.issues.set([issue('WARNING', 'One.'), issue('ERROR', 'Two.')]);
+    await fixture.whenStable();
+
+    const marked = cell(element, 1, 0);
+    expect(marked.className).toContain('matrix-error');
+    expect(marked.title).toBe('Warning: One. Error: Two.');
+  });
+
+  it('marks no cell for an issue about a feature row, an offering, or the catalog', async () => {
+    const { fixture, element, host } = await matrix(false);
+
+    host.issues.set([
+      issue('WARNING', 'Never offered.', { trimId: null, regionCode: null }),
+      issue('ERROR', 'An empty offering.', { featureId: null }),
+      issue('ERROR', 'No trims.', { featureId: null, trimId: null, regionCode: null }),
+    ]);
+    await fixture.whenStable();
+
+    expect(element.querySelector('[class*="matrix-error"], [class*="matrix-warning"]')).toBeNull();
+    expect(rows(element)[1]).toEqual(['ENGINE_20T', '2.0L Turbo', 'S', '-', '-']);
+  });
+
+  it('clears the mark of a cell when its issue is gone', async () => {
+    const { fixture, element, host } = await matrix(false);
+    host.issues.set([issue('ERROR', 'The turbo requires premium fuel.')]);
+    await fixture.whenStable();
+
+    host.issues.set([]);
+    await fixture.whenStable();
+
+    expect(said(cell(element, 1, 0))).toBe('S');
+    expect(cell(element, 1, 0).hasAttribute('title')).toBe(false);
+  });
+
+  it('brings a cell into view and puts the focus on it when asked to show it', async () => {
+    // The test page cannot scroll, so it is given the two ways of scrolling the matrix uses.
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    Element.prototype.scrollTo = vi.fn();
+    const { fixture, element } = await matrix(true);
+
+    theMatrix(fixture).show({ featureId: 10, trimId: 2, regionCode: 'EU' });
+
+    await vi.waitFor(() => expect(document.activeElement).toBe(cell(element, 3, 2)));
+    expect(scrolled).toHaveBeenCalled();
+  });
+
+  it('shows a cell of a read-only matrix without putting the focus on it', async () => {
+    // The test page cannot scroll, so it is given the two ways of scrolling the matrix uses.
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    Element.prototype.scrollTo = vi.fn();
+    const { fixture, element } = await matrix(false);
+
+    theMatrix(fixture).show({ featureId: 10, trimId: 2, regionCode: 'EU' });
+
+    await vi.waitFor(() => expect(scrolled).toHaveBeenCalled());
+    expect(document.activeElement).not.toBe(cell(element, 3, 2));
   });
 });

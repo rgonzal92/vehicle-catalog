@@ -97,7 +97,7 @@ class CatalogController {
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       @RequestBody List<CellChange> cells,
       Authentication caller) {
-    return saved(edits.setCells(id, people.idOf(caller), ifMatch, cells));
+    return saved(id, caller, edits.setCells(id, people.idOf(caller), ifMatch, cells));
   }
 
   /** Adds library trims to the caller's working copy. */
@@ -107,7 +107,7 @@ class CatalogController {
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       @RequestBody TrimsToAdd given,
       Authentication caller) {
-    return saved(edits.addTrims(id, people.idOf(caller), ifMatch, given.trimIds()));
+    return saved(id, caller, edits.addTrims(id, people.idOf(caller), ifMatch, given.trimIds()));
   }
 
   /** Removes a trim from the caller's working copy, with its offerings and their cells. */
@@ -117,7 +117,7 @@ class CatalogController {
       @PathVariable long trimId,
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       Authentication caller) {
-    return saved(edits.removeTrim(id, people.idOf(caller), ifMatch, trimId));
+    return saved(id, caller, edits.removeTrim(id, people.idOf(caller), ifMatch, trimId));
   }
 
   /** Adds library regions to the caller's working copy. */
@@ -127,7 +127,8 @@ class CatalogController {
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       @RequestBody RegionCodes given,
       Authentication caller) {
-    return saved(edits.addRegions(id, people.idOf(caller), ifMatch, given.regionCodes()));
+    return saved(
+        id, caller, edits.addRegions(id, people.idOf(caller), ifMatch, given.regionCodes()));
   }
 
   /** Removes a region from the caller's working copy, with its offerings and their cells. */
@@ -137,7 +138,7 @@ class CatalogController {
       @PathVariable String regionCode,
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       Authentication caller) {
-    return saved(edits.removeRegion(id, people.idOf(caller), ifMatch, regionCode));
+    return saved(id, caller, edits.removeRegion(id, people.idOf(caller), ifMatch, regionCode));
   }
 
   /** Says in which of the catalog's regions a trim is sold: in exactly the ones given. */
@@ -148,7 +149,8 @@ class CatalogController {
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       @RequestBody RegionCodes given,
       Authentication caller) {
-    return saved(edits.sellIn(id, people.idOf(caller), ifMatch, trimId, given.regionCodes()));
+    return saved(
+        id, caller, edits.sellIn(id, people.idOf(caller), ifMatch, trimId, given.regionCodes()));
   }
 
   /** Renames the caller's working copy. */
@@ -158,7 +160,7 @@ class CatalogController {
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       @RequestBody NewName given,
       Authentication caller) {
-    return saved(edits.rename(id, people.idOf(caller), ifMatch, given.name()));
+    return saved(id, caller, edits.rename(id, people.idOf(caller), ifMatch, given.name()));
   }
 
   /** Deletes the caller's working copy, with its contents and its change history. */
@@ -178,7 +180,8 @@ class CatalogController {
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       @RequestBody FeaturesToAdd given,
       Authentication caller) {
-    return saved(edits.addFeatures(id, people.idOf(caller), ifMatch, given.featureIds()));
+    return saved(
+        id, caller, edits.addFeatures(id, people.idOf(caller), ifMatch, given.featureIds()));
   }
 
   /** Removes a feature row from the caller's working copy, with its cells. */
@@ -188,15 +191,19 @@ class CatalogController {
       @PathVariable long featureId,
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       Authentication caller) {
-    return saved(edits.removeFeature(id, people.idOf(caller), ifMatch, featureId));
+    return saved(id, caller, edits.removeFeature(id, people.idOf(caller), ifMatch, featureId));
   }
 
   /**
-   * An edit answers with the revision the catalog is at afterwards, which is also the entity tag.
-   * It is the revision the edit was made from when the edit changed nothing.
+   * An edit answers with the revision the catalog is at afterwards, which is also the entity tag,
+   * and with every issue the catalog then has. The revision is the one the edit was made from when
+   * the edit changed nothing.
    */
-  private static ResponseEntity<Edited> saved(long revision) {
-    return ResponseEntity.ok().eTag(String.valueOf(revision)).body(new Edited(revision));
+  private ResponseEntity<Edited> saved(long id, Authentication caller, long revision) {
+    var issues =
+        catalogs.find(id, people.idOf(caller)).map(CatalogView::issues).orElseGet(List::of);
+
+    return ResponseEntity.ok().eTag(String.valueOf(revision)).body(new Edited(revision, issues));
   }
 
   /** The name a working copy is to have. */
@@ -228,7 +235,7 @@ class CatalogController {
   }
 
   /** What a saved edit answers with. */
-  record Edited(long revision) {}
+  record Edited(long revision, List<Issue> issues) {}
 
   /** A catalog with its contents. Its revision is the entity tag, which later writes name. */
   @GetMapping("/api/catalogs/{id}")

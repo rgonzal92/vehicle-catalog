@@ -47,6 +47,27 @@ export interface Cell {
   availability: Availability;
 }
 
+/**
+ * One validation finding about a catalog. It names what it is about, each part only where it
+ * applies: a trim, a region, and a feature together name a cell, a trim and a region an offering,
+ * and none of them the catalog as a whole. An Error blocks submit and approve; a Warning never
+ * blocks.
+ */
+export interface Issue {
+  /** Such as `OFFERING_EMPTY`. New codes appear without the frontend knowing them. */
+  code: string;
+  severity: 'ERROR' | 'WARNING';
+  trimId: number | null;
+  regionCode: string | null;
+  featureId: number | null;
+  /** The other features involved, besides the one the issue is about. */
+  relatedFeatureIds: number[];
+  /** The rule the issue comes from, or null when it comes from no rule. */
+  rule: { origin: string; key: string } | null;
+  /** The finding in words. */
+  message: string;
+}
+
 /** What the matrix shows of a catalog. Cells are sparse: a missing cell is Not offered. */
 export interface MatrixContents {
   trims: MatrixTrim[];
