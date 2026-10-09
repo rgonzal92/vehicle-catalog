@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.DefaultApplicationArguments;
+import org.springframework.context.annotation.Profile;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -21,8 +22,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  * leaves, so that nothing a visitor did lasts longer than a day. Every working copy, every Approved
  * version that is not seeded, and all change history go, whoever they belong to. The people who
  * have signed in stay on record, and so do the accounts at the login provider.
+ *
+ * <p>The API runs it. The worker, which is the same build, does not: one reset a day is enough.
  */
 @Component
+@Profile("!worker")
 class DemoReset {
   private static final Logger log = LoggerFactory.getLogger(DemoReset.class);
 

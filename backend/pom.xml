@@ -28,6 +28,7 @@
 	</scm>
 	<properties>
 		<java.version>25</java.version>
+		<aws-sdk.version>2.55.11</aws-sdk.version>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -77,9 +78,20 @@
 		<dependency>
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>cognitoidentityprovider</artifactId>
-			<version>2.55.11</version>
+			<version>${aws-sdk.version}</version>
 			<exclusions>
 				<!-- Only the SDK's asynchronous clients use it, and none is used here. -->
+				<exclusion>
+					<groupId>software.amazon.awssdk</groupId>
+					<artifactId>netty-nio-client</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>sqs</artifactId>
+			<version>${aws-sdk.version}</version>
+			<exclusions>
 				<exclusion>
 					<groupId>software.amazon.awssdk</groupId>
 					<artifactId>netty-nio-client</artifactId>

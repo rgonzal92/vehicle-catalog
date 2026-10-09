@@ -169,6 +169,20 @@ A manager or admin deciding on a submitted catalog they do not own.
 Sent back to Draft by the system because another catalog of the same lineage was approved first.
 _Avoid_: Rejected (a reviewer's decision, which needs a comment)
 
+### Jobs
+
+**Job**:
+Work that follows a change and is done afterwards, such as telling the owner of a catalog that it was approved. A job is written with its change and done once.
+_Avoid_: Task, background task
+
+**Worker**:
+The process that does the jobs. It is the backend's own build, run beside the API.
+_Avoid_: Consumer, job runner
+
+**Notification**:
+Something a person is told in the app about what happened to their work.
+_Avoid_: Alert, message (a message is what tells the worker of a job)
+
 ### People
 
 **Author**:

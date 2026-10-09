@@ -6,7 +6,9 @@ import com.jayway.jsonpath.JsonPath;
 import dev.rgonz.catalog.core.Role;
 import jakarta.servlet.http.Cookie;
 import java.io.UnsupportedEncodingException;
+import java.net.URI;
 import java.util.List;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.DefaultApplicationArguments;
@@ -24,11 +26,15 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.sqs.SqsClient;
+import software.amazon.awssdk.services.sqs.model.QueueAttributeName;
 
 /**
- * Runs the application against one shared PostgreSQL container and one shared mock login server.
- * The containers start once and are never stopped between classes, so the cached Spring context
- * stays connected to them.
+ * Runs the application against one shared PostgreSQL container, one shared mock login server, and
+ * one shared stand-in for the queue. The containers start once and are never stopped between
+ * classes, so the cached Spring context stays connected to them.
  */
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -117,9 +123,42 @@ public abstract class ApplicationIT {
               }
               """);
 
+  /**
+   * A stand-in for the queue that carries the jobs' messages. It hides a message that was received
+   * for one second, so a test of a message that is delivered again does not wait long.
+   */
+  static final GenericContainer<?> QUEUE =
+      new GenericContainer<>("softwaremill/elasticmq-native:1.7.1").withExposedPorts(9324);
+
   static {
     DATABASE.start();
     LOGIN_SERVER.start();
+    QUEUE.start();
+    try (var sqs =
+        SqsClient.builder()
+            .region(Region.US_EAST_1)
+            .endpointOverride(URI.create(queueServerUrl()))
+            .credentialsProvider(AnonymousCredentialsProvider.create())
+            .build()) {
+      sqs.createQueue(
+          queue ->
+              queue
+                  .queueName("jobs")
+                  .attributes(Map.of(QueueAttributeName.VISIBILITY_TIMEOUT, "1")));
+    }
+  }
+
+  /**
+   * The application is told of the queue, so it has what sends and receives messages. Nothing does
+   * either by itself here: a test has the worker's steps done when it wants them done.
+   */
+  @DynamicPropertySource
+  static void queue(DynamicPropertyRegistry registry) {
+    registry.add("app.jobs.queue-url", () -> queueServerUrl() + "/queue/jobs");
+  }
+
+  private static String queueServerUrl() {
+    return "http://127.0.0.1:" + QUEUE.getMappedPort(9324);
   }
 
   @DynamicPropertySource

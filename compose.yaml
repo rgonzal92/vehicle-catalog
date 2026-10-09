@@ -1,7 +1,8 @@
 name: vehicle-catalog
 
 # Local development stack. The frontend dev server at http://localhost:4200 proxies /api to the
-# backend's published port, and the login server stands in for Amazon Cognito.
+# backend's published port, the login server stands in for Amazon Cognito, and the queue for
+# Amazon SQS.
 services:
   db:
     image: postgres:18.6
@@ -95,7 +96,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    environment:
+    environment: &backend-settings
       DATABASE_URL: jdbc:postgresql://db:5432/catalog
       DATABASE_USER: catalog
       DATABASE_PASSWORD: >-
@@ -154,6 +155,50 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
+
+  # The worker: the backend's own build, run to do the jobs that changes leave behind. It starts
+  # once the API has migrated the database, and nothing reaches it from outside this stack.
+  worker:
+    build: ./backend
+    depends_on:
+      backend:
+        condition: service_healthy
+      queue:
+        condition: service_started
+    environment:
+      <<: *backend-settings
+      SPRING_PROFILES_ACTIVE: worker
+      APP_JOBS_QUEUE_URL: http://queue:9324/queue/jobs
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --quiet
+        - --spider
+        - http://127.0.0.1:8080/api/health/readiness
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # Stands in for Amazon SQS, whose protocol it speaks. It keeps the one queue the jobs' messages
+  # travel on, and hides a message that a worker has received for two minutes, as the queue in AWS
+  # does. Only the worker talks to it.
+  queue:
+    image: softwaremill/elasticmq-native:1.7.1
+    configs:
+      - source: queue
+        target: /opt/elasticmq.conf
+
+configs:
+  queue:
+    content: |
+      include classpath("application.conf")
+
+      queues {
+        jobs {
+          defaultVisibilityTimeout = 120 seconds
+        }
+      }
 
 volumes:
   postgres_data:
