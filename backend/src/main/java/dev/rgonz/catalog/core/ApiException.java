@@ -41,6 +41,16 @@ public final class ApiException extends ErrorResponseException {
     return refusal;
   }
 
+  /**
+   * The request cannot be applied while the catalog it is about has Errors. The refusal lists the
+   * catalog's issues.
+   */
+  public static ApiException hasErrors(String reason, java.util.List<?> issues) {
+    var refusal = new ApiException(HttpStatusCode.valueOf(422), "HAS_ERRORS", reason);
+    refusal.getBody().setProperty("issues", issues);
+    return refusal;
+  }
+
   /** The request is well formed but breaks a rule. */
   public static ApiException invalid(String reason) {
     return new ApiException(HttpStatusCode.valueOf(422), "VALIDATION", reason);

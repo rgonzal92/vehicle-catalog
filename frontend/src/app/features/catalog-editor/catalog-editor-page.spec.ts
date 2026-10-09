@@ -591,6 +591,121 @@ describe('CatalogEditorPage', () => {
     });
   });
 
+  describe('submitting the catalog for review', () => {
+    const dialog = () => document.querySelector<HTMLElement>('.p-dialog');
+    const submitted = {
+      ...workingCopy,
+      submitNote: 'Ready for review.',
+      submittedAt: '2026-10-09T10:00:00Z',
+      snapshot: { ...workingCopy.snapshot, status: 'SUBMITTED', revision: 5 },
+    };
+    const anError = {
+      code: 'NO_TRIMS',
+      severity: 'ERROR',
+      trimId: null,
+      regionCode: null,
+      featureId: null,
+      relatedFeatureIds: [],
+      rule: null,
+      message: 'The catalog has no trims.',
+    };
+
+    it('submits it with a note, as an edit of the revision read, and shows it Submitted', async () => {
+      const element = await page({ ...workingCopy, issues: [] });
+
+      button(element, 'Submit for review')!.click();
+      const note = await vi.waitFor(() => {
+        const box = dialog()?.querySelector<HTMLTextAreaElement>('textarea');
+        expect(box).toBeTruthy();
+        return box!;
+      });
+      note.value = '  Ready for review.  ';
+      note.dispatchEvent(new Event('input'));
+      button(dialog()!, 'Submit')!.click();
+
+      const sent = await vi.waitFor(() =>
+        backend.expectOne({ method: 'POST', url: '/api/catalogs/41/submit' }),
+      );
+      expect(sent.request.headers.get('If-Match')).toBe('"4"');
+      expect(sent.request.body).toEqual({ note: 'Ready for review.' });
+      sent.flush({ revision: 5, issues: [] });
+      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush(submitted);
+
+      await vi.waitFor(() => expect(dialog()).toBeNull());
+      await vi.waitFor(() => expect(described(element)['Status']).toBe('Submitted'));
+      expect(described(element)['Note for the reviewer']).toBe('Ready for review.');
+      expect(matrixOf(element).textContent).toContain('editable: false');
+      expect(button(element, 'Submit for review')).toBeUndefined();
+      expect(button(element, 'Withdraw')).toBeDefined();
+    });
+
+    it('cannot be submitted while it has an Error, and says why', async () => {
+      const element = await page({ ...workingCopy, issues: [anError] });
+
+      const submit = button(element, 'Submit for review')!;
+
+      expect(submit.disabled).toBe(true);
+      expect(
+        element.querySelector(`#${submit.getAttribute('aria-describedby')}`)?.textContent,
+      ).toBe('It has 1 Error, which must be put right first.');
+    });
+
+    it('says that its vehicle line is deactivated, and cannot be submitted meanwhile', async () => {
+      const element = await page({ ...workingCopy, issues: [], vehicleLineActive: false });
+
+      expect(element.querySelector('[data-notice="vehicle-line"]')?.textContent).toContain(
+        'The vehicle line Compact SUV is deactivated.',
+      );
+      expect(button(element, 'Submit for review')!.disabled).toBe(true);
+      expect(element.textContent).toContain('Its vehicle line is deactivated.');
+    });
+
+    it('keeps the dialog open with the reason when the backend refuses the submit', async () => {
+      const element = await page({ ...workingCopy, issues: [] });
+      button(element, 'Submit for review')!.click();
+      await vi.waitFor(() => expect(dialog()).not.toBeNull());
+
+      button(dialog()!, 'Submit')!.click();
+      (
+        await vi.waitFor(() =>
+          backend.expectOne({ method: 'POST', url: '/api/catalogs/41/submit' }),
+        )
+      ).flush(
+        ...refuse(422, 'HAS_ERRORS', 'This catalog has Errors. Put them right, then submit it.'),
+      );
+
+      await vi.waitFor(() => expect(dialog()?.textContent).toContain('This catalog has Errors.'));
+      expect(matrixOf(element).textContent).toContain('editable: true');
+    });
+
+    it('withdraws a Submitted catalog and reads it again as the Draft it then is', async () => {
+      const element = await page({ ...submitted, issues: [] });
+      expect(matrixOf(element).textContent).toContain('editable: false');
+
+      button(element, 'Withdraw')!.click();
+
+      (
+        await vi.waitFor(() =>
+          backend.expectOne({ method: 'POST', url: '/api/catalogs/41/withdraw' }),
+        )
+      ).flush({ revision: 6, issues: [] });
+      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush({
+        ...workingCopy,
+        issues: [],
+        snapshot: { ...workingCopy.snapshot, revision: 6 },
+      });
+      await vi.waitFor(() => expect(described(element)['Status']).toBe('Draft'));
+      expect(matrixOf(element).textContent).toContain('editable: true');
+    });
+
+    it('offers neither to someone who does not own the catalog', async () => {
+      const element = await page({ ...submitted, owned: false, issues: [] });
+
+      expect(button(element, 'Submit for review')).toBeUndefined();
+      expect(button(element, 'Withdraw')).toBeUndefined();
+    });
+  });
+
   describe('narrowing the matrix to some feature rows', () => {
     const shownIn = (element: HTMLElement) => matrixOf(element).textContent?.split(' of ')[0];
 

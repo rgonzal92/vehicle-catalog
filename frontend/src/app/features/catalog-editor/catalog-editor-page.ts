@@ -1,3 +1,4 @@
+import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
   afterNextRender,
@@ -12,6 +13,7 @@ import {
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import {
+  FormControl,
   FormsModule,
   NonNullableFormBuilder,
   ReactiveFormsModule,
@@ -27,6 +29,7 @@ import { Dialog } from 'primeng/dialog';
 import { InputText } from 'primeng/inputtext';
 import { Message } from 'primeng/message';
 import { Select } from 'primeng/select';
+import { Textarea } from 'primeng/textarea';
 import { Tab, TabList, TabPanel, TabPanels, Tabs } from 'primeng/tabs';
 import { Tag } from 'primeng/tag';
 import {
@@ -34,6 +37,7 @@ import {
   CatalogEdit,
   Catalogs,
   LONGEST_CATALOG_NAME,
+  LONGEST_NOTE,
   STATUS_NAMES,
   STATUS_SEVERITIES,
 } from '../../core/catalogs';
@@ -59,7 +63,8 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
  *
  * The owner of a working copy in status Draft sets its cells, adds and removes feature rows, and
  * manages its trims, regions, and offerings, and each change is saved at once, with no save
- * button. Anyone else, and any other status, gets the matrix read-only. Whole regions can be hidden to keep the matrix narrow, and
+ * button. They submit it for review when it has no Error, and can withdraw it until a reviewer has
+ * decided. Anyone else, and any other status, gets the matrix read-only. Whole regions can be hidden to keep the matrix narrow, and
  * its feature rows narrowed to the ones being worked on.
  *
  * A change that is not saved goes back to what the cell was, marked with the reason. After a
@@ -69,6 +74,7 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
  */
 @Component({
   imports: [
+    DatePipe,
     ReactiveFormsModule,
     Button,
     ButtonDirective,
@@ -82,6 +88,7 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
     InputText,
     Message,
     Select,
+    Textarea,
     Tab,
     TabList,
     TabPanel,
@@ -147,6 +154,36 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
               }
             </div>
           }
+          @if (catalog.owned && catalog.snapshot.status === 'DRAFT') {
+            @let blocked = submitBlocked(catalog);
+            <div class="flex flex-wrap items-center gap-3">
+              <button
+                pButton
+                type="button"
+                [disabled]="!!blocked || !editable()"
+                [attr.aria-describedby]="blocked ? 'submit-blocked' : null"
+                (click)="startSubmitting()"
+              >
+                <span pButtonLabel>Submit for review</span>
+              </button>
+              @if (blocked) {
+                <span id="submit-blocked" class="text-sm text-muted-color">{{ blocked }}</span>
+              }
+            </div>
+          }
+          @if (catalog.owned && catalog.snapshot.status === 'SUBMITTED') {
+            <div class="flex flex-wrap items-center gap-3">
+              <p-button
+                label="Withdraw"
+                severity="secondary"
+                [loading]="withdrawing()"
+                (onClick)="withdraw()"
+              />
+              <span class="text-sm text-muted-color">
+                This catalog is waiting for review. Withdraw it to edit it again.
+              </span>
+            </div>
+          }
           <dl class="flex flex-wrap gap-x-8 gap-y-2">
             <div>
               <dt class="text-sm text-muted-color">Vehicle line</dt>
@@ -169,6 +206,18 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
               <dt class="text-sm text-muted-color">Base</dt>
               <dd data-base>{{ baseInWords(catalog) }}</dd>
             </div>
+            @if (catalog.snapshot.status === 'SUBMITTED') {
+              <div>
+                <dt class="text-sm text-muted-color">Submitted</dt>
+                <dd>{{ catalog.submittedAt | date: 'medium' }}</dd>
+              </div>
+              @if (catalog.submitNote) {
+                <div class="basis-full">
+                  <dt class="text-sm text-muted-color">Note for the reviewer</dt>
+                  <dd class="whitespace-pre-line" data-submit-note>{{ catalog.submitNote }}</dd>
+                </div>
+              }
+            }
           </dl>
           <app-issue-counts
             aria-live="polite"
@@ -177,6 +226,51 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
             [warnings]="warnings()"
           />
         </header>
+
+        @if (catalog.vehicleLineActive === false && catalog.snapshot.status !== 'APPROVED') {
+          <p class="notice" role="status" data-notice="vehicle-line">
+            The vehicle line {{ catalog.vehicleLine }} is deactivated. This catalog cannot be
+            submitted until the line is active again.
+          </p>
+        }
+
+        <p-dialog
+          header="Submit for review"
+          closeAriaLabel="Close"
+          [modal]="true"
+          [style]="{ width: '32rem' }"
+          [closable]="!submittingNow()"
+          [(visible)]="submitting"
+        >
+          <form class="grid gap-4" (ngSubmit)="submit()">
+            @if (submitRefusal()) {
+              <p-message severity="error">{{ submitRefusal() }}</p-message>
+            }
+            <p>
+              A reviewer decides on the catalog as it is now. Until then it cannot be edited, and
+              you can withdraw it.
+            </p>
+            <div class="grid gap-1">
+              <label for="submit-note">Note for the reviewer (optional)</label>
+              <textarea
+                pTextarea
+                id="submit-note"
+                rows="4"
+                [maxlength]="longestNote"
+                [formControl]="submitNote"
+              ></textarea>
+            </div>
+            <div class="flex justify-end gap-2">
+              <p-button
+                label="Cancel"
+                severity="secondary"
+                [disabled]="submittingNow()"
+                (onClick)="submitting.set(false)"
+              />
+              <p-button type="submit" label="Submit" [loading]="submittingNow()" />
+            </div>
+          </form>
+        </p-dialog>
 
         @if (reloadNeeded(); as why) {
           <p-message class="block" severity="error">
@@ -493,6 +587,22 @@ export class CatalogEditorPage {
   private readonly nameBox = viewChild<ElementRef<HTMLInputElement>>('nameBox');
   private readonly renameButton = viewChild('renameButton', { read: ElementRef });
 
+  /** Whether the dialog that submits the catalog for review is open. */
+  protected readonly submitting = signal(false);
+
+  /** What the owner says to the reviewer, if anything. */
+  protected readonly submitNote = new FormControl('', { nonNullable: true });
+  protected readonly longestNote = LONGEST_NOTE;
+
+  /** Why the backend refused the submit, shown in the dialog. */
+  protected readonly submitRefusal = signal('');
+
+  /** Whether the submit is on its way, so that a second click submits nothing more. */
+  protected readonly submittingNow = signal(false);
+
+  /** Whether a withdrawal is on its way. */
+  protected readonly withdrawing = signal(false);
+
   /** The feature row the person is asked to confirm the removal of, or null while there is none. */
   protected readonly removing = signal<{ feature: FeatureRow; cells: number } | null>(null);
 
@@ -716,6 +826,69 @@ export class CatalogEditorPage {
     } finally {
       this.renamingNow.set(false);
     }
+  }
+
+  /**
+   * Why the catalog cannot be submitted as it is, which the page says beside the button, or nothing
+   * when it can be.
+   */
+  protected submitBlocked(catalog: Catalog): string {
+    if (catalog.vehicleLineActive === false) {
+      return 'Its vehicle line is deactivated.';
+    }
+    const errors = this.errors();
+    return errors === 0
+      ? ''
+      : `It has ${errors === 1 ? '1 Error' : `${errors} Errors`}, which must be put right first.`;
+  }
+
+  protected startSubmitting(): void {
+    this.submitNote.reset();
+    this.submitRefusal.set('');
+    this.submitting.set(true);
+  }
+
+  /**
+   * Submits the catalog behind the saves on their way, and reads it again as the Submitted catalog
+   * it then is. When the backend refuses, the dialog stays open with the reason.
+   */
+  protected async submit(): Promise<void> {
+    if (this.submittingNow()) {
+      return;
+    }
+
+    const note = this.submitNote.value.trim();
+    this.submitRefusal.set('');
+    this.submittingNow.set(true);
+    try {
+      await this.restructure((revision) => this.catalogs.submit(this.id, revision, note));
+      this.submitting.set(false);
+    } catch (error) {
+      if (failureOf(error) === 'rejected') {
+        this.submitRefusal.set(reasonOf(error));
+      } else {
+        // The editor has stopped or read the catalog again, and says so itself.
+        this.submitting.set(false);
+      }
+    } finally {
+      this.submittingNow.set(false);
+    }
+  }
+
+  /** Makes the Submitted catalog a Draft again, and reads it again either way. */
+  protected async withdraw(): Promise<void> {
+    if (this.withdrawing()) {
+      return;
+    }
+
+    this.withdrawing.set(true);
+    try {
+      await this.catalogs.withdraw(this.id);
+    } catch (error) {
+      this.messages.add({ severity: 'error', summary: 'Not withdrawn', detail: reasonOf(error) });
+    }
+    await this.open();
+    this.withdrawing.set(false);
   }
 
   /** Asks the person to confirm the removal of a feature row, which takes its cells along. */

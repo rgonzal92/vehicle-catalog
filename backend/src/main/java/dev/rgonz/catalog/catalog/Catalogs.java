@@ -96,6 +96,7 @@ class Catalogs {
             SELECT c.id, c.lineage_id, c.status, c.revision, c.name, c.version_number,
                    v.id AS vehicle_line_id, v.name AS vehicle_line, l.model_year,
                    a.display_name AS approved_by, c.approved_at, c.owner_id = :viewer AS owned,
+                   v.active AS vehicle_line_active, c.submit_note, c.submitted_at,
                    b.id AS base_catalog_id,
                    bl.model_year AS base_model_year, b.version_number AS base_version_number
             FROM catalog c
@@ -122,6 +123,9 @@ class Catalogs {
                     header.approvedBy(),
                     header.approvedAt(),
                     header.owned(),
+                    header.vehicleLineActive(),
+                    header.submitNote(),
+                    header.submittedAt(),
                     header.baseCatalogId() == null
                         ? null
                         : new Base(
@@ -350,6 +354,10 @@ class Catalogs {
    * A catalog as the API shows it: what describes it, its contents, and its issues.
    *
    * @param owned whether the viewer owns it, which lets them edit it while it is in status Draft
+   * @param vehicleLineActive whether its vehicle line is active; a catalog of an inactive line
+   *     cannot be submitted or approved
+   * @param submitNote what its owner said when they last submitted it, if anything
+   * @param submittedAt when it was last submitted, or null when it never was
    * @param base the Approved version it was copied from, or null when it started empty
    * @param issues what validation finds in the contents against the library as it is today, Errors
    *     before Warnings
@@ -363,6 +371,9 @@ class Catalogs {
       String approvedBy,
       Instant approvedAt,
       boolean owned,
+      boolean vehicleLineActive,
+      String submitNote,
+      Instant submittedAt,
       Base base,
       CatalogSnapshot snapshot,
       List<Issue> issues) {
@@ -377,6 +388,9 @@ class Catalogs {
           approvedBy,
           approvedAt,
           owned,
+          vehicleLineActive,
+          submitNote,
+          submittedAt,
           base,
           snapshot,
           found);
@@ -400,6 +414,9 @@ class Catalogs {
       String approvedBy,
       Instant approvedAt,
       boolean owned,
+      boolean vehicleLineActive,
+      String submitNote,
+      Instant submittedAt,
       Long baseCatalogId,
       Integer baseModelYear,
       Integer baseVersionNumber) {}

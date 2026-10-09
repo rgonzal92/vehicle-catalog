@@ -762,7 +762,7 @@ class CatalogEdits {
    * catalog as it is: that it is theirs, that it is in status Draft, and that the edit names the
    * revision it is at, in that order.
    */
-  private Locked lockToEdit(long catalogId, long actorId, String ifMatch) {
+  Locked lockToEdit(long catalogId, long actorId, String ifMatch) {
     var catalog =
         jdbc.sql("SELECT owner_id, status, revision FROM catalog WHERE id = :id FOR UPDATE")
             .param("id", catalogId)
@@ -809,5 +809,5 @@ class CatalogEdits {
   record Removed(long revision, List<String> rulesDeleted) {}
 
   /** What an edit checks of a catalog once it has locked it. */
-  private record Locked(long ownerId, Status status, long revision) {}
+  record Locked(long ownerId, Status status, long revision) {}
 }
