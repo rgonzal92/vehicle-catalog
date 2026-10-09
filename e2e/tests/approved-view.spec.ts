@@ -3,7 +3,8 @@ import { expectAccessible, signIn } from './support';
 
 /** Opens the seeded lineage from the dashboard's list of Approved catalogs. */
 async function openCompactSuv2026(page: Page): Promise<void> {
-  await page.getByRole('link', { name: 'Open Compact SUV 2026' }).click();
+  // A working copy of that lineage has a link that begins the same way, so the name is matched whole.
+  await page.getByRole('link', { name: 'Open Compact SUV 2026', exact: true }).click();
   await expect(page).toHaveURL(/\/approved\/\d+$/);
   await expect(page.getByRole('heading', { name: 'Compact SUV 2026' })).toBeVisible();
 }

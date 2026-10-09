@@ -56,7 +56,7 @@ test("a manager approves a submitted catalog, which becomes its lineage's Approv
   await expect(
     page.getByRole('region', { name: 'My catalogs' }).getByRole('row', { name }),
   ).toHaveCount(0);
-  await page.getByRole('link', { name: 'Open Sedan 2028' }).click();
+  await page.getByRole('link', { name: 'Open Sedan 2028', exact: true }).click();
   await expect(page.getByText('Approved version 1')).toBeVisible();
   await expect(page.locator('[data-shown]')).toContainText(name);
 });

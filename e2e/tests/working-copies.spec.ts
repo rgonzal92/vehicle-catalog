@@ -76,7 +76,7 @@ test('a working copy is created from the Approved view, and only its owner opens
 }) => {
   const name = unique('From Approved');
   await signIn(page, 'author');
-  await page.getByRole('link', { name: 'Open Pickup Truck 2026' }).click();
+  await page.getByRole('link', { name: 'Open Pickup Truck 2026', exact: true }).click();
 
   await page.getByRole('button', { name: 'Create working copy' }).click();
   const dialog = page.getByRole('dialog', { name: 'New catalog' });
