@@ -99,7 +99,7 @@ interface Question {
                 <td class="text-center">
                   <input
                     type="checkbox"
-                    class="size-4"
+                    class="size-4 accent-primary"
                     [checked]="sold().has(trim.id + ':' + region.code)"
                     [disabled]="locked()"
                     [attr.aria-label]="trim.name + ' is sold in ' + region.name"

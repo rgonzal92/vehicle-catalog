@@ -1,6 +1,7 @@
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
-import { NonNullableFormBuilder, ReactiveFormsModule } from '@angular/forms';
+import { FormsModule, NonNullableFormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { Button } from 'primeng/button';
+import { Checkbox } from 'primeng/checkbox';
 import { Dialog } from 'primeng/dialog';
 import { InputText } from 'primeng/inputtext';
 import { Message } from 'primeng/message';
@@ -29,7 +30,17 @@ const NOTHING_FOUND: FeaturePage = { items: [], total: 0 };
  * again. What is ticked stays ticked from page to page and from search to search.
  */
 @Component({
-  imports: [ReactiveFormsModule, Button, Dialog, InputText, Message, Select, TableModule],
+  imports: [
+    FormsModule,
+    ReactiveFormsModule,
+    Button,
+    Checkbox,
+    Dialog,
+    InputText,
+    Message,
+    Select,
+    TableModule,
+  ],
   selector: 'app-add-features-dialog',
   template: `
     <p-dialog
@@ -105,17 +116,17 @@ const NOTHING_FOUND: FeaturePage = { items: [], total: 0 };
           <ng-template #body let-feature>
             <tr>
               <td>
-                <input
-                  type="checkbox"
-                  class="size-4"
-                  [checked]="rows().has(feature.id) || ticked().has(feature.id)"
+                <p-checkbox
+                  [binary]="true"
+                  [ngModel]="rows().has(feature.id) || ticked().has(feature.id)"
+                  [ngModelOptions]="{ standalone: true }"
                   [disabled]="rows().has(feature.id)"
-                  [attr.aria-label]="
+                  [ariaLabel]="
                     rows().has(feature.id)
                       ? feature.name + ' is already a feature row'
                       : 'Add ' + feature.name
                   "
-                  (change)="tick(feature.id, $any($event.target).checked)"
+                  (ngModelChange)="tick(feature.id, $event)"
                 />
               </td>
               <td>{{ feature.code }}</td>
