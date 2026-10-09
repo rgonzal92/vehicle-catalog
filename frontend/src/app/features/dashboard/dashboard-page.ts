@@ -14,6 +14,7 @@ import {
   LineageSummary,
   STATUS_NAMES,
   STATUS_SEVERITIES,
+  SubmittedCatalog,
   WorkingCopy,
 } from '../../core/catalogs';
 import { Session } from '../../core/session';
@@ -216,7 +217,55 @@ import { reasonOf } from '../../shared/reason-of';
           <div class="surface-header">
             <h2 id="review-queue" class="font-semibold">Review queue</h2>
           </div>
-          <p class="surface-empty">Nothing is waiting for review.</p>
+          @if (reviewQueue()?.length) {
+            <p-table [value]="reviewQueue() ?? []">
+              <ng-template #header>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Vehicle line</th>
+                  <th scope="col">Model year</th>
+                  <th scope="col">Owner</th>
+                  <th scope="col">Submitted</th>
+                  <th scope="col">Note</th>
+                  <th scope="col"><span class="sr-only">Actions</span></th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-submitted>
+                <tr>
+                  <td>{{ submitted.name }}</td>
+                  <td>{{ submitted.vehicleLine }}</td>
+                  <td>{{ submitted.modelYear }}</td>
+                  <td>{{ submitted.owner }}</td>
+                  <td>{{ submitted.submittedAt | date: 'medium' }}</td>
+                  <td class="max-w-md whitespace-pre-line">{{ submitted.note }}</td>
+                  <td class="text-right whitespace-nowrap">
+                    @if (submitted.own) {
+                      <!-- Nobody reviews their own catalog. -->
+                      <p-tag severity="secondary" value="Yours" />
+                    } @else {
+                      <a
+                        class="font-medium text-primary hover:underline"
+                        [routerLink]="['/catalogs', submitted.id]"
+                        [attr.aria-label]="'Open ' + submitted.name + ' by ' + submitted.owner"
+                      >
+                        Open
+                      </a>
+                    }
+                  </td>
+                </tr>
+              </ng-template>
+            </p-table>
+          } @else if (reviewQueue()) {
+            <p class="surface-empty">Nothing is waiting for review.</p>
+          } @else if (reviewQueueFailed()) {
+            <app-read-failed
+              class="m-4"
+              what="The review queue could not be read."
+              (again)="readReviewQueue()"
+            />
+          } @else {
+            <app-loading />
+          }
         </section>
       }
     </div>
@@ -237,9 +286,16 @@ export class DashboardPage {
   /** The person's working copies, or null until the backend has answered. */
   protected readonly mine = signal<WorkingCopy[] | null>(null);
 
+  /**
+   * The catalogs that are waiting for review, or null until the backend has answered. Only a
+   * manager or an admin is shown them.
+   */
+  protected readonly reviewQueue = signal<SubmittedCatalog[] | null>(null);
+
   /** Whether the last reading of each list failed, which the list then says. */
   protected readonly mineFailed = signal(false);
   protected readonly lineagesFailed = signal(false);
+  protected readonly reviewQueueFailed = signal(false);
 
   protected readonly statusNames: Record<string, string> = STATUS_NAMES;
   protected readonly statusSeverities: Record<string, 'secondary' | 'info' | 'success'> =
@@ -263,6 +319,9 @@ export class DashboardPage {
   constructor() {
     void this.readMine();
     void this.readLineages();
+    if (this.session.holds('manager')) {
+      void this.readReviewQueue();
+    }
   }
 
   /** Asks the person to confirm the deletion of one of their working copies. */
@@ -332,12 +391,20 @@ export class DashboardPage {
     } catch (error) {
       this.messages.add({ severity: 'error', summary: 'Not withdrawn', detail: reasonOf(error) });
     }
-    await this.readMine();
+    // A manager's own submission is in the review queue too, which it now leaves.
+    await Promise.all([
+      this.readMine(),
+      this.session.holds('manager') ? this.readReviewQueue() : undefined,
+    ]);
     this.withdrawing.set(null);
   }
 
   protected readMine(): Promise<void> {
     return this.load(() => this.catalogs.mine(), this.mine, this.mineFailed);
+  }
+
+  protected readReviewQueue(): Promise<void> {
+    return this.load(() => this.catalogs.toReview(), this.reviewQueue, this.reviewQueueFailed);
   }
 
   protected readLineages(): Promise<void> {

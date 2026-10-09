@@ -86,6 +86,8 @@ export interface Catalog {
   approvedAt: string | null;
   /** Whether the signed-in person owns it, which lets them edit it while it is in status Draft. */
   owned: boolean;
+  /** The name of the person who owns it. */
+  owner: string;
   /** Whether its vehicle line is active. A catalog of an inactive line cannot be submitted. */
   vehicleLineActive: boolean;
   /** What its owner said when they last submitted it, if anything. */
@@ -185,6 +187,21 @@ export interface WorkingCopy {
   /** How many Errors and Warnings validation finds in it against the library as it is today. */
   errors: number;
   warnings: number;
+}
+
+/** A Submitted catalog as the review queue lists it. */
+export interface SubmittedCatalog {
+  id: number;
+  name: string;
+  vehicleLine: string;
+  modelYear: number;
+  /** The name of the person who owns it. */
+  owner: string;
+  submittedAt: string;
+  /** What its owner said when they submitted it, if anything. */
+  note: string | null;
+  /** Whether the signed-in person owns it, who then cannot review it. */
+  own: boolean;
 }
 
 /**
@@ -295,6 +312,13 @@ export class Catalogs {
   mine(): Promise<WorkingCopy[]> {
     return firstValueFrom(
       this.http.get<WorkingCopy[]>('/api/catalogs', { params: { scope: 'mine' } }),
+    );
+  }
+
+  /** The catalogs that are waiting for review, the one submitted first at the top. */
+  toReview(): Promise<SubmittedCatalog[]> {
+    return firstValueFrom(
+      this.http.get<SubmittedCatalog[]>('/api/catalogs', { params: { scope: 'review' } }),
     );
   }
 

@@ -206,6 +206,12 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
               <dt class="text-sm text-muted-color">Base</dt>
               <dd data-base>{{ baseInWords(catalog) }}</dd>
             </div>
+            @if (!catalog.owned && catalog.snapshot.status !== 'APPROVED') {
+              <div>
+                <dt class="text-sm text-muted-color">Owner</dt>
+                <dd>{{ catalog.owner }}</dd>
+              </div>
+            }
             @if (catalog.snapshot.status === 'SUBMITTED') {
               <div>
                 <dt class="text-sm text-muted-color">Submitted</dt>
