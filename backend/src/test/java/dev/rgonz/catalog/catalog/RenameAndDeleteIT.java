@@ -117,6 +117,14 @@ class RenameAndDeleteIT extends WorkingCopyTests {
         .param("catalog", copy)
         .param("reviewer", person("ben"))
         .update();
+    jdbc.sql(
+            """
+            INSERT INTO catalog_export (catalog_id, requested_by, file_name)
+            VALUES (:catalog, :requester, 'A spreadsheet.xlsx')
+            """)
+        .param("catalog", copy)
+        .param("requester", person("ana"))
+        .update();
     var approved = approved("COMPACT_SUV", 2026, 2);
     var sibling = workingCopy(ben(), "COMPACT_SUV", 2026);
     var lineages = jdbc.sql("SELECT * FROM lineage ORDER BY id").query().listOfRows();

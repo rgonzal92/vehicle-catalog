@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpContext } from '@angular/common/http';
 import { inject, Injectable, signal } from '@angular/core';
 import { firstValueFrom, timeout } from 'rxjs';
 import {
@@ -10,6 +10,7 @@ import {
   MatrixRegion,
   MatrixTrim,
 } from '../shared/availability-matrix/matrix';
+import { IN_THE_BACKGROUND } from './api-error-interceptor';
 import { RuleKind } from './global-rules';
 
 /** A lineage with its current Approved version, as the dashboard lists it. */
@@ -222,6 +223,15 @@ export interface UpdatePreview {
   /** What the update changes in the working copy without asking. */
   taken: CatalogChanges;
   conflicts: UpdateConflict[];
+}
+
+/** A catalog as a spreadsheet, which the worker builds once it has been asked for. */
+export interface CatalogExport {
+  id: number;
+  /** `QUEUED` until the file is there, then `READY`; `FAILED` when it could not be built. */
+  status: 'QUEUED' | 'READY' | 'FAILED';
+  /** What the file is called. */
+  fileName: string;
 }
 
 /** What a saved edit of a working copy answers with: where it led, and the issues there. */
@@ -477,6 +487,25 @@ export class Catalogs {
     resolutions: Record<string, ConflictSide>,
   ): Promise<number> {
     return this.edit(catalogId, 'POST', '/merge', revision, { approvedCatalogId, resolutions });
+  }
+
+  /** Asks for a catalog as a spreadsheet, which is built in the background. */
+  export(catalogId: number): Promise<CatalogExport> {
+    return firstValueFrom(
+      this.http.post<CatalogExport>(`/api/catalogs/${catalogId}/exports`, null),
+    );
+  }
+
+  /**
+   * How an export stands. Nobody asked to be told, so a server or network failure of this is not
+   * shown; whoever asks goes on asking.
+   */
+  exportStatus(exportId: number): Promise<CatalogExport> {
+    return firstValueFrom(
+      this.http.get<CatalogExport>(`/api/exports/${exportId}`, {
+        context: new HttpContext().set(IN_THE_BACKGROUND, true),
+      }),
+    );
   }
 
   /** Renames a working copy. */

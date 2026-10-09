@@ -28,14 +28,19 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.QueueAttributeName;
 
 /**
  * Runs the application against one shared PostgreSQL container, one shared mock login server, and
- * one shared stand-in for the queue. The containers start once and are never stopped between
- * classes, so the cached Spring context stays connected to them.
+ * one shared stand-in each for the queue and for the bucket of exported spreadsheets. The
+ * containers start once and are never stopped between classes, so the cached Spring context stays
+ * connected to them.
  */
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -134,10 +139,29 @@ public abstract class ApplicationIT {
   static final GenericContainer<?> QUEUE =
       new GenericContainer<>("softwaremill/elasticmq-native:1.7.1").withExposedPorts(9324);
 
+  /** A stand-in for the bucket that keeps the exported spreadsheets. */
+  static final GenericContainer<?> STORAGE =
+      new GenericContainer<>("adobe/s3mock:5.2.3").withExposedPorts(9090);
+
+  /** Reads the stand-in's bucket, for the tests that look at what is kept there. */
+  private static final S3Client STORED;
+
+  private static final String EXPORTS = "exports";
+
   static {
     DATABASE.start();
     LOGIN_SERVER.start();
     QUEUE.start();
+    STORAGE.start();
+    STORED =
+        S3Client.builder()
+            .region(Region.US_EAST_1)
+            .endpointOverride(URI.create(storageUrl()))
+            .credentialsProvider(
+                StaticCredentialsProvider.create(AwsBasicCredentials.create("a-test", "a-test")))
+            .forcePathStyle(true)
+            .build();
+    STORED.createBucket(bucket -> bucket.bucket(EXPORTS));
     try (var sqs =
         SqsClient.builder()
             .region(Region.US_EAST_1)
@@ -176,6 +200,28 @@ public abstract class ApplicationIT {
 
   private static String queueServerUrl() {
     return "http://127.0.0.1:" + QUEUE.getMappedPort(9324);
+  }
+
+  @DynamicPropertySource
+  static void storage(DynamicPropertyRegistry registry) {
+    registry.add("app.exports.bucket", () -> EXPORTS);
+    registry.add("app.exports.endpoint", ApplicationIT::storageUrl);
+  }
+
+  private static String storageUrl() {
+    return "http://127.0.0.1:" + STORAGE.getMappedPort(9090);
+  }
+
+  /** The keys of the files the bucket of exported spreadsheets holds. */
+  protected static List<String> exportedFiles() {
+    return STORED.listObjectsV2(bucket -> bucket.bucket(EXPORTS)).contents().stream()
+        .map(S3Object::key)
+        .toList();
+  }
+
+  /** Takes every file out of the bucket of exported spreadsheets. */
+  protected static void noExportedFiles() {
+    exportedFiles().forEach(key -> STORED.deleteObject(file -> file.bucket(EXPORTS).key(key)));
   }
 
   @DynamicPropertySource

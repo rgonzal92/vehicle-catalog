@@ -27,9 +27,14 @@ services:
     ports: !override
       - "127.0.0.1:8093:8080"
 
+  storage:
+    ports: !override
+      - "127.0.0.1:8095:9090"
+
   backend:
     ports: !reset []
     environment:
+      EXPORTS_ENDPOINT: http://localhost:8095
       # No demo reset while the browser tests run: one at 03:00 UTC would take their work away.
       APP_DEMORESET_CRON: "-"
       PUBLIC_URL: http://localhost:8092

@@ -187,6 +187,10 @@ _Avoid_: Task, background task
 The process that does the jobs. It is the backend's own build, run beside the API.
 _Avoid_: Consumer, job runner
 
+**Export**:
+A catalog as a spreadsheet, with its matrix on one sheet and its rules on another, built for whoever asked for it.
+_Avoid_: Download, report
+
 **Notification**:
 Something a person is told in the app about what happened to their work.
 _Avoid_: Alert, message (a message is what tells the worker of a job)

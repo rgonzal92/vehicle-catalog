@@ -18,6 +18,7 @@ import { FixedLists } from '../../core/fixed-lists';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
 import { Issue } from '../../shared/availability-matrix/matrix';
 import { CatalogChangesList } from '../../shared/catalog-changes';
+import { ExportDialog } from '../../shared/export-dialog';
 import { IssueCounts, IssueList } from '../../shared/issues';
 import { NewCatalogDialog } from '../../shared/new-catalog-dialog/new-catalog-dialog';
 import { Loading, ReadFailed } from '../../shared/read-state';
@@ -42,6 +43,7 @@ import { Loading, ReadFailed } from '../../shared/read-state';
     IssueCounts,
     IssueList,
     NewCatalogDialog,
+    ExportDialog,
     Loading,
     ReadFailed,
   ],
@@ -60,10 +62,14 @@ import { Loading, ReadFailed } from '../../shared/read-state';
             </p>
             <app-new-catalog-dialog #newCatalog />
           </div>
-          <button pButton type="button" (click)="newCatalog.open(catalog)">
-            <svg data-p-icon="copy" pButtonIcon />
-            <span pButtonLabel>Create working copy</span>
-          </button>
+          <div class="flex flex-wrap items-center gap-2">
+            <p-button label="Export" severity="secondary" (onClick)="exporting.start()" />
+            <app-export-dialog #exporting [catalogId]="catalog.snapshot.catalogId" />
+            <button pButton type="button" (click)="newCatalog.open(catalog)">
+              <svg data-p-icon="copy" pButtonIcon />
+              <span pButtonLabel>Create working copy</span>
+            </button>
+          </div>
         </header>
 
         <section class="surface max-w-5xl" aria-labelledby="versions">

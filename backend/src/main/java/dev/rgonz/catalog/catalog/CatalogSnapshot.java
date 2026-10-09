@@ -1,5 +1,7 @@
 package dev.rgonz.catalog.catalog;
 
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -27,6 +29,20 @@ record CatalogSnapshot(
   static CatalogSnapshot empty() {
     return new CatalogSnapshot(
         0, 0, Status.DRAFT, 0, List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+  }
+
+  /** The catalog's offerings as its matrix has them: region by region, and trims in order. */
+  List<Offering> offeringsInOrder() {
+    var regionPlaces = new HashMap<String, Integer>();
+    regions.forEach(region -> regionPlaces.put(region.code(), regionPlaces.size()));
+    var trimPlaces = new HashMap<Long, Integer>();
+    trims.forEach(trim -> trimPlaces.put(trim.id(), trim.sortOrder()));
+    return offerings.stream()
+        .sorted(
+            Comparator.comparing((Offering offering) -> regionPlaces.get(offering.regionCode()))
+                .thenComparing(offering -> trimPlaces.get(offering.trimId()))
+                .thenComparing(Offering::trimId))
+        .toList();
   }
 
   /** Whether a catalog is a working copy, in Draft or Submitted, or an Approved version. */

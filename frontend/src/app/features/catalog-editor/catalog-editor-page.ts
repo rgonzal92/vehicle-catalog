@@ -46,6 +46,7 @@ import { FixedLists } from '../../core/fixed-lists';
 import { FeatureKind, KIND_FILTERS } from '../../core/library';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
 import { Cell, FeatureRow, Issue } from '../../shared/availability-matrix/matrix';
+import { ExportDialog } from '../../shared/export-dialog';
 import { IssueCounts, IssueList } from '../../shared/issues';
 import { Loading, ReadFailed } from '../../shared/read-state';
 import { reasonOf } from '../../shared/reason-of';
@@ -98,6 +99,7 @@ import { UpdateDialog } from './update-dialog';
     Tabs,
     Tag,
     AvailabilityMatrix,
+    ExportDialog,
     IssueCounts,
     IssueList,
     Loading,
@@ -187,6 +189,10 @@ import { UpdateDialog } from './update-dialog';
               </span>
             </div>
           }
+          <div>
+            <p-button label="Export" severity="secondary" (onClick)="exporting.start()" />
+            <app-export-dialog #exporting [catalogId]="catalog.snapshot.catalogId" />
+          </div>
           <dl class="flex flex-wrap gap-x-8 gap-y-2">
             <div>
               <dt class="text-sm text-muted-color">Vehicle line</dt>
