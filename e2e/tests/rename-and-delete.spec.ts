@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
-import { createWorkingCopy, expectAccessible, signIn, unique } from './support';
+import { expect } from '@playwright/test';
+import { createWorkingCopy, expectAccessible, signIn, test, unique } from './support';
 
 test('the owner renames a working copy in the editor header and deletes it from the dashboard', async ({
   page,

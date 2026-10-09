@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
-import { choose, expectAccessible, signIn } from './support';
+import { expect } from '@playwright/test';
+import { choose, expectAccessible, signIn, test } from './support';
 
 test('an admin adds, changes, and deletes a global rule', async ({ page }) => {
   await signIn(page, 'admin');

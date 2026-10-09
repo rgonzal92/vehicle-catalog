@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
-import { choose, createWorkingCopy, expectAccessible, signIn } from './support';
+import { expect } from '@playwright/test';
+import { choose, createWorkingCopy, expectAccessible, signIn, test } from './support';
 
 test('an owner adds, changes, and deletes a rule of a working copy', async ({ page }) => {
   await signIn(page, 'author');

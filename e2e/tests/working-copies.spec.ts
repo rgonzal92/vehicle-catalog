@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
-import { expectAccessible, signIn, signOut, startNewCatalog, unique } from './support';
+import { expect } from '@playwright/test';
+import { expectAccessible, signIn, signOut, startNewCatalog, test, unique } from './support';
 
 test('an author creates a working copy that starts from the Approved version', async ({ page }) => {
   const name = unique('Winter update');

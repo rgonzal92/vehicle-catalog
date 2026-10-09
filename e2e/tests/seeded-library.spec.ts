@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
-import { signIn } from './support';
+import { expect } from '@playwright/test';
+import { signIn, test } from './support';
 
 test('the library starts with seeded trims, regions, vehicle lines, and features', async ({
   page,

@@ -1,5 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
-import { expectAccessible, signIn } from './support';
+import { expect, type Page } from '@playwright/test';
+import { expectAccessible, signIn, test } from './support';
 
 /** Opens the seeded lineage from the dashboard's list of Approved catalogs. */
 async function openCompactSuv2026(page: Page): Promise<void> {

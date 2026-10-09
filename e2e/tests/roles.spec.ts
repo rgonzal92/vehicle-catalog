@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
-import { expectAccessible, signIn } from './support';
+import { expect } from '@playwright/test';
+import { expectAccessible, signIn, test } from './support';
 
 /** The login server's demo accounts, and the dashboard sections and pages each one's role can use. */
 const demoAccounts = [

@@ -1,5 +1,13 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
-import { choose, createWorkingCopy, expectAccessible, signIn, turboOf, unique } from './support';
+import { expect, type Locator, type Page } from '@playwright/test';
+import {
+  choose,
+  createWorkingCopy,
+  expectAccessible,
+  signIn,
+  test,
+  turboOf,
+  unique,
+} from './support';
 
 /** Opens the dialog for the catalog's trims, regions, and offerings from the catalog editor. */
 async function manage(page: Page): Promise<Locator> {

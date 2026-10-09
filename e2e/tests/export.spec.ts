@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
-import { createWorkingCopy, expectAccessible, signIn } from './support';
+import { expect } from '@playwright/test';
+import { createWorkingCopy, expectAccessible, signIn, test } from './support';
 
 test('an author exports an Approved catalog and downloads the spreadsheet', async ({ page }) => {
   await signIn(page, 'author');

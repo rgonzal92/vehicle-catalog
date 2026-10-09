@@ -1,5 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
-import { expectAccessible } from './support';
+import { expect, type Page } from '@playwright/test';
+import { expectAccessible, test } from './support';
 
 /** The rows of the demo accounts table. */
 const demoAccountRows = (page: Page) =>

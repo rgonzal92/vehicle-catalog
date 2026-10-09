@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
-import { createWorkingCopy, expectAccessible, nextSave, signIn } from './support';
+import { expect } from '@playwright/test';
+import { createWorkingCopy, expectAccessible, nextSave, signIn, test } from './support';
 
 test('an owner submits a working copy with a note, and withdraws it to edit it again', async ({
   page,

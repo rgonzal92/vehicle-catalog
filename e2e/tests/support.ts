@@ -1,5 +1,25 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, type Locator, type Page, type Request } from '@playwright/test';
+import { test as base, expect, type Locator, type Page, type Request } from '@playwright/test';
+
+/**
+ * How PrimeNG marks a dialog, a list, or anything else of its own for as long as it is opening,
+ * which takes about a third of a second.
+ */
+const stillOpening = '[class*="-enter-active"]';
+
+/**
+ * The tests of this suite. Nothing is done on their page while something on it is still opening,
+ * because what opens is not ready for what comes next until it has: only then does a dialog take
+ * the focus into its first field, and only then does a list hear Escape. On a machine whose
+ * browser is short of processor time a test got in before that, and what it typed for one field
+ * landed in another, or its Escape was heard by no one.
+ */
+export const test = base.extend({
+  page: async ({ page }, use) => {
+    await page.addLocatorHandler(page.locator(stillOpening).first(), async () => {});
+    await use(page);
+  },
+});
 
 /** Signs in from the landing page as one of the login server's accounts. */
 export async function signIn(page: Page, username: string): Promise<void> {

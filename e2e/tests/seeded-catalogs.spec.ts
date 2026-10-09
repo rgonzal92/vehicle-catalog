@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
-import { signIn } from './support';
+import { expect } from '@playwright/test';
+import { signIn, test } from './support';
 
 test('the dashboard lists the seeded lineages with their current Approved versions', async ({
   page,

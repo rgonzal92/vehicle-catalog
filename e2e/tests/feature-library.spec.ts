@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
-import { choose, expectAccessible, signIn } from './support';
+import { expect } from '@playwright/test';
+import { choose, expectAccessible, signIn, test } from './support';
 
 test('an admin adds, edits, retires, and reactivates features and finds them by search', async ({
   page,
