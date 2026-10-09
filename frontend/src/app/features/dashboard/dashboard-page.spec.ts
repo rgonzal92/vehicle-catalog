@@ -308,4 +308,59 @@ describe('DashboardPage', () => {
       'Review queue',
     ]);
   });
+
+  /** The dashboard of an author, with neither of its lists read yet. */
+  async function unanswered() {
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        MessageService,
+      ],
+    });
+    const backend = TestBed.inject(HttpTestingController);
+    const loading = TestBed.inject(Session).load();
+    backend.expectOne('/api/me').flush({ id: 7, name: 'Maya', email: null, roles: ['author'] });
+    await loading;
+
+    const fixture = TestBed.createComponent(DashboardPage);
+    await fixture.whenStable();
+    return { backend, page: fixture.nativeElement as HTMLElement };
+  }
+
+  it('stands in for each list until it has been read', async () => {
+    const { backend, page } = await unanswered();
+    expect(page.querySelectorAll('app-loading')).toHaveLength(2);
+    expect(page.querySelector('[role="alert"]')).toBeNull();
+
+    backend.expectOne('/api/catalogs?scope=mine').flush([]);
+    backend.expectOne('/api/lineages').flush([]);
+
+    await vi.waitFor(() => expect(page.querySelectorAll('app-loading')).toHaveLength(0));
+    expect(page.textContent).toContain('You have no catalogs.');
+    expect(page.textContent).toContain('There are no Approved catalogs.');
+  });
+
+  it('says so when a list cannot be read, and reads it again when asked', async () => {
+    const { backend, page } = await unanswered();
+    backend.expectOne('/api/lineages').flush([]);
+    backend
+      .expectOne('/api/catalogs?scope=mine')
+      .flush(null, { status: 500, statusText: 'Server Error' });
+
+    const failed = await vi.waitFor(() => {
+      const found = page.querySelector('section[aria-labelledby="my-catalogs"] [role="alert"]');
+      expect(found?.textContent).toContain('Your catalogs could not be read.');
+      return found!;
+    });
+    expect(page.querySelector('app-loading')).toBeNull();
+    Array.from(failed.querySelectorAll('button'))
+      .find((candidate) => candidate.textContent?.trim() === 'Try again')!
+      .click();
+
+    (await vi.waitFor(() => backend.expectOne('/api/catalogs?scope=mine'))).flush([]);
+    await vi.waitFor(() => expect(page.textContent).toContain('You have no catalogs.'));
+    expect(page.querySelector('section[aria-labelledby="my-catalogs"] [role="alert"]')).toBeNull();
+  });
 });

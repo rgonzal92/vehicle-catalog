@@ -9,6 +9,7 @@ import { Catalog, Catalogs, VersionSummary } from '../../core/catalogs';
 import { FixedLists } from '../../core/fixed-lists';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
 import { NewCatalogDialog } from '../../shared/new-catalog-dialog/new-catalog-dialog';
+import { Loading, ReadFailed } from '../../shared/read-state';
 
 /**
  * A lineage's Approved versions: the list of them, and the read-only matrix of the one being shown,
@@ -26,6 +27,8 @@ import { NewCatalogDialog } from '../../shared/new-catalog-dialog/new-catalog-di
     TableModule,
     AvailabilityMatrix,
     NewCatalogDialog,
+    Loading,
+    ReadFailed,
   ],
   selector: 'app-approved-page',
   template: `
@@ -99,6 +102,10 @@ import { NewCatalogDialog } from '../../shared/new-catalog-dialog/new-catalog-di
         </section>
       } @else if (missing()) {
         <p>There is no Approved version at this address.</p>
+      } @else if (failed()) {
+        <app-read-failed what="The Approved catalog could not be read." (again)="open()" />
+      } @else {
+        <app-loading class="surface" />
       }
     </div>
   `,
@@ -116,6 +123,9 @@ export class ApprovedPage {
 
   /** Whether the address names no lineage, or one without an Approved version. */
   protected readonly missing = signal(false);
+
+  /** Whether the page could not be read, which it then says. */
+  protected readonly failed = signal(false);
 
   constructor() {
     void this.fixedLists.load();
@@ -139,7 +149,8 @@ export class ApprovedPage {
   }
 
   /** Shows the current Approved version, which is the first of the list. */
-  private async open(): Promise<void> {
+  protected async open(): Promise<void> {
+    this.failed.set(false);
     try {
       const versions = await this.catalogs.versions(this.lineageId);
       this.versions.set(versions);
@@ -152,5 +163,7 @@ export class ApprovedPage {
       // a message.
       this.missing.set(error instanceof HttpErrorResponse && [400, 404].includes(error.status));
     }
+    // A version that could not be read leaves nothing to show.
+    this.failed.set(!this.missing() && !this.catalog());
   }
 }

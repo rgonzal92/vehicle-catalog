@@ -125,7 +125,7 @@ describe('CatalogEditorPage', () => {
   };
 
   /** Renders the editor for catalog 41, which the backend answers with the given catalog or status. */
-  async function page(answer: object | number): Promise<HTMLElement> {
+  async function page(answer: object | number | 'not yet'): Promise<HTMLElement> {
     TestBed.configureTestingModule({
       providers: [
         provideRouter([]),
@@ -146,14 +146,17 @@ describe('CatalogEditorPage', () => {
     const fixture = TestBed.createComponent(CatalogEditorPage);
     fixture.detectChanges();
     backend.expectOne('/api/reference').flush({ vehicleTypes: [], categories: [], modelYears: [] });
+    const element = fixture.nativeElement as HTMLElement;
+    if (answer === 'not yet') {
+      return element;
+    }
     const request = backend.expectOne('/api/catalogs/41');
     if (typeof answer === 'number') {
       request.flush({ code: 'NOT_FOUND' }, { status: answer, statusText: 'Refused' });
     } else {
       request.flush(answer);
     }
-    const element = fixture.nativeElement as HTMLElement;
-    await vi.waitFor(() => expect(element.querySelector('h2, p')).not.toBeNull());
+    await vi.waitFor(() => expect(element.querySelector('h2, p, app-read-failed')).not.toBeNull());
 
     return element;
   }
@@ -929,5 +932,30 @@ describe('CatalogEditorPage', () => {
 
     expect(element.textContent).toContain('There is no catalog at this address.');
     expect(element.querySelector('app-availability-matrix')).toBeNull();
+  });
+
+  it('stands in for the catalog until it has been read', async () => {
+    const element = await page('not yet');
+    expect(element.querySelector('app-loading')).not.toBeNull();
+
+    backend.expectOne('/api/catalogs/41').flush(workingCopy);
+
+    await vi.waitFor(() => expect(element.querySelector('h2')?.textContent).toBe('Winter update'));
+    expect(element.querySelector('app-loading')).toBeNull();
+  });
+
+  it('says so when the catalog cannot be read, and reads it again when asked', async () => {
+    const element = await page(500);
+
+    const failed = element.querySelector('[role="alert"]')!;
+    expect(failed.textContent).toContain('The catalog could not be read.');
+    expect(element.querySelector('app-loading')).toBeNull();
+    Array.from(failed.querySelectorAll('button'))
+      .find((candidate) => candidate.textContent?.trim() === 'Try again')!
+      .click();
+
+    (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush(workingCopy);
+    await vi.waitFor(() => expect(element.querySelector('h2')?.textContent).toBe('Winter update'));
+    expect(element.querySelector('app-read-failed')).toBeNull();
   });
 });

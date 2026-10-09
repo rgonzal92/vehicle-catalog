@@ -18,6 +18,7 @@ import {
 } from '../../core/catalogs';
 import { Session } from '../../core/session';
 import { NewCatalogDialog } from '../../shared/new-catalog-dialog/new-catalog-dialog';
+import { Loading, ReadFailed } from '../../shared/read-state';
 import { reasonOf } from '../../shared/reason-of';
 
 /** The first page a signed-in person sees, with a section for each thing their role can do. */
@@ -35,6 +36,8 @@ import { reasonOf } from '../../shared/reason-of';
     TableModule,
     Tag,
     NewCatalogDialog,
+    Loading,
+    ReadFailed,
   ],
   selector: 'app-dashboard-page',
   template: `
@@ -97,6 +100,14 @@ import { reasonOf } from '../../shared/reason-of';
           </p-table>
         } @else if (mine()) {
           <p class="surface-empty">You have no catalogs.</p>
+        } @else if (mineFailed()) {
+          <app-read-failed
+            class="m-4"
+            what="Your catalogs could not be read."
+            (again)="readMine()"
+          />
+        } @else {
+          <app-loading />
         }
         <app-new-catalog-dialog #newCatalog />
         <p-dialog
@@ -168,6 +179,14 @@ import { reasonOf } from '../../shared/reason-of';
           </p-table>
         } @else if (lineages()) {
           <p class="surface-empty">There are no Approved catalogs.</p>
+        } @else if (lineagesFailed()) {
+          <app-read-failed
+            class="m-4"
+            what="The Approved catalogs could not be read."
+            (again)="readLineages()"
+          />
+        } @else {
+          <app-loading />
         }
       </section>
 
@@ -197,6 +216,10 @@ export class DashboardPage {
   /** The person's working copies, or null until the backend has answered. */
   protected readonly mine = signal<WorkingCopy[] | null>(null);
 
+  /** Whether the last reading of each list failed, which the list then says. */
+  protected readonly mineFailed = signal(false);
+  protected readonly lineagesFailed = signal(false);
+
   protected readonly statusNames: Record<string, string> = STATUS_NAMES;
   protected readonly statusSeverities: Record<string, 'secondary' | 'info' | 'success'> =
     STATUS_SEVERITIES;
@@ -215,7 +238,7 @@ export class DashboardPage {
 
   constructor() {
     void this.readMine();
-    void this.load(() => this.catalogs.lineages(), this.lineages);
+    void this.readLineages();
   }
 
   /** Asks the person to confirm the deletion of one of their working copies. */
@@ -270,15 +293,25 @@ export class DashboardPage {
     this.deletingNow.set(false);
   }
 
-  private readMine(): Promise<void> {
-    return this.load(() => this.catalogs.mine(), this.mine);
+  protected readMine(): Promise<void> {
+    return this.load(() => this.catalogs.mine(), this.mine, this.mineFailed);
   }
 
-  private async load<T>(read: () => Promise<T>, into: { set(value: T): void }): Promise<void> {
+  protected readLineages(): Promise<void> {
+    return this.load(() => this.catalogs.lineages(), this.lineages, this.lineagesFailed);
+  }
+
+  private async load<T>(
+    read: () => Promise<T>,
+    into: { set(value: T): void },
+    failed: { set(value: boolean): void },
+  ): Promise<void> {
+    failed.set(false);
     try {
       into.set(await read());
     } catch {
-      // The failure has already been shown as a message.
+      // The failure has been shown as a message too, which goes away; the list goes on saying so.
+      failed.set(true);
     }
   }
 }

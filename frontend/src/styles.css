@@ -26,6 +26,11 @@
   }
 }
 
+/* A dialog is given a width that suits its contents, and is no wider than the screen. */
+.p-dialog {
+  max-width: calc(100vw - 2rem);
+}
+
 /* A part of a page: a bordered, rounded panel on the page's ground. */
 @utility surface {
   @apply overflow-hidden rounded-border border border-surface bg-surface-0 dark:bg-surface-900;

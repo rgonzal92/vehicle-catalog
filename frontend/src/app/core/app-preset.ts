@@ -7,9 +7,9 @@ const GROUND = 'light-dark({surface.50}, {surface.950})';
 /**
  * The app's look: Aura in blue, set in Inter, on cool grays in light and neutral ones in dark.
  *
- * White text on Aura's own primary, and its red text on an error message's background, fall short
- * of the 4.5:1 contrast WCAG AA requires. The primary color is a darker blue in light, and text in
- * an error message is darker in light and lighter in dark; these pass.
+ * White text on Aura's own primary, and its colored text on the background of an error message
+ * or of a toast, fall short of the 4.5:1 contrast WCAG AA requires. The primary color is a darker
+ * blue in light, and that text is darker in light and lighter in dark; these pass.
  *
  * A value for one color scheme alone is one argument of `light-dark()`, as Aura's own values are.
  */
@@ -40,6 +40,11 @@ export const AppPreset = definePreset(Aura, {
       error: {
         color: 'light-dark({red.700}, {red.400})',
       },
+    },
+    toast: {
+      error: { color: 'light-dark({red.700}, {red.400})' },
+      warn: { color: 'light-dark({yellow.800}, {yellow.400})' },
+      info: { color: 'light-dark({blue.700}, {blue.400})' },
     },
     datatable: {
       headerCell: { padding: '0.5rem 0.75rem' },
