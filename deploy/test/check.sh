@@ -211,9 +211,6 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 expect "the agent is sent that request's trace" yes "$(whether grep -qE "$span" <<<"$said")"
-expect "the agent is sent nine metrics and no other" \
-  "catalog.approved catalog.copy catalog.edit catalog.merged catalog.rejected catalog.submit.refused health http.server.requests jvm.heap.used" \
-  "$(sed -n 's/^ *-> Name: //p' <<<"$said" | sort -u | paste -sd ' ')"
 expect "the log holds none of the secrets" 0 \
   "$(logged | grep -cF -e "$secret" -e a-password-for-this-check -e a-client-secret-for-this-check || true)"
 
@@ -246,6 +243,20 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 expect "the agent is sent the trace of the job" yes "$(whether grep -qE "$job_span" <<<"$(reported)")"
+# The worker times a job, and sends how long it took where the API sends its metrics. That is the
+# one metric the worker sends, so with this job's time sent the agent has been sent all there are.
+its_time='-> type: Str(AFTER_APPROVAL)'
+for _ in $(seq 1 30); do
+  said="$(reported)"
+  grep -qF -- "$its_time" <<<"$said" && break
+  sleep 1
+done
+expect "the agent is sent how long the job took, told apart by its type and by how it ended" \
+  "outcome: Str(SUCCESS) type: Str(AFTER_APPROVAL)" \
+  "$(grep -B 1 -F -- "$its_time" <<<"$said" | sed -n 's/^ *-> //p' | sort -u | paste -sd ' ')"
+expect "the agent is sent ten metrics and no other: the API's nine, and how long a job took" \
+  "catalog.approved catalog.copy catalog.edit catalog.merged catalog.rejected catalog.submit.refused health http.server.requests job.run jvm.heap.used" \
+  "$(sed -n 's/^ *-> Name: //p' <<<"$said" | sort -u | paste -sd ' ')"
 asks_the_worker() { # the path
   docker compose exec -T worker wget --quiet --spider "http://127.0.0.1:8080$1"
 }

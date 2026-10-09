@@ -1,6 +1,6 @@
 # What the backend reports of itself, and where Amazon CloudWatch keeps it: its log, its traces, and
 # a short list of metrics. An alarm watches the metric that says whether the backend is ready, and
-# a dashboard shows the others. A metric that neither of them uses is not sent: each one beyond the
+# a dashboard shows the others, beside what SQS reports of the jobs' two queues. A metric that neither of them uses is not sent: each one beyond the
 # first ten is paid for by the month.
 
 locals {
@@ -281,6 +281,62 @@ resource "aws_cloudwatch_dashboard" "backend" {
             id         = "refused"
             label      = "$${PROP('Dim.reason')}"
           }]]
+        }
+      },
+      {
+        type = "metric", x = 12, y = 24, width = 12, height = 6
+        properties = {
+          title   = "Jobs a minute, by type and outcome"
+          region  = data.aws_region.current.region
+          view    = "timeSeries"
+          period  = 60
+          stacked = true
+          metrics = [[{
+            expression = "SEARCH('${local.backend_metric} MetricName=\"job.run\"', 'SampleCount', 60)"
+            id         = "jobs"
+            label      = "$${PROP('Dim.type')} $${PROP('Dim.outcome')}"
+          }]]
+        }
+      },
+      {
+        type = "metric", x = 0, y = 30, width = 12, height = 6
+        properties = {
+          title  = "How long a job takes on average, by type and outcome"
+          region = data.aws_region.current.region
+          view   = "timeSeries"
+          period = 60
+          metrics = [[{
+            expression = "SEARCH('${local.backend_metric} MetricName=\"job.run\"', 'Average', 60)"
+            id         = "took"
+            label      = "$${PROP('Dim.type')} $${PROP('Dim.outcome')}"
+          }]]
+        }
+      },
+      {
+        type = "metric", x = 12, y = 30, width = 12, height = 6
+        properties = {
+          title  = "Messages that wait on the jobs' queue, and in the dead-letter queue"
+          region = data.aws_region.current.region
+          view   = "timeSeries"
+          stat   = "Maximum"
+          period = 60
+          metrics = [
+            ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", aws_sqs_queue.jobs.name, { label = "waiting" }],
+            ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", aws_sqs_queue.jobs_failed.name, { label = "failed for good" }],
+          ]
+        }
+      },
+      {
+        type = "metric", x = 0, y = 36, width = 12, height = 6
+        properties = {
+          title  = "How long the oldest message on the jobs' queue has waited, in seconds"
+          region = data.aws_region.current.region
+          view   = "timeSeries"
+          stat   = "Maximum"
+          period = 60
+          metrics = [
+            ["AWS/SQS", "ApproximateAgeOfOldestMessage", "QueueName", aws_sqs_queue.jobs.name, { label = "oldest message" }],
+          ]
         }
       },
     ]

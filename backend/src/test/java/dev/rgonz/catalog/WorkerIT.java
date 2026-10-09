@@ -6,6 +6,10 @@ import static org.awaitility.Awaitility.await;
 import dev.rgonz.catalog.core.Role;
 import dev.rgonz.catalog.job.JobType;
 import dev.rgonz.catalog.job.Jobs;
+import dev.rgonz.catalog.job.Worker;
+import io.micrometer.core.instrument.Meter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tag;
 import java.time.Duration;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -39,6 +43,7 @@ class WorkerIT extends ApplicationIT {
   @Autowired ApplicationContext application;
   @Autowired Jobs jobs;
   @Autowired TransactionTemplate transactions;
+  @Autowired MeterRegistry meters;
 
   @Test
   void itAnswersItsHealthCheckAndHasNothingAtAnyOtherAddress() {
@@ -87,5 +92,50 @@ class WorkerIT extends ApplicationIT {
                             "\\[[0-9a-f]{32}-[0-9a-f]{16}\\].* : AFTER_APPROVAL job \\d+ done in"
                                 + " \\d+ ms$",
                             Pattern.MULTILINE)));
+  }
+
+  @Test
+  void itReportsHowLongEachJobTookByItsTypeAndItsOutcomeAndNothingElse() {
+    transactions.executeWithoutResult(
+        change -> jobs.queue(JobType.AFTER_APPROVAL, "a-job-to-time", Map.of("catalogId", -1)));
+    // Nothing does a job of this type, so each try at it fails.
+    jdbc.sql(
+            """
+            WITH queued AS (
+                INSERT INTO job (type, dedupe_key, subject)
+                VALUES ('WORK_NOTHING_DOES', 'a-job-that-fails', '{"catalogId": -1}')
+                RETURNING id
+            )
+            INSERT INTO outbox (job_id, payload)
+            SELECT id, jsonb_build_object('jobId', id) FROM queued
+            """)
+        .update();
+
+    try {
+      await()
+          .atMost(Duration.ofSeconds(20))
+          .untilAsserted(
+              () -> {
+                assertThat(timed("AFTER_APPROVAL", "SUCCESS")).isPositive();
+                assertThat(timed("WORK_NOTHING_DOES", "FAILURE")).isPositive();
+              });
+      assertThat(meters.getMeters().stream().map(Meter::getId).map(Meter.Id::getName).distinct())
+          .as("what the API reports of itself is not among it")
+          .containsExactly("job.run");
+      assertThat(meters.find("job.run").meters())
+          .allSatisfy(
+              meter ->
+                  assertThat(meter.getId().getTags())
+                      .extracting(Tag::getKey)
+                      .containsExactly("outcome", "type"));
+    } finally {
+      Worker.forgets(application);
+    }
+  }
+
+  /** How many jobs of the type have been timed with the outcome. */
+  private long timed(String type, String outcome) {
+    var timer = meters.find("job.run").tag("type", type).tag("outcome", outcome).timer();
+    return timer == null ? 0 : timer.count();
   }
 }

@@ -9,20 +9,22 @@ import io.micrometer.core.instrument.config.MeterFilterReply;
 import io.micrometer.observation.ObservationPredicate;
 import jakarta.servlet.http.HttpServletRequest;
 import java.lang.management.ManagementFactory;
+import java.util.Set;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 import org.springframework.boot.health.contributor.Status;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.http.server.observation.ServerRequestObservationContext;
 
 /**
  * What the backend reports of itself. Each metric that is kept is one that is paid for, so the list
- * is short: whether the backend is ready, its requests by outcome, the memory its heap uses, how
+ * is short. Of the API: whether it is ready, its requests by outcome, the memory its heap uses, how
  * long an edit and a copy of a catalog take, and how many catalogs were refused at their submit,
- * approved, rejected, and updated from Approved. Every other metric is turned down here, the many
- * that the libraries offer among them, so a new one is added to this list and to the dashboard that
- * shows it.
+ * approved, rejected, and updated from Approved. Of the worker: how long each job took, by its type
+ * and its outcome. Every other metric is turned down here, the many that the libraries offer among
+ * them, so a new one is added to its list here and to the dashboard that shows it.
  */
 @Configuration(proxyBeanMethods = false)
 class Telemetry {
@@ -41,33 +43,47 @@ class Telemetry {
             && isHealthCheck(request.getCarrier()));
   }
 
+  /** What the API reports of itself. */
+  private static final Set<String> OF_THE_API =
+      Set.of(
+          "health",
+          "http.server.requests",
+          "jvm.heap.used",
+          "catalog.edit",
+          "catalog.copy",
+          "catalog.submit.refused",
+          "catalog.approved",
+          "catalog.rejected",
+          "catalog.merged");
+
+  /** What the worker reports of itself: how long each job took, and nothing else. */
+  private static final Set<String> OF_THE_WORKER = Set.of("job.run");
+
   @Bean
-  MeterFilter onlyTheMetricsThatAreLookedAt() {
+  MeterFilter onlyTheMetricsThatAreLookedAt(Environment environment) {
+    var kept = environment.matchesProfiles("worker") ? OF_THE_WORKER : OF_THE_API;
+
     return new MeterFilter() {
       @Override
       public MeterFilterReply accept(Meter.Id id) {
-        return switch (id.getName()) {
-          case "health",
-              "http.server.requests",
-              "jvm.heap.used",
-              "catalog.edit",
-              "catalog.copy",
-              "catalog.submit.refused",
-              "catalog.approved",
-              "catalog.rejected",
-              "catalog.merged" ->
-              MeterFilterReply.ACCEPT;
-          default -> MeterFilterReply.DENY;
-        };
+        return kept.contains(id.getName()) ? MeterFilterReply.ACCEPT : MeterFilterReply.DENY;
       }
 
-      /** A request is told apart by its outcome alone: every other tag would be a metric more. */
+      /**
+       * A request is told apart by its outcome alone, and a job by its type and its outcome: every
+       * other tag would be a metric more.
+       */
       @Override
       public Meter.Id map(Meter.Id id) {
         var outcome = id.getTag("outcome");
-        return id.getName().equals("http.server.requests") && outcome != null
-            ? id.replaceTags(Tags.of("outcome", outcome))
-            : id;
+        if (outcome == null) {
+          return id;
+        }
+        return switch (id.getName()) {
+          case "http.server.requests" -> id.replaceTags(Tags.of("outcome", outcome));
+          case "job.run" -> id.replaceTags(Tags.of("type", id.getTag("type"), "outcome", outcome));
+          default -> id;
+        };
       }
     };
   }

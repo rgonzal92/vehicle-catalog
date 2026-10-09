@@ -91,6 +91,63 @@ run "a_job_that_has_failed_for_good_sets_off_an_alarm" {
   }
 }
 
+run "a_queue_that_no_one_works_off_sets_off_an_alarm" {
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.jobs_waiting.namespace == "AWS/SQS"
+      && aws_cloudwatch_metric_alarm.jobs_waiting.metric_name == "ApproximateAgeOfOldestMessage"
+      && aws_cloudwatch_metric_alarm.jobs_waiting.dimensions == tomap({ QueueName = aws_sqs_queue.jobs.name })
+    )
+    error_message = "The alarm watches how long the oldest message on the jobs' queue has waited."
+  }
+
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.jobs_waiting.statistic == "Maximum"
+      && aws_cloudwatch_metric_alarm.jobs_waiting.comparison_operator == "GreaterThanThreshold"
+      && aws_cloudwatch_metric_alarm.jobs_waiting.threshold == 600
+      && aws_cloudwatch_metric_alarm.jobs_waiting.period == 60
+      && aws_cloudwatch_metric_alarm.jobs_waiting.evaluation_periods == 1
+    )
+    error_message = "The alarm goes off once a message has waited for more than ten minutes."
+  }
+
+  assert {
+    # Three deliveries, each as far apart as a message stays hidden, end before the alarm does.
+    condition = (
+      jsondecode(aws_sqs_queue.jobs.redrive_policy).maxReceiveCount * aws_sqs_queue.jobs.visibility_timeout_seconds
+      < aws_cloudwatch_metric_alarm.jobs_waiting.threshold
+    )
+    error_message = "A job that fails every time has left the queue before the alarm would go off for it."
+  }
+
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.jobs_waiting.treat_missing_data == "notBreaching"
+      && aws_cloudwatch_metric_alarm.jobs_waiting.alarm_actions == null
+    )
+    error_message = "A queue that reports nothing holds nothing, and the alarm tells no one: it is there to be looked at."
+  }
+}
+
+run "the_dashboard_shows_what_waits_on_the_two_queues" {
+  assert {
+    condition = alltrue([
+      for chart in [
+        ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", aws_sqs_queue.jobs.name],
+        ["AWS/SQS", "ApproximateAgeOfOldestMessage", "QueueName", aws_sqs_queue.jobs.name],
+        ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", aws_sqs_queue.jobs_failed.name],
+      ] :
+      anytrue([
+        for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+        widget.properties.period == 60
+        && strcontains(jsonencode(widget.properties.metrics), trimsuffix(jsonencode(chart), "]"))
+      ])
+    ])
+    error_message = "The dashboard shows, by the minute, how many messages wait on the jobs' queue, how old the oldest is, and how many are in the dead-letter queue."
+  }
+}
+
 run "the_host_works_off_these_two_queues_and_no_other" {
   assert {
     condition = jsondecode(aws_iam_role_policy.host_jobs.policy).Statement == [{
@@ -168,13 +225,17 @@ run "the_host_runs_the_worker_beside_the_api" {
 
   assert {
     condition = (
-      !contains(keys(yamldecode(file("../deploy/compose.yaml")).services.worker.environment), "MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED")
+      yamldecode(file("../deploy/compose.yaml")).services.worker.environment.MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED == "true"
+      && endswith(
+        yamldecode(file("../deploy/compose.yaml")).services.worker.environment.MANAGEMENT_OTLP_METRICS_EXPORT_URL,
+        ":${split(":", local.agent.metrics.metrics_collected.otlp.http_endpoint)[1]}/v1/metrics",
+      )
       && endswith(
         yamldecode(file("../deploy/compose.yaml")).services.worker.environment.MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT,
         ":${split(":", local.agent.traces.traces_collected.otlp.http_endpoint)[1]}/v1/traces",
       )
     )
-    error_message = "The worker sends its traces to the port the agent takes traces on, and no metrics."
+    error_message = "The worker sends its metric and its traces to the ports the agent takes each on."
   }
 
   assert {

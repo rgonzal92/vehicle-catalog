@@ -256,6 +256,20 @@ try of each said. Once what made a job fail is put right, Retry there has it tri
 it has been done, the worker takes its message out of the dead-letter queue within a minute, and
 the alarm is quiet again.
 
+A second alarm, `vehicle-catalog-jobs-waiting`, goes off when the oldest message on
+`vehicle-catalog-jobs` has waited for more than ten minutes. A job that fails every time has left
+that queue after about six, so this alarm means that the worker is stopped or stuck, and the first
+that a job needs someone to look at it. It tells no one either.
+
+```sh
+aws cloudwatch describe-alarms --alarm-names vehicle-catalog-jobs-waiting \
+  --query 'MetricAlarms[0].StateValue'
+```
+
+The dashboard `vehicle-catalog` shows how many messages wait on each of the two queues and how
+long the oldest on `vehicle-catalog-jobs` has waited, which SQS reports at no charge, and how many
+jobs were done a minute and how long they took, which the worker reports.
+
 ## Exported spreadsheets
 
 Whoever may open a catalog can have it as a spreadsheet. The worker builds the file and writes it
@@ -324,7 +338,7 @@ It all goes to Amazon CloudWatch.
   Every request is traced but the health checks.
 - **Its metrics** go to the same agent, which publishes them under the namespace
   `vehicle-catalog` together with two of the host's own. The dashboard `vehicle-catalog` shows
-  them.
+  them. The API sends the first nine of these, and the worker sends `job.run` and no other.
 
 | Metric | What it says | Told apart by |
 | --- | --- | --- |
@@ -337,15 +351,18 @@ It all goes to Amazon CloudWatch.
 | `catalog.approved` | how many catalogs were approved | nothing |
 | `catalog.rejected` | how many catalogs were rejected | nothing |
 | `catalog.merged` | how many working copies were updated from Approved | nothing |
+| `job.run` | how many jobs the worker handled and how long each took | `type`, of which there are three, and `outcome`: `SUCCESS` or `FAILURE` |
 | `mem_used_percent` | the share of the host's memory in use | nothing |
 | `disk_used_percent` | the share of the host's disk in use | nothing that varies |
 
-CloudWatch counts a metric once for every value of what it is told apart by, which makes sixteen
-of these, and charges for each one beyond ten: six, at about $0.30 a month each. So the backend
-sends no metric that the alarm or the dashboard does not use: `Telemetry.java` in the backend turns
-down every other. A metric is there once it has first been sent, so the two times and the fourth
-outcome, a request that fails in the backend, appear when there has been one. The six that count
-catalogs are sent from the start, as zero in a minute when there was none.
+CloudWatch counts a metric once for every value of what it is told apart by, which makes up to
+twenty-two of these, and charges for each one beyond ten: up to twelve, at about $0.30 a month
+each. So the backend sends no metric that the alarm or the dashboard does not use: `Telemetry.java`
+in the backend turns down every other. A metric is there once it has first been sent, so the two
+times and the fourth outcome, a request that fails in the backend, appear when there has been one,
+and `job.run` counts once for each type of job that has been done and once more for each that has
+failed. The six that count catalogs are sent from the start, as zero in a minute when there was
+none.
 
 The agent adds four labels of its own to each of the backend's metrics, and one of them is the
 version of the library that sent it. The alarm and the dashboard therefore find a metric by its
