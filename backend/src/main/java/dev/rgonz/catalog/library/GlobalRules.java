@@ -6,9 +6,9 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -20,6 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
  * The library's global rules, which apply to every catalog. A rule relates a source feature to its
  * targets, in every region or in the ones it lists. It is added, changed, and deleted; its kind
  * never changes.
+ *
+ * <p>An exclusion holds both ways, so it is kept as two paired rules, A excludes B and B excludes
+ * A, that share a pair key and a region scope, and are made, changed, and deleted as one.
  */
 @Service
 public class GlobalRules {
@@ -36,7 +39,8 @@ public class GlobalRules {
   enum Kind {
     REQUIRES("requires", 1),
     REQUIRES_ONE_OF("requires one of", 2),
-    INCLUDES("includes", 1);
+    INCLUDES("includes", 1),
+    EXCLUDES("excludes", 1);
 
     private final String words;
     private final int fewestTargets;
@@ -53,59 +57,112 @@ public class GlobalRules {
     return rules("");
   }
 
+  /**
+   * Adds a rule, and answers with what was made: the rule, or for an exclusion one rule of each
+   * pair. An exclusion with several targets makes a pair for each of them.
+   */
   @Transactional
-  GlobalRule add(RuleContent given) {
-    check(given, null);
-    var key = new GeneratedKeyHolder();
-    jdbc.sql(
-            """
-            INSERT INTO global_rule (kind, source_feature_id, all_regions)
-            VALUES (:kind, :source, :allRegions)
-            """)
-        .param("kind", given.kind().name())
-        .param("source", given.sourceFeatureId())
-        .param("allRegions", given.allRegions())
-        .update(key, "id");
-    long id = key.getKey().longValue();
-    writeTargetsAndRegions(id, given);
-
-    return find(id);
+  List<GlobalRule> add(RuleContent given) {
+    if (given.kind() != Kind.EXCLUDES) {
+      check(given, Set.of());
+      return List.of(find(insert(given, null)));
+    }
+    var made = new ArrayList<GlobalRule>();
+    checkWhatARuleNames(given);
+    for (var target : given.targetFeatureIds()) {
+      var forward = given.naming(given.sourceFeatureId(), target);
+      checkNotThereAlready(forward, Set.of());
+      var pairKey = UUID.randomUUID();
+      long id = insert(forward, pairKey);
+      insert(given.naming(target, given.sourceFeatureId()), pairKey);
+      made.add(find(id));
+    }
+    return made;
   }
 
+  /** Changes a rule. A paired rule takes the mirrored change to its pair with it. */
   @Transactional
   GlobalRule change(long id, RuleContent given) {
-    var before = lockedKind(id);
-    if (before != given.kind()) {
+    var before = locked(id);
+    if (before.kind() != given.kind()) {
       throw ApiException.invalid(
           "A rule's kind cannot be changed. Delete the rule and add another.");
     }
-    check(given, id);
-    jdbc.sql(
-            """
-            UPDATE global_rule SET source_feature_id = :source, all_regions = :allRegions
-            WHERE id = :id
-            """)
-        .param("source", given.sourceFeatureId())
-        .param("allRegions", given.allRegions())
-        .param("id", id)
-        .update();
-    jdbc.sql("DELETE FROM global_rule_target WHERE global_rule_id = :id").param("id", id).update();
-    jdbc.sql("DELETE FROM global_rule_region WHERE global_rule_id = :id").param("id", id).update();
-    writeTargetsAndRegions(id, given);
+    var pair = before.pairKey() == null ? List.of(id) : idsOfPair(before.pairKey());
+    if (given.kind() == Kind.EXCLUDES && given.targetFeatureIds().size() != 1) {
+      throw ApiException.invalid("An Excludes rule has exactly one target.");
+    }
+    check(given, Set.copyOf(pair));
+    rewrite(id, given);
+    for (var other : pair) {
+      if (other != id) {
+        rewrite(other, given.naming(given.targetFeatureIds().getFirst(), given.sourceFeatureId()));
+      }
+    }
 
     return find(id);
   }
 
+  /** Deletes a rule, and its pair with it. */
   @Transactional
   void delete(long id) {
-    if (jdbc.sql("DELETE FROM global_rule WHERE id = :id").param("id", id).update() == 0) {
+    var deleted =
+        jdbc.sql(
+                """
+                DELETE FROM global_rule
+                WHERE id = :id
+                   OR pair_key = (SELECT pair_key FROM global_rule WHERE id = :id)
+                """)
+            .param("id", id)
+            .update();
+    if (deleted == 0) {
       throw ApiException.notFound();
     }
   }
 
   /**
-   * The rules that name the feature, as its source or as a target, each in words. A feature that
-   * any of them names cannot be retired.
+   * The Excludes rules that are not one of a whole pair: for each of them there must be exactly one
+   * other rule with the same pair key, the source and the target swapped, and the same region
+   * scope. None is ever found unless something has gone wrong.
+   */
+  @Transactional(readOnly = true)
+  List<Long> brokenPairs() {
+    return jdbc.sql(
+            """
+            SELECT r.id
+            FROM global_rule r
+            WHERE r.kind = 'EXCLUDES'
+              AND NOT (
+                (SELECT count(*) FROM global_rule_target t WHERE t.global_rule_id = r.id) = 1
+                AND (SELECT count(*) FROM global_rule o WHERE o.pair_key = r.pair_key) = 2
+                AND EXISTS (
+                  SELECT 1
+                  FROM global_rule o
+                  WHERE o.pair_key = r.pair_key AND o.id <> r.id AND o.kind = 'EXCLUDES'
+                    AND o.all_regions = r.all_regions
+                    AND EXISTS (SELECT 1 FROM global_rule_target t
+                                WHERE t.global_rule_id = r.id
+                                  AND t.feature_id = o.source_feature_id)
+                    AND EXISTS (SELECT 1 FROM global_rule_target t
+                                WHERE t.global_rule_id = o.id
+                                  AND t.feature_id = r.source_feature_id)
+                    AND NOT EXISTS (
+                      SELECT region_code FROM global_rule_region WHERE global_rule_id = r.id
+                      EXCEPT
+                      SELECT region_code FROM global_rule_region WHERE global_rule_id = o.id)
+                    AND NOT EXISTS (
+                      SELECT region_code FROM global_rule_region WHERE global_rule_id = o.id
+                      EXCEPT
+                      SELECT region_code FROM global_rule_region WHERE global_rule_id = r.id)))
+            ORDER BY r.id
+            """)
+        .query(Long.class)
+        .list();
+  }
+
+  /**
+   * The rules that name the feature, as its source or as a target, each in words, and a pair once.
+   * A feature that any of them names cannot be retired.
    */
   @Transactional(readOnly = true)
   public List<String> naming(long featureId) {
@@ -117,6 +174,8 @@ public class GlobalRules {
             """,
             Map.of("feature", featureId))
         .stream()
+        // Of a pair, the one that starts from the feature says it for both.
+        .filter(rule -> rule.pairKey() == null || rule.source().id() == featureId)
         .map(GlobalRule::inWords)
         .toList();
   }
@@ -134,8 +193,8 @@ public class GlobalRules {
     var headers =
         jdbc.sql(
                 """
-                SELECT r.id, r.kind, r.all_regions, f.id AS source_id, f.code AS source_code,
-                       f.name AS source_name
+                SELECT r.id, r.kind, r.all_regions, r.pair_key, f.id AS source_id,
+                       f.code AS source_code, f.name AS source_name
                 FROM global_rule r
                 JOIN feature f ON f.id = r.source_feature_id
                 %s
@@ -193,18 +252,59 @@ public class GlobalRules {
                     header.allRegions(),
                     regions.getOrDefault(header.id(), List.of()).stream()
                         .map(region -> new RegionName(region.code(), region.name()))
-                        .toList()))
+                        .toList(),
+                    header.pairKey()))
         .toList();
   }
 
-  /** The kind of the rule, which is held against changes until the transaction ends. */
-  private Kind lockedKind(long id) {
-    return jdbc.sql("SELECT kind FROM global_rule WHERE id = :id FOR UPDATE")
+  /** The rule's kind and pair key. The rule is held against changes until the transaction ends. */
+  private Locked locked(long id) {
+    return jdbc.sql("SELECT kind, pair_key FROM global_rule WHERE id = :id FOR UPDATE")
         .param("id", id)
-        .query(String.class)
+        .query(Locked.class)
         .optional()
-        .map(Kind::valueOf)
         .orElseThrow(ApiException::notFound);
+  }
+
+  private List<Long> idsOfPair(UUID pairKey) {
+    return jdbc.sql("SELECT id FROM global_rule WHERE pair_key = :pairKey FOR UPDATE")
+        .param("pairKey", pairKey)
+        .query(Long.class)
+        .list();
+  }
+
+  private long insert(RuleContent given, UUID pairKey) {
+    var key = new GeneratedKeyHolder();
+    jdbc.sql(
+            """
+            INSERT INTO global_rule (kind, source_feature_id, all_regions, pair_key)
+            VALUES (:kind, :source, :allRegions, :pairKey)
+            """)
+        .param("kind", given.kind().name())
+        .param("source", given.sourceFeatureId())
+        .param("allRegions", given.allRegions())
+        .param("pairKey", pairKey)
+        .update(key, "id");
+    long id = key.getKey().longValue();
+    writeTargetsAndRegions(id, given);
+
+    return id;
+  }
+
+  /** Gives a rule the content, in place of what it had. Its kind and its pair key stay. */
+  private void rewrite(long id, RuleContent given) {
+    jdbc.sql(
+            """
+            UPDATE global_rule SET source_feature_id = :source, all_regions = :allRegions
+            WHERE id = :id
+            """)
+        .param("source", given.sourceFeatureId())
+        .param("allRegions", given.allRegions())
+        .param("id", id)
+        .update();
+    jdbc.sql("DELETE FROM global_rule_target WHERE global_rule_id = :id").param("id", id).update();
+    jdbc.sql("DELETE FROM global_rule_region WHERE global_rule_id = :id").param("id", id).update();
+    writeTargetsAndRegions(id, given);
   }
 
   private void writeTargetsAndRegions(long id, RuleContent given) {
@@ -225,9 +325,15 @@ public class GlobalRules {
   /**
    * Refuses content that breaks what holds of every rule.
    *
-   * @param id the rule being changed, or null when the content is a new rule's
+   * @param own the rule being changed, with its pair when it has one; empty for a new rule
    */
-  private void check(RuleContent given, Long id) {
+  private void check(RuleContent given, Set<Long> own) {
+    checkWhatARuleNames(given);
+    checkNotThereAlready(given, own);
+  }
+
+  /** Refuses content whose targets, features, or regions are not what a rule may name. */
+  private void checkWhatARuleNames(RuleContent given) {
     var kind = given.kind();
     var targets = given.targetFeatureIds();
     if (targets.size() > MOST_TARGETS) {
@@ -283,13 +389,22 @@ public class GlobalRules {
         throw ApiException.invalid("Choose active regions from the library.");
       }
     }
+  }
 
+  /**
+   * Refuses content that says what another rule already says. Both rules of a pair are there to be
+   * found, so an exclusion is found whichever way round it is given.
+   */
+  private void checkNotThereAlready(RuleContent given, Set<Long> own) {
+    var kind = given.kind();
+    var targets = given.targetFeatureIds();
+    var scope = given.scope();
     var sameAsAnother =
         rules(
                 "WHERE r.kind = :kind AND r.source_feature_id = :source",
                 Map.of("kind", kind.name(), "source", given.sourceFeatureId()))
             .stream()
-            .filter(rule -> !Objects.equals(rule.id(), id))
+            .filter(rule -> !own.contains(rule.id()))
             .anyMatch(
                 rule ->
                     rule.targets().stream()
@@ -323,12 +438,18 @@ public class GlobalRules {
     Set<String> scope() {
       return allRegions || regionCodes == null ? Set.of() : new TreeSet<>(regionCodes);
     }
+
+    /** The same kind and scope, from one feature to another. */
+    RuleContent naming(long source, long target) {
+      return new RuleContent(kind, source, List.of(target), allRegions, regionCodes);
+    }
   }
 
   /**
    * A rule as the API shows it, with its features and its regions by name.
    *
    * @param regions the regions the rule applies in; empty when it applies in every region
+   * @param pairKey what a paired rule shares with its pair, or null for a rule that has none
    */
   record GlobalRule(
       long id,
@@ -336,7 +457,8 @@ public class GlobalRules {
       FeatureName source,
       List<FeatureName> targets,
       boolean allRegions,
-      List<RegionName> regions) {
+      List<RegionName> regions,
+      UUID pairKey) {
 
     /** The rule as a sentence without its full stop: "Tow Package requires Heavy-Duty Cooling". */
     String inWords() {
@@ -364,9 +486,12 @@ public class GlobalRules {
       long id,
       Kind kind,
       boolean allRegions,
+      UUID pairKey,
       long sourceId,
       String sourceCode,
       String sourceName) {}
+
+  private record Locked(Kind kind, UUID pairKey) {}
 
   private record Target(long ruleId, long id, String code, String name) {}
 

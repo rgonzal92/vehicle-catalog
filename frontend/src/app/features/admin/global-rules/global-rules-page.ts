@@ -1,5 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { ArrowRightArrowLeft } from '@primeicons/angular/arrow-right-arrow-left';
 import { Plus } from '@primeicons/angular/plus';
 import { Button, ButtonDirective, ButtonIcon, ButtonLabel } from 'primeng/button';
 import { Checkbox } from 'primeng/checkbox';
@@ -21,7 +22,12 @@ import { Loading, ReadFailed } from '../../../shared/read-state';
 import { reasonOf } from '../../../shared/reason-of';
 
 /** The fewest targets a rule of each kind has. */
-const FEWEST_TARGETS: Record<RuleKind, number> = { REQUIRES: 1, REQUIRES_ONE_OF: 2, INCLUDES: 1 };
+const FEWEST_TARGETS: Record<RuleKind, number> = {
+  REQUIRES: 1,
+  REQUIRES_ONE_OF: 2,
+  INCLUDES: 1,
+  EXCLUDES: 1,
+};
 
 /** The most targets a rule has. */
 const MOST_TARGETS = 20;
@@ -30,6 +36,7 @@ const MOST_TARGETS = 20;
 @Component({
   imports: [
     ReactiveFormsModule,
+    ArrowRightArrowLeft,
     Plus,
     Button,
     ButtonDirective,
@@ -68,9 +75,30 @@ const MOST_TARGETS = 20;
               </tr>
             </ng-template>
             <ng-template #body let-rule>
-              <tr>
+              @let shown = rule.pairKey && rule.pairKey === shownPair();
+              <tr [class]="shown ? shownPairRow : ''" [attr.data-shown-pair]="shown ? '' : null">
                 <td>{{ rule.source.name }}</td>
-                <td><p-tag severity="secondary" [value]="kindNames[rule.kind]" /></td>
+                <td>
+                  <span class="flex items-center gap-2">
+                    <p-tag severity="secondary" [value]="kindNames[rule.kind]" />
+                    @if (rule.pairKey) {
+                      <button
+                        pButton
+                        type="button"
+                        severity="secondary"
+                        size="small"
+                        [text]="true"
+                        [iconOnly]="true"
+                        [attr.aria-pressed]="rule.pairKey === shownPair()"
+                        [attr.aria-label]="'Show the pair of the rule: ' + inWords(rule)"
+                        title="One of a pair. Show both."
+                        (click)="showPair(rule)"
+                      >
+                        <svg data-p-icon="arrow-right-arrow-left" pButtonIcon />
+                      </button>
+                    }
+                  </span>
+                </td>
                 <td>{{ named(rule.targets) }}</td>
                 <td>{{ rule.allRegions ? 'Every region' : named(rule.regions) }}</td>
                 <td class="text-right whitespace-nowrap">
@@ -170,6 +198,7 @@ const MOST_TARGETS = 20;
               filterBy="name,code"
               [filter]="true"
               [showToggleAll]="false"
+              [selectionLimit]="mostTargets()"
               [options]="targets()"
               [loading]="features() === null"
             />
@@ -218,8 +247,11 @@ const MOST_TARGETS = 20;
               <p-message severity="error">{{ deletionRefusal() }}</p-message>
             }
             <p data-question>
-              Delete the rule that {{ inWords(asked) }}? Every catalog stops being checked against
-              it.
+              Delete the rule that {{ inWords(asked) }}?
+              @if (pairOf(asked); as pair) {
+                Its pair, {{ inWords(pair) }}, goes with it.
+              }
+              Every catalog stops being checked against it.
             </p>
             <div class="flex justify-end gap-2">
               <p-button
@@ -299,10 +331,35 @@ export class GlobalRulesPage {
     (this.features() ?? []).filter((feature) => feature.id !== this.chosen().sourceFeatureId),
   );
 
+  /**
+   * The most targets the dialog takes: a paired rule being changed keeps to one, since the two
+   * rules of a pair mirror each other.
+   */
+  protected readonly mostTargets = computed(() =>
+    this.editing() && this.chosen().kind === 'EXCLUDES' ? 1 : MOST_TARGETS,
+  );
+
   protected readonly targetsNeeded = computed(() => {
     const fewest = FEWEST_TARGETS[this.chosen().kind];
-    return `Choose ${fewest === 1 ? '1' : fewest} to ${MOST_TARGETS} features.`;
+    if (this.mostTargets() === 1) {
+      return 'Choose 1 feature. The pair of this rule changes with it.';
+    }
+    const range = `Choose ${fewest} to ${MOST_TARGETS} features.`;
+    return this.chosen().kind === 'EXCLUDES'
+      ? `${range} Each makes a pair of its own: the rule, and the same rule the other way round.`
+      : range;
   });
+
+  /** The pair that is shown highlighted, by its key, or null while none is. */
+  protected readonly shownPair = signal<string | null>(null);
+
+  /**
+   * How a row of the shown pair looks: a bar in the primary color at its start, and bold text. Its
+   * ground stays as it is, since the muted words of a row's actions would not stand out enough
+   * from a tinted one.
+   */
+  protected readonly shownPairRow =
+    '[&>td]:font-semibold [&>td:first-child]:shadow-[inset_4px_0_0_var(--p-primary-color)]';
 
   /** Whether the form holds everything a rule needs. The backend checks the rest. */
   protected readonly complete = computed(() => {
@@ -310,7 +367,7 @@ export class GlobalRulesPage {
     return (
       sourceFeatureId !== null &&
       targetFeatureIds.length >= FEWEST_TARGETS[kind] &&
-      targetFeatureIds.length <= MOST_TARGETS &&
+      targetFeatureIds.length <= this.mostTargets() &&
       (allRegions || regionCodes.length > 0)
     );
   });
@@ -328,6 +385,18 @@ export class GlobalRulesPage {
       // The failure has been shown as a message too, which goes away; the page goes on saying so.
       this.failed.set(true);
     }
+  }
+
+  /** Highlights both rules of a pair, or neither when they already are. */
+  protected showPair(rule: GlobalRule): void {
+    this.shownPair.update((shown) => (shown === rule.pairKey ? null : rule.pairKey));
+  }
+
+  /** The other rule of a paired rule's pair. */
+  protected pairOf(rule: GlobalRule): GlobalRule | undefined {
+    return rule.pairKey
+      ? this.rules()?.find((other) => other.pairKey === rule.pairKey && other.id !== rule.id)
+      : undefined;
   }
 
   protected named(things: { name: string }[]): string {

@@ -12,7 +12,15 @@ describe('GlobalRulesPage', () => {
   const cooling = { id: 6, code: 'COOLING_HEAVY_DUTY', name: 'Heavy-Duty Cooling' };
   const hitch = { id: 7, code: 'TOW_HITCH_RECEIVER', name: 'Trailer Hitch Receiver' };
   const rules = [
-    { id: 1, kind: 'REQUIRES', source: tow, targets: [cooling], allRegions: true, regions: [] },
+    {
+      id: 1,
+      kind: 'REQUIRES',
+      source: tow,
+      targets: [cooling],
+      allRegions: true,
+      regions: [],
+      pairKey: null,
+    },
     {
       id: 2,
       kind: 'INCLUDES',
@@ -20,6 +28,29 @@ describe('GlobalRulesPage', () => {
       targets: [hitch, cooling],
       allRegions: false,
       regions: [{ code: 'EU', name: 'Europe' }],
+      pairKey: null,
+    },
+  ];
+  const roof = { id: 8, code: 'ROOF_PANORAMIC', name: 'Panoramic Roof' };
+  const removable = { id: 9, code: 'ROOF_REMOVABLE', name: 'Removable Roof' };
+  const pair = [
+    {
+      id: 3,
+      kind: 'EXCLUDES',
+      source: roof,
+      targets: [removable],
+      allRegions: true,
+      regions: [],
+      pairKey: 'a-pair',
+    },
+    {
+      id: 4,
+      kind: 'EXCLUDES',
+      source: removable,
+      targets: [roof],
+      allRegions: true,
+      regions: [],
+      pairKey: 'a-pair',
     },
   ];
   const features = [tow, cooling, hitch].map((feature) => ({
@@ -201,5 +232,59 @@ describe('GlobalRulesPage', () => {
     (await vi.waitFor(() => backend.expectOne('/api/global-rules'))).flush([rules[1]]);
     await vi.waitFor(() => expect(rows(element)).toHaveLength(1));
     expect(dialog()).toBeNull();
+  });
+
+  it('marks a paired rule, and highlights both rules of its pair when it is chosen', async () => {
+    const element = await page([...rules, ...pair]);
+    const highlighted = () =>
+      Array.from(element.querySelectorAll('tbody tr'), (row) =>
+        row.hasAttribute('data-shown-pair'),
+      );
+    const show = button(
+      element,
+      'Show the pair of the rule: Panoramic Roof excludes Removable Roof',
+    );
+    expect(
+      button(element, 'Show the pair of the rule: Tow Package requires Heavy-Duty Cooling'),
+    ).toBe(undefined);
+
+    show.click();
+    await vi.waitFor(() => expect(highlighted()).toEqual([false, false, true, true]));
+    expect(show.getAttribute('aria-pressed')).toBe('true');
+
+    show.click();
+    await vi.waitFor(() => expect(highlighted()).toEqual([false, false, false, false]));
+  });
+
+  it('says that both rules go when a paired rule is deleted', async () => {
+    const element = await page([...rules, ...pair]);
+
+    button(element, 'Delete the rule: Removable Roof excludes Panoramic Roof').click();
+
+    await vi.waitFor(() =>
+      expect(
+        dialog()?.querySelector('[data-question]')?.textContent?.replace(/\s+/g, ' ').trim(),
+      ).toBe(
+        'Delete the rule that Removable Roof excludes Panoramic Roof? Its pair, Panoramic Roof' +
+          ' excludes Removable Roof, goes with it. Every catalog stops being checked against it.',
+      ),
+    );
+    button(dialog()!, 'Keep').click();
+    await vi.waitFor(() => expect(dialog()).toBeNull());
+  });
+
+  it('takes one target when a paired rule is changed', async () => {
+    const element = await page([...rules, ...pair]);
+
+    button(element, 'Edit the rule: Panoramic Roof excludes Removable Roof').click();
+    await whatARuleNames();
+
+    await vi.waitFor(() =>
+      expect(dialog()?.textContent).toContain(
+        'Choose 1 feature. The pair of this rule changes with it.',
+      ),
+    );
+    button(dialog()!, 'Cancel').click();
+    await vi.waitFor(() => expect(dialog()).toBeNull());
   });
 });

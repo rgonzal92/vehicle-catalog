@@ -8,8 +8,10 @@ import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
@@ -18,9 +20,16 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
  * that a rule holds what every rule must. Each test starts from the seeded library.
  */
 class GlobalRulesIT extends ApplicationIT {
+  @Autowired GlobalRules globalRules;
+
   @BeforeEach
   void theSeededLibrary() throws Exception {
     seedLibraryAndCatalogs();
+  }
+
+  @AfterEach
+  void everyExclusionIsAWholePair() {
+    assertThat(globalRules.brokenPairs()).isEmpty();
   }
 
   @Test
@@ -46,22 +55,17 @@ class GlobalRulesIT extends ApplicationIT {
 
   @Test
   void anAdminAddsChangesAndDeletesARule() {
-    var added = add(rule("REQUIRES", "ROOF_PANORAMIC", null, "SEAT_LEATHER"));
+    var added = add(rule("REQUIRES", "SEAT_SPORT", null, "SEAT_LEATHER"));
 
     assertThat(added).hasStatus(201);
-    assertThat(added).bodyJson().extractingPath("$.source.name").isEqualTo("Panoramic Roof");
-    assertThat(added).bodyJson().extractingPath("$.allRegions").isEqualTo(true);
-    long id = ApplicationIT.<Integer>read(added, "$.id");
+    assertThat(added).bodyJson().extractingPath("$[0].source.name").isEqualTo("Sport Seats");
+    assertThat(added).bodyJson().extractingPath("$[0].allRegions").isEqualTo(true);
+    long id = ApplicationIT.<Integer>read(added, "$[0].id");
 
     var changed =
         change(
             id,
-            rule(
-                "REQUIRES",
-                "ROOF_PANORAMIC",
-                List.of("EU", "NA"),
-                "SEAT_LEATHER",
-                "AUDIO_PREMIUM"));
+            rule("REQUIRES", "SEAT_SPORT", List.of("EU", "NA"), "SEAT_LEATHER", "AUDIO_PREMIUM"));
 
     assertThat(changed).hasStatusOk();
     assertThat(ApplicationIT.<List<String>>read(changed, "$.targets[*].code"))
@@ -70,11 +74,11 @@ class GlobalRulesIT extends ApplicationIT {
         .as("in the library's order")
         .containsExactly("NA", "EU");
     assertThat(sentences(list(Role.AUTHOR)))
-        .contains("ROOF_PANORAMIC REQUIRES AUDIO_PREMIUM,SEAT_LEATHER");
+        .contains("SEAT_SPORT REQUIRES AUDIO_PREMIUM,SEAT_LEATHER");
 
     assertThat(delete(Role.ADMIN, id)).hasStatus(204);
 
-    assertThat(sentences(list(Role.AUTHOR))).noneMatch(rule -> rule.startsWith("ROOF_PANORAMIC "));
+    assertThat(sentences(list(Role.AUTHOR))).noneMatch(rule -> rule.startsWith("SEAT_SPORT "));
     assertThat(delete(Role.ADMIN, id)).hasStatus(404);
   }
 
@@ -179,7 +183,7 @@ class GlobalRulesIT extends ApplicationIT {
   void theKindOfARuleCannotBeChanged() {
     long id =
         ApplicationIT.<Integer>read(
-            add(rule("REQUIRES", "PACKAGE_TOW", null, "SEAT_LEATHER")), "$.id");
+            add(rule("REQUIRES", "PACKAGE_TOW", null, "SEAT_LEATHER")), "$[0].id");
 
     var changed = change(id, rule("INCLUDES", "PACKAGE_TOW", null, "SEAT_LEATHER"));
 
@@ -216,6 +220,100 @@ class GlobalRulesIT extends ApplicationIT {
     delete(Role.ADMIN, rule);
 
     assertThat(retire("PACKAGE_PREMIUM_AUDIO")).hasStatusOk();
+  }
+
+  @Test
+  void anExclusionIsTwoRulesThatAreChangedAndDeletedAsOne() {
+    var added = add(rule("EXCLUDES", "SEAT_LEATHER", null, "SEAT_SPORT"));
+
+    assertThat(added).hasStatus(201);
+    assertThat(sentences(list(Role.AUTHOR)))
+        .contains("SEAT_LEATHER EXCLUDES SEAT_SPORT", "SEAT_SPORT EXCLUDES SEAT_LEATHER");
+    long forward = ApplicationIT.<Integer>read(added, "$[0].id");
+    String pairKey = read(added, "$[0].pairKey");
+    assertThat(ApplicationIT.<List<String>>read(list(Role.AUTHOR), "$[*].pairKey"))
+        .filteredOn(pairKey::equals)
+        .hasSize(2);
+    assertThat(globalRules.brokenPairs()).isEmpty();
+
+    var changed = change(forward, rule("EXCLUDES", "SEAT_LEATHER", List.of("EU"), "AUDIO_PREMIUM"));
+
+    assertThat(changed).hasStatusOk();
+    assertThat(sentences(list(Role.AUTHOR)))
+        .contains("SEAT_LEATHER EXCLUDES AUDIO_PREMIUM", "AUDIO_PREMIUM EXCLUDES SEAT_LEATHER")
+        .doesNotContain("SEAT_SPORT EXCLUDES SEAT_LEATHER");
+    assertThat(
+            ApplicationIT.<List<String>>read(
+                list(Role.AUTHOR), "$[?(@.source.code == 'AUDIO_PREMIUM')].regions[*].code"))
+        .as("the pair takes the same regions")
+        .containsExactly("EU");
+    assertThat(globalRules.brokenPairs()).isEmpty();
+
+    long mirrored =
+        ApplicationIT.<List<Integer>>read(
+                list(Role.AUTHOR), "$[?(@.source.code == 'AUDIO_PREMIUM')].id")
+            .getFirst();
+    assertThat(delete(Role.ADMIN, mirrored)).hasStatus(204);
+
+    assertThat(sentences(list(Role.AUTHOR)))
+        .doesNotContain(
+            "SEAT_LEATHER EXCLUDES AUDIO_PREMIUM", "AUDIO_PREMIUM EXCLUDES SEAT_LEATHER");
+  }
+
+  @Test
+  void anExclusionWithSeveralTargetsMakesAPairForEach() {
+    var added =
+        add(rule("EXCLUDES", "SEAT_LEATHER", null, "SEAT_SPORT", "AUDIO_PREMIUM", "ROOF_SUNROOF"));
+
+    assertThat(added).hasStatus(201);
+    assertThat(ApplicationIT.<List<String>>read(added, "$[*].pairKey"))
+        .doesNotHaveDuplicates()
+        .hasSize(3);
+    assertThat(sentences(list(Role.AUTHOR)))
+        .contains(
+            "SEAT_LEATHER EXCLUDES SEAT_SPORT",
+            "SEAT_SPORT EXCLUDES SEAT_LEATHER",
+            "SEAT_LEATHER EXCLUDES AUDIO_PREMIUM",
+            "AUDIO_PREMIUM EXCLUDES SEAT_LEATHER",
+            "SEAT_LEATHER EXCLUDES ROOF_SUNROOF",
+            "ROOF_SUNROOF EXCLUDES SEAT_LEATHER");
+  }
+
+  @Test
+  void theSameTwoFeaturesEitherWayRoundAreTheSameExclusion() {
+    assertThat(add(rule("EXCLUDES", "ROOF_REMOVABLE", null, "ROOF_PANORAMIC")))
+        .as("the seeded exclusion, the other way round")
+        .hasStatus(422)
+        .bodyJson()
+        .extractingPath("$.detail")
+        .isEqualTo("This rule already exists.");
+    assertThat(add(rule("EXCLUDES", "ROOF_REMOVABLE", List.of("EU"), "ROOF_PANORAMIC")))
+        .as("with other regions it is another rule")
+        .hasStatus(201);
+  }
+
+  @Test
+  void aPairedRuleKeepsToOneTarget() {
+    long id =
+        ApplicationIT.<Integer>read(
+            add(rule("EXCLUDES", "SEAT_LEATHER", null, "SEAT_SPORT")), "$[0].id");
+
+    var changed = change(id, rule("EXCLUDES", "SEAT_LEATHER", null, "SEAT_SPORT", "AUDIO_PREMIUM"));
+
+    assertThat(changed).hasStatus(422);
+    assertThat(changed)
+        .bodyJson()
+        .extractingPath("$.detail")
+        .isEqualTo("An Excludes rule has exactly one target.");
+  }
+
+  @Test
+  void aFeatureOfAnExclusionCannotBeRetiredAndThePairIsListedOnce() {
+    var refused = retire("ROOF_REMOVABLE");
+
+    assertThat(refused).hasStatus(409);
+    assertThat(ApplicationIT.<List<String>>read(refused, "$.usedBy"))
+        .containsExactly("Removable Roof excludes Panoramic Roof");
   }
 
   /** Each listed rule as "SOURCE KIND TARGET,TARGET", by the features' codes. */

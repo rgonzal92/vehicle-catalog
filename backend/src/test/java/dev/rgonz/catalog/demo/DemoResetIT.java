@@ -147,7 +147,10 @@ class DemoResetIT extends ApplicationIT {
         .isEqualTo(namesIn("regions.json", "code"));
     assertThat(count("vehicle_line")).isEqualTo(namesIn("vehicle-lines.json", "code").size());
     assertThat(count("feature")).isEqualTo(namesIn("features.json", "code").size());
-    assertThat(count("global_rule")).isEqualTo(namesIn("global-rules.json", "kind").size());
+    var kinds = namesIn("global-rules.json", "kind");
+    assertThat(count("global_rule"))
+        .as("each seeded rule, and for an exclusion its pair too")
+        .isEqualTo(kinds.size() + kinds.stream().filter("EXCLUDES"::equals).count());
     assertThat(count("catalog")).isEqualTo(namesIn("catalogs.json", "vehicleLine").size());
   }
 
