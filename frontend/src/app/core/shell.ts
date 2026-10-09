@@ -43,6 +43,7 @@ import {
 import { Tag } from 'primeng/tag';
 import { filter } from 'rxjs';
 import { ColorScheme } from './color-scheme';
+import { NotificationsButton } from './notifications-button';
 import { Session } from './session';
 
 /** Where the browser keeps whether the sidebar is collapsed. */
@@ -50,11 +51,12 @@ const SIDEBAR = 'sidebar';
 
 /**
  * The frame around every page a signed-in person with a role sees: a sidebar for moving between
- * pages, and a strip across the top with the page's title, the switch between light and dark, and
- * the person's account. The page itself renders in the outlet.
+ * pages, and a strip across the top with the page's title, the person's notifications, the switch
+ * between light and dark, and the person's account. The page itself renders in the outlet.
  */
 @Component({
   imports: [
+    NotificationsButton,
     RouterLink,
     RouterLinkActive,
     RouterOutlet,
@@ -258,6 +260,7 @@ const SIDEBAR = 'sidebar';
           <h1 #heading tabindex="-1" class="mr-auto truncate text-lg font-semibold outline-none">
             {{ title() }}
           </h1>
+          <app-notifications-button />
           <button
             pButton
             type="button"
