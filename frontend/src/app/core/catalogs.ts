@@ -172,6 +172,48 @@ export interface CatalogChanges {
   rulesChanged: { key: string; before: string; after: string }[];
 }
 
+/** What a conflict of an update from Approved is about. */
+export type ConflictKind = 'TRIM' | 'REGION' | 'OFFERING' | 'FEATURE_ROW' | 'CELL' | 'RULE';
+
+/** A conflict's kind as the page says it. */
+export const CONFLICT_KIND_NAMES: Record<ConflictKind, string> = {
+  TRIM: 'Trim',
+  REGION: 'Region',
+  OFFERING: 'Offering',
+  FEATURE_ROW: 'Feature row',
+  CELL: 'Cell',
+  RULE: 'Rule',
+};
+
+/**
+ * Something an update from Approved cannot settle by itself: the working copy and the Approved
+ * version changed it differently, or one removed it while the other changed what is beneath it.
+ */
+export interface UpdateConflict {
+  /** What identifies the conflict among those of one update. */
+  id: string;
+  kind: ConflictKind;
+  /** Which one of its kind it is about, by name. */
+  what: string;
+  /** How it was in the catalog both come from, in words. */
+  base: string;
+  /** How the working copy has it. */
+  mine: string;
+  /** How the Approved version has it. */
+  theirs: string;
+}
+
+/** What an update from its lineage's current Approved would do to a stale working copy. */
+export interface UpdatePreview {
+  /** The working copy's revision that the update was worked out from. */
+  revision: number;
+  /** The Approved version it was worked out against. */
+  approved: { catalogId: number; versionNumber: number };
+  /** What the update changes in the working copy without asking. */
+  taken: CatalogChanges;
+  conflicts: UpdateConflict[];
+}
+
 /** What a saved edit of a working copy answers with: where it led, and the issues there. */
 interface Edited {
   revision: number;
@@ -400,6 +442,16 @@ export class Catalogs {
   diff(catalogId: number, against: number | 'base'): Promise<CatalogChanges> {
     return firstValueFrom(
       this.http.get<CatalogChanges>(`/api/catalogs/${catalogId}/diff`, { params: { against } }),
+    );
+  }
+
+  /**
+   * What an update from its lineage's current Approved would do to a stale working copy of the
+   * caller's, as it is saved. It changes nothing.
+   */
+  previewUpdate(catalogId: number): Promise<UpdatePreview> {
+    return firstValueFrom(
+      this.http.post<UpdatePreview>(`/api/catalogs/${catalogId}/merge-preview`, null),
     );
   }
 

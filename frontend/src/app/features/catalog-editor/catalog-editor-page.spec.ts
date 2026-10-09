@@ -632,6 +632,56 @@ describe('CatalogEditorPage', () => {
       );
       expect(button(element, 'Submit for review')!.disabled).toBe(true);
     });
+
+    it('works the update from Approved out behind the saves on their way', async () => {
+      const element = await page({
+        ...workingCopy,
+        issues: [],
+        stale: true,
+        current: { catalogId: 13, versionNumber: 4 },
+      });
+
+      matrixOf(element).click();
+      const save = await saveRequest();
+      button(element, 'Update from Approved')!.click();
+      await Promise.resolve();
+      backend.expectNone('/api/catalogs/41/merge-preview');
+      save.flush({ revision: 5, issues: [], stale: true });
+
+      const preview = await vi.waitFor(() =>
+        backend.expectOne({ method: 'POST', url: '/api/catalogs/41/merge-preview' }),
+      );
+      preview.flush({
+        revision: 5,
+        approved: { catalogId: 13, versionNumber: 4 },
+        taken: {
+          trimsAdded: [],
+          trimsRemoved: [],
+          regionsAdded: [],
+          regionsRemoved: [],
+          offeringsAdded: [],
+          offeringsRemoved: [],
+          featureRowsAdded: [],
+          featureRowsRemoved: [],
+          cellsChanged: [],
+          rulesAdded: [],
+          rulesRemoved: [],
+          rulesChanged: [],
+        },
+        conflicts: [],
+      });
+      await vi.waitFor(() =>
+        expect(document.querySelector('[data-no-conflicts]')?.textContent).toContain(
+          'There are no conflicts',
+        ),
+      );
+    });
+
+    it('offers no update to someone who only reads the catalog', async () => {
+      const element = await page({ ...workingCopy, owned: false, issues: [], stale: true });
+
+      expect(button(element, 'Update from Approved')).toBeUndefined();
+    });
   });
 
   describe('a catalog that came back to its owner', () => {

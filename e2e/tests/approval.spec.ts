@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createWorkingCopy, expectAccessible, signIn, signOut } from './support';
+import { createWorkingCopy, expectAccessible, nextSave, signIn, signOut, turboOf } from './support';
 
 // Each of these tests signs in as an owner and as a reviewer in turn, which takes its time.
 test.describe.configure({ timeout: 60_000 });
@@ -111,14 +111,24 @@ test('a manager rejects a submitted catalog with a reason, and its owner has it 
 test('a catalog that another approval leaves behind is returned to its owner and marked stale', async ({
   page,
 }) => {
+  // The 2.0L turbo is Available on Sport in North America. The author makes it Standard.
   await signIn(page, 'author');
   const approved = await createWorkingCopy(page, 'SUV', 'Compact SUV', '2028');
+  let saved = nextSave(page);
+  await turboOf(page).nth(2).focus();
+  await page.keyboard.press('s');
+  expect(await saved).toBe(200);
   await submit(page);
   await signOut(page);
 
-  // The manager has a catalog of the same lineage waiting for review too, and approves the other.
+  // The manager has a catalog of the same lineage waiting for review too, where the turbo is not
+  // offered there, and approves the other.
   await signIn(page, 'manager');
   const name = await createWorkingCopy(page, 'SUV', 'Compact SUV', '2028');
+  saved = nextSave(page);
+  await turboOf(page).nth(2).focus();
+  await page.keyboard.press('-');
+  expect(await saved).toBe(200);
   await submit(page);
   await page
     .getByRole('navigation', { name: 'Main' })
@@ -147,6 +157,20 @@ test('a catalog that another approval leaves behind is returned to its owner and
     page.getByText('It is stale, and has to be updated from the current Approved version first.'),
   ).toBeVisible();
   await expectAccessible(page);
+
+  // What an update from the approved catalog would do: the cell both changed is a conflict.
+  await page.getByRole('button', { name: 'Update from Approved' }).click();
+  const update = page.getByRole('dialog', { name: 'Update from Approved' });
+  await expect(update.getByRole('heading', { name: 'Taken from Approved v1' })).toBeVisible();
+  await expect(update.getByText('Approved v1 brings nothing')).toBeVisible();
+  await expect(
+    update.getByRole('row', {
+      name: /^Cell 2\.0L Turbo I4 Engine, Sport in North America Available Not offered Standard$/,
+    }),
+  ).toBeVisible();
+  await expectAccessible(page);
+  await update.getByRole('button', { name: 'Close' }).click();
+  await expect(update).toBeHidden();
 });
 
 test('nobody decides on a catalog of their own', async ({ page }) => {

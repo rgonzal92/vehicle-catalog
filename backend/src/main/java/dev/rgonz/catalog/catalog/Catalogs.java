@@ -191,9 +191,27 @@ class Catalogs {
                             header.baseCatalogId(),
                             header.baseModelYear(),
                             header.baseVersionNumber()),
-                    snapshot(header),
+                    snapshot(
+                        header.id(), header.lineageId(), header.status(), header.revision(), true),
                     List.of()));
   }
+
+  /**
+   * An Approved version's contents by the labels the library has today, whatever labels it was
+   * approved with, for what sets it beside a working copy: a working copy always shows today's.
+   */
+  CatalogSnapshot approvedAsLabelledToday(long id) {
+    var approved =
+        jdbc.sql("SELECT lineage_id, revision FROM catalog WHERE id = :id AND status = 'APPROVED'")
+            .param("id", id)
+            .query(Approved.class)
+            .single();
+
+    return snapshot(id, approved.lineageId(), Status.APPROVED, approved.revision(), false);
+  }
+
+  /** What places an Approved version: its lineage, and the revision it was approved at. */
+  private record Approved(long lineageId, long revision) {}
 
   /**
    * What validation needs of the library as it is today: which of the catalog's features are
@@ -281,46 +299,62 @@ class Catalogs {
   /** A retired feature or an inactive trim or region of a catalog, by what identifies it. */
   private record OutOfUse(String kind, String key) {}
 
-  private CatalogSnapshot snapshot(Header header) {
+  /**
+   * A catalog's contents.
+   *
+   * @param frozen whether an Approved version shows the labels it was approved with, and not the
+   *     library's of today
+   */
+  private CatalogSnapshot snapshot(
+      long id, long lineageId, Status status, long revision, boolean frozen) {
     var trims =
         content(
             """
-            SELECT c.trim_id AS id, COALESCE(c.approved_name, t.name) AS name,
-                   COALESCE(c.approved_sort_order, t.sort_order) AS sort_order
+            SELECT c.trim_id AS id,
+                   COALESCE(CASE WHEN :frozen THEN c.approved_name END, t.name) AS name,
+                   COALESCE(CASE WHEN :frozen THEN c.approved_sort_order END, t.sort_order)
+                       AS sort_order
             FROM catalog_trim c
             JOIN trim t ON t.id = c.trim_id
             WHERE c.catalog_id = :id
             ORDER BY sort_order, id
             """,
-            header,
+            id,
+            frozen,
             Trim.class);
     var regions =
         content(
             """
-            SELECT c.region_code AS code, COALESCE(c.approved_name, r.name) AS name
+            SELECT c.region_code AS code,
+                   COALESCE(CASE WHEN :frozen THEN c.approved_name END, r.name) AS name
             FROM catalog_region c
             JOIN region r ON r.code = c.region_code
             WHERE c.catalog_id = :id
             ORDER BY r.sort_order, r.code
             """,
-            header,
+            id,
+            frozen,
             Region.class);
     var offerings =
         content(
             "SELECT trim_id, region_code FROM catalog_trim_region WHERE catalog_id = :id",
-            header,
+            id,
+            frozen,
             Offering.class);
     var featureRows =
         content(
             """
-            SELECT c.feature_id AS id, f.code, f.kind, COALESCE(c.approved_name, f.name) AS name,
-                   COALESCE(c.approved_category_code, f.category_code) AS category_code
+            SELECT c.feature_id AS id, f.code, f.kind,
+                   COALESCE(CASE WHEN :frozen THEN c.approved_name END, f.name) AS name,
+                   COALESCE(CASE WHEN :frozen THEN c.approved_category_code END, f.category_code)
+                       AS category_code
             FROM catalog_feature c
             JOIN feature f ON f.id = c.feature_id
             WHERE c.catalog_id = :id
             ORDER BY f.code
             """,
-            header,
+            id,
+            frozen,
             FeatureRow.class);
     var cells =
         content(
@@ -329,20 +363,12 @@ class Catalogs {
             FROM catalog_cell
             WHERE catalog_id = :id
             """,
-            header,
+            id,
+            frozen,
             Cell.class);
 
     return new CatalogSnapshot(
-        header.id(),
-        header.lineageId(),
-        header.status(),
-        header.revision(),
-        trims,
-        regions,
-        offerings,
-        featureRows,
-        cells,
-        rules(header.id()));
+        id, lineageId, status, revision, trims, regions, offerings, featureRows, cells, rules(id));
   }
 
   /**
@@ -390,8 +416,8 @@ class Catalogs {
         .list();
   }
 
-  private <T> List<T> content(String sql, Header of, Class<T> type) {
-    return jdbc.sql(sql).param("id", of.id()).query(type).list();
+  private <T> List<T> content(String sql, long id, boolean frozen, Class<T> type) {
+    return jdbc.sql(sql).param("id", id).param("frozen", frozen).query(type).list();
   }
 
   /** A lineage and its current Approved version, as the dashboard lists them. */

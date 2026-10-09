@@ -9,7 +9,6 @@ import dev.rgonz.catalog.catalog.CatalogSnapshot.Trim;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -113,26 +112,7 @@ final class Diff {
 
   /** Whether two rules with the same key, or two pairs with the same pair key, say the same. */
   private static boolean saysTheSame(Rule one, Rule other) {
-    return one.kind() == other.kind()
-        && named(one).equals(named(other))
-        && one.allTrims() == other.allTrims()
-        && (one.allTrims() || one.trimIds().equals(other.trimIds()))
-        && one.allRegions() == other.allRegions()
-        && (one.allRegions() || one.regionCodes().equals(other.regionCodes()));
-  }
-
-  /**
-   * What a rule names, in a form that two rules saying the same share. A pair says the same
-   * whichever of its two rules says it, so its two features are named without a direction.
-   */
-  private static Object named(Rule rule) {
-    var targets = Set.copyOf(rule.targetFeatureIds());
-    if (rule.pairKey() == null) {
-      return List.of(rule.sourceFeatureId(), targets);
-    }
-    var both = new HashSet<>(targets);
-    both.add(rule.sourceFeatureId());
-    return both;
+    return one.said().equals(other.said());
   }
 
   /**
@@ -235,35 +215,12 @@ final class Diff {
           .toList();
     }
 
-    /**
-     * A rule as a sentence without its full stop, by this catalog's labels: "Tow Package requires
-     * Heavy-Duty Cooling (on Sport; in Europe)". A scope that covers everything is not said.
-     */
+    /** A rule as a sentence without its full stop, by this catalog's labels. */
     String inWords(Rule rule) {
-      var said =
-          "%s %s %s"
-              .formatted(
-                  feature(rule.sourceFeatureId()),
-                  rule.kind().words(),
-                  rule.targetFeatureIds().stream()
-                      .map(this::feature)
-                      .collect(Collectors.joining(", ")));
-      var scopes = new ArrayList<String>();
-      if (!rule.allTrims()) {
-        scopes.add(
-            "on "
-                + rule.trimIds().stream()
-                    .map(id -> trims.containsKey(id) ? trims.get(id).name() : "a trim it has not")
-                    .collect(Collectors.joining(", ")));
-      }
-      if (!rule.allRegions()) {
-        scopes.add(
-            "in "
-                + rule.regionCodes().stream()
-                    .map(code -> regions.containsKey(code) ? regions.get(code).name() : code)
-                    .collect(Collectors.joining(", ")));
-      }
-      return scopes.isEmpty() ? said : "%s (%s)".formatted(said, String.join("; ", scopes));
+      return rule.inWords(
+          this::feature,
+          id -> trims.containsKey(id) ? trims.get(id).name() : "a trim it has not",
+          code -> regions.containsKey(code) ? regions.get(code).name() : code);
     }
 
     private String feature(long id) {
