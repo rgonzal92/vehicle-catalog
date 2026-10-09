@@ -25,5 +25,7 @@
     "kind": "REQUIRES_ONE_OF",
     "source": "SAFETY_TRAILER_SWAY_CONTROL",
     "targets": ["PACKAGE_TOW", "PACKAGE_TOW_HEAVY_DUTY", "TOW_HITCH_RECEIVER"]
-  }
+  },
+  { "kind": "EXCLUDES", "source": "ROOF_PANORAMIC", "targets": ["ROOF_REMOVABLE"] },
+  { "kind": "EXCLUDES", "source": "TRANS_MANUAL", "targets": ["POWERTRAIN_HYBRID"] }
 ]

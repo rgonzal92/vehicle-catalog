@@ -32,10 +32,11 @@ class GlobalRuleController {
     return rules.list();
   }
 
+  /** Adds a rule, or for an exclusion a pair for each target, and answers with what was made. */
   @PostMapping
   @RequiresRole(Role.ADMIN)
   @ResponseStatus(HttpStatus.CREATED)
-  GlobalRule add(@Valid @RequestBody RuleContent given) {
+  List<GlobalRule> add(@Valid @RequestBody RuleContent given) {
     return rules.add(given);
   }
 

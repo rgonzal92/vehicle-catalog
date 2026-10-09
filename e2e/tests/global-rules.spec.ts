@@ -57,6 +57,51 @@ test('an admin adds, changes, and deletes a global rule', async ({ page }) => {
   await expect(page.getByRole('row', { name: /Panoramic Roof Requires/ })).toHaveCount(0);
 });
 
+test('an exclusion is kept as a pair that is shown and deleted as one', async ({ page }) => {
+  await signIn(page, 'admin');
+  await page.goto('/admin/global-rules');
+  await expect(
+    page.getByRole('row', { name: /^Panoramic Roof Excludes .*Removable Roof Every region/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('row', { name: /^Removable Roof Excludes .*Panoramic Roof Every region/ }),
+  ).toBeVisible();
+
+  await page.getByRole('button', { name: 'Add global rule' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add global rule' });
+  await choose(dialog, 'Kind', 'Excludes');
+  await choose(dialog, 'Source', 'Leather Seats');
+  await dialog.getByText('Choose features').click();
+  await page.getByRole('option', { name: 'Sport Seats', exact: true }).click();
+  await page.getByRole('option', { name: 'Premium Audio', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(dialog.getByText('Each makes a pair of its own')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(dialog).toBeHidden();
+
+  await expect(page.getByRole('row', { name: /^Leather Seats Excludes/ })).toHaveCount(2);
+  const mirrored = page.getByRole('row', { name: /^Sport Seats Excludes .*Leather Seats/ });
+  await expect(mirrored).toBeVisible();
+  await expect(
+    page.getByRole('row', { name: /^Premium Audio Excludes .*Leather Seats/ }),
+  ).toBeVisible();
+
+  await page
+    .getByRole('button', { name: 'Show the pair of the rule: Leather Seats excludes Sport Seats' })
+    .click();
+  await expect(mirrored).toHaveAttribute('data-shown-pair');
+  await expectAccessible(page);
+
+  await mirrored.getByRole('button', { name: /^Delete the rule/ }).click();
+  const asking = page.getByRole('dialog', { name: 'Delete global rule' });
+  await expect(asking).toContainText('Its pair, Leather Seats excludes Sport Seats, goes with it.');
+  await asking.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(asking).toBeHidden();
+
+  await expect(page.getByRole('row', { name: /Sport Seats/ })).toHaveCount(0);
+  await expect(page.getByRole('row', { name: /^Leather Seats Excludes/ })).toHaveCount(1);
+});
+
 test('a feature that a global rule names cannot be retired', async ({ page }) => {
   await signIn(page, 'admin');
   await page.goto('/admin/features');
