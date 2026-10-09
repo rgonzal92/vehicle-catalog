@@ -234,6 +234,18 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
           />
         </header>
 
+        @if (catalog.decision; as decided) {
+          <p class="notice" role="status" data-notice="decision">
+            @if (decided.decision === 'REJECTED') {
+              <strong>Rejected by {{ decided.reviewer }}</strong> on
+              {{ decided.at | date: 'medium' }}:
+              <span class="whitespace-pre-line">{{ decided.comment }}</span>
+            } @else {
+              <strong>Returned</strong> on {{ decided.at | date: 'medium' }}: another catalog of its
+              lineage was approved first.
+            }
+          </p>
+        }
         @if (catalog.vehicleLineActive === false && catalog.snapshot.status !== 'APPROVED') {
           <p class="notice" role="status" data-notice="vehicle-line">
             The vehicle line {{ catalog.vehicleLine }} is deactivated. This catalog cannot be

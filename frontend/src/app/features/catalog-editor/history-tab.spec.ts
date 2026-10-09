@@ -149,6 +149,14 @@ describe('kindInWords', () => {
   });
 });
 
+describe('a decision of a review, in the history', () => {
+  it('is named by what was decided, and a return without the word stale', () => {
+    expect(kindInWords('APPROVED')).toBe('Approved');
+    expect(kindInWords('REJECTED')).toBe('Rejected');
+    expect(kindInWords('RETURNED_STALE')).toBe('Returned');
+  });
+});
+
 describe('changeInWords', () => {
   it('names a trim, a region, or an offering on its own', () => {
     const change = { ...cellSet, ...nothingNamed, kind: 'SOMETHING' };

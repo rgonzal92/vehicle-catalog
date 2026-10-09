@@ -89,6 +89,19 @@ test('a manager rejects a submitted catalog with a reason, and its owner has it 
   const mine = page.getByRole('region', { name: 'My catalogs' }).getByRole('row', { name });
   await expect(mine).toContainText('Draft');
   await expect(mine.getByRole('button', { name: `Delete ${name}` })).toBeVisible();
+
+  // The editor says why it came back, and the History keeps the decision among the changes.
+  await mine.getByRole('link', { name: `Open ${name}` }).click();
+  const decision = page.locator('[data-notice="decision"]');
+  await expect(decision).toContainText('Rejected by');
+  await expect(decision).toContainText('The hybrid needs its battery cooling.');
+  await page.getByRole('tab', { name: 'History' }).click();
+  const history = page.getByRole('tabpanel', { name: 'History' });
+  await expect(
+    history.getByRole('row', { name: /Rejected The hybrid needs its battery cooling\.$/ }),
+  ).toBeVisible();
+  await expect(history.getByRole('row', { name: /Submitted$/ })).toBeVisible();
+  await expectAccessible(page);
 });
 
 test('nobody decides on a catalog of their own', async ({ page }) => {

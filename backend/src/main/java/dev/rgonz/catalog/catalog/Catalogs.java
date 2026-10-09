@@ -128,6 +128,8 @@ class Catalogs {
                    v.active AS vehicle_line_active, c.submit_note, c.submitted_at,
                    c.status <> 'APPROVED' AND l.current_catalog_id IS NOT NULL
                        AND l.current_catalog_id IS DISTINCT FROM c.base_catalog_id AS stale,
+                   d.decision, d.reviewer AS decided_by, d.comment AS decision_comment,
+                   d.created_at AS decided_at,
                    b.id AS base_catalog_id,
                    bl.model_year AS base_model_year, b.version_number AS base_version_number
             FROM catalog c
@@ -137,6 +139,16 @@ class Catalogs {
             LEFT JOIN app_user a ON a.id = c.approved_by
             LEFT JOIN catalog b ON b.id = c.base_catalog_id
             LEFT JOIN lineage bl ON bl.id = b.lineage_id
+            -- The decision that sent a Draft back to its owner, until it is submitted again.
+            LEFT JOIN LATERAL (
+                SELECT r.decision, ra.display_name AS reviewer, r.comment, r.created_at
+                FROM catalog_review r
+                LEFT JOIN app_user ra ON ra.id = r.reviewer_id
+                WHERE r.catalog_id = c.id AND c.status = 'DRAFT'
+                  AND r.created_at >= c.submitted_at
+                ORDER BY r.id DESC
+                LIMIT 1
+            ) AS d ON true
             WHERE c.id = :id AND %s
             """
                 .formatted(OPENS_FOR_VIEWER))
@@ -161,6 +173,13 @@ class Catalogs {
                     header.submitNote(),
                     header.submittedAt(),
                     header.stale(),
+                    header.decision() == null
+                        ? null
+                        : new Decision(
+                            header.decision(),
+                            header.decidedBy(),
+                            header.decisionComment(),
+                            header.decidedAt()),
                     header.baseCatalogId() == null
                         ? null
                         : new Base(
@@ -395,6 +414,8 @@ class Catalogs {
    * @param submittedAt when it was last submitted, or null when it never was
    * @param stale whether it is a working copy whose base is no longer its lineage's current
    *     Approved, which cannot be submitted or approved until it has been updated from it
+   * @param decision the rejection or the return that sent it back to its owner, while it stands:
+   *     until it is submitted again
    * @param base the Approved version it was copied from, or null when it started empty
    * @param issues what validation finds in the contents against the library as it is today, Errors
    *     before Warnings
@@ -413,6 +434,7 @@ class Catalogs {
       String submitNote,
       Instant submittedAt,
       boolean stale,
+      Decision decision,
       Base base,
       CatalogSnapshot snapshot,
       List<Issue> issues) {
@@ -432,11 +454,21 @@ class Catalogs {
           submitNote,
           submittedAt,
           stale,
+          decision,
           base,
           snapshot,
           found);
     }
   }
+
+  /**
+   * A decision that sent a catalog back to its owner.
+   *
+   * @param decision {@code REJECTED} or {@code RETURNED_STALE}
+   * @param reviewer the name of who rejected it; nobody for a return, which is the system's
+   * @param comment why it was rejected; nothing for a return
+   */
+  record Decision(String decision, String reviewer, String comment, Instant at) {}
 
   /** A catalog's base. After a carryover its model year is an earlier one than the catalog's. */
   record Base(long catalogId, int modelYear, int versionNumber) {}
@@ -460,6 +492,10 @@ class Catalogs {
       String submitNote,
       Instant submittedAt,
       boolean stale,
+      String decision,
+      String decidedBy,
+      String decisionComment,
+      Instant decidedAt,
       Long baseCatalogId,
       Integer baseModelYear,
       Integer baseVersionNumber) {}
