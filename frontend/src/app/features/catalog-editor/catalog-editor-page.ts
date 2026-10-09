@@ -33,6 +33,7 @@ import { Textarea } from 'primeng/textarea';
 import { Tab, TabList, TabPanel, TabPanels, Tabs } from 'primeng/tabs';
 import { Tag } from 'primeng/tag';
 import {
+  baseInWords,
   Catalog,
   CatalogEdit,
   Catalogs,
@@ -682,15 +683,7 @@ export class CatalogEditorPage {
     void this.open();
   }
 
-  /** The base as the header names it. A base of an earlier model year is a carryover. */
-  protected baseInWords({ base, modelYear }: Catalog): string {
-    if (!base) {
-      return 'None (started empty)';
-    }
-    return base.modelYear === modelYear
-      ? `Approved v${base.versionNumber}`
-      : `${base.modelYear} Approved v${base.versionNumber} (carryover)`;
-  }
+  protected readonly baseInWords = baseInWords;
 
   /**
    * Saves a cell the person just set, behind the saves still on their way, and tells the matrix how

@@ -260,6 +260,16 @@ export const LONGEST_CATALOG_NAME = 80;
 /** How long, in milliseconds, an edit may go unanswered before its outcome counts as unknown. */
 export const SAVE_PATIENCE = 20_000;
 
+/** A catalog's base as its pages name it. A base of an earlier model year is a carryover. */
+export function baseInWords({ base, modelYear }: Pick<Catalog, 'base' | 'modelYear'>): string {
+  if (!base) {
+    return 'None (started empty)';
+  }
+  return base.modelYear === modelYear
+    ? `Approved v${base.versionNumber}`
+    : `${base.modelYear} Approved v${base.versionNumber} (carryover)`;
+}
+
 /** A starting point in the words the new catalog dialog shows. */
 export function startPointInWords(start: StartPoint): string {
   switch (start.kind) {

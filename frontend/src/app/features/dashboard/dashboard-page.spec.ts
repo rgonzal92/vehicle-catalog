@@ -354,7 +354,7 @@ describe('DashboardPage', () => {
     ]);
   });
 
-  it("lists the catalogs waiting for review, and offers to open all but the manager's own", async () => {
+  it("lists the catalogs waiting for review, and offers to review all but the manager's own", async () => {
     const page = await dashboardFor(
       ['manager', 'author'],
       [],
@@ -392,8 +392,8 @@ describe('DashboardPage', () => {
     expect(cells.slice(0, 4)).toEqual(['Winter update', 'Compact SUV', '2027', 'Ana Author']);
     expect(cells[5]).toBe('Ready for review.');
     const link = rows[0].querySelector('a');
-    expect(link?.getAttribute('href')).toBe('/catalogs/51');
-    expect(link?.getAttribute('aria-label')).toBe('Open Winter update by Ana Author');
+    expect(link?.getAttribute('href')).toBe('/catalogs/51/review');
+    expect(link?.getAttribute('aria-label')).toBe('Review Winter update by Ana Author');
     expect(rows[1].querySelector('a')).toBeNull();
     expect(rows[1].textContent).toContain('Yours');
   });

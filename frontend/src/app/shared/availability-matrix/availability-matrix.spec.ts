@@ -2,7 +2,7 @@ import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { AvailabilityMatrix } from './availability-matrix';
-import { Cell, FeatureRow, Issue, MatrixContents } from './matrix';
+import { Cell, FeatureRow, Issue, MatrixChanges, MatrixContents } from './matrix';
 
 const contents: MatrixContents = {
   trims: [
@@ -48,6 +48,7 @@ const categories = [
       [hiddenRegions]="hiddenRegions()"
       [featureFilter]="featureFilter()"
       [issues]="issues()"
+      [changes]="marked()"
       (cellChange)="changes.push($event)"
       (featureRemove)="removals.push($event)"
     />
@@ -60,6 +61,7 @@ class Host {
   readonly hiddenRegions = signal(new Set<string>());
   readonly featureFilter = signal<(feature: FeatureRow) => boolean>(() => true);
   readonly issues = signal<Issue[]>([]);
+  readonly marked = signal<MatrixChanges | null>(null);
   readonly changes: Cell[] = [];
   readonly removals: { feature: FeatureRow; cells: number }[] = [];
 }
@@ -259,6 +261,38 @@ describe('AvailabilityMatrix', () => {
     press(cell(element, 1, 0), 'a');
     await fixture.whenStable();
     expect(rows(element).map((row) => row[0])).toEqual(['Exterior', 'ROOF_PANORAMIC']);
+  });
+
+  it('marks a changed cell with what it was, and the rows and offerings that were added', async () => {
+    const { element, host } = await matrix(false);
+    expect(element.querySelector('.matrix-changed')).toBeNull();
+
+    host.marked.set({
+      before: new Map([
+        ['10:2:NA', 'N'],
+        ['11:1:NA', 'A'],
+      ]),
+      addedFeatures: new Set([11]),
+      addedOfferings: new Set(['2:EU']),
+    });
+
+    await vi.waitFor(() => expect(element.querySelectorAll('.matrix-changed')).toHaveLength(2));
+    const roof = element.querySelector('tr[data-feature="10"]')!;
+    const sportInNorthAmerica = roof.querySelectorAll('td')[3];
+    expect(sportInNorthAmerica.textContent?.replace(/\s+/g, ' ').trim()).toBe('A was -');
+    expect(sportInNorthAmerica.getAttribute('title')).toBe('Was Not offered');
+    expect(roof.querySelectorAll('td')[2].classList.contains('matrix-changed')).toBe(false);
+    expect(
+      element.querySelector('tr[data-feature="11"] [role="rowheader"]')?.getAttribute('aria-label'),
+    ).toBe('2.0L Turbo, added');
+    expect(roof.querySelector('[role="rowheader"]')?.getAttribute('aria-label')).toBe(
+      'Panoramic Roof',
+    );
+    const offerings = Array.from(element.querySelectorAll('thead tr:last-child th'), (heading) =>
+      heading.getAttribute('title'),
+    );
+    expect(offerings).toEqual(['Base', 'Sport', 'Sport, added']);
+    expect(element.textContent).toContain('A cell that changed says what it was');
   });
 
   it('lists feature rows under category subheaders and shows each cell, a missing one as a dash', async () => {
