@@ -175,6 +175,9 @@ export interface CatalogChanges {
 /** What a conflict of an update from Approved is about. */
 export type ConflictKind = 'TRIM' | 'REGION' | 'OFFERING' | 'FEATURE_ROW' | 'CELL' | 'RULE';
 
+/** Whose version of a conflict an update takes: the working copy's, or the Approved version's. */
+export type ConflictSide = 'MINE' | 'THEIRS';
+
 /** A conflict's kind as the page says it. */
 export const CONFLICT_KIND_NAMES: Record<ConflictKind, string> = {
   TRIM: 'Trim',
@@ -453,6 +456,20 @@ export class Catalogs {
     return firstValueFrom(
       this.http.post<UpdatePreview>(`/api/catalogs/${catalogId}/merge-preview`, null),
     );
+  }
+
+  /**
+   * Updates a stale working copy from the Approved version the update was worked out against, with
+   * the side taken of each conflict, by its id. The backend refuses when the working copy or the
+   * lineage's current Approved has moved on since, and when a conflict has no side taken.
+   */
+  update(
+    catalogId: number,
+    revision: number,
+    approvedCatalogId: number,
+    resolutions: Record<string, ConflictSide>,
+  ): Promise<number> {
+    return this.edit(catalogId, 'POST', '/merge', revision, { approvedCatalogId, resolutions });
   }
 
   /** Renames a working copy. */

@@ -50,6 +50,9 @@ const settled = (page: Page) =>
  * is checked in light, and then for contrast in dark, which differs from light in its colors alone.
  */
 export async function expectAccessible(page: Page): Promise<void> {
+  // A toast goes when its time is up, and one that went during the check would be judged half
+  // faded. So the page is checked once the toasts it showed have gone.
+  await expect(page.locator('.p-toast-message')).toHaveCount(0, { timeout: 10_000 });
   await settled(page);
   const light = await new AxeBuilder({ page }).analyze();
 

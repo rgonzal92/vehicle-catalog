@@ -51,6 +51,16 @@ public final class ApiException extends ErrorResponseException {
     return refusal;
   }
 
+  /**
+   * An update of a catalog cannot be applied while conflicts of it are not settled. The refusal
+   * lists them.
+   */
+  public static ApiException unresolvedConflicts(String reason, java.util.List<?> conflicts) {
+    var refusal = new ApiException(HttpStatusCode.valueOf(422), "UNRESOLVED_CONFLICTS", reason);
+    refusal.getBody().setProperty("conflicts", conflicts);
+    return refusal;
+  }
+
   /** The request is well formed but breaks a rule. */
   public static ApiException invalid(String reason) {
     return new ApiException(HttpStatusCode.valueOf(422), "VALIDATION", reason);

@@ -268,11 +268,14 @@ import { UpdateDialog } from './update-dialog';
                 severity="secondary"
                 [disabled]="!editable()"
                 [loading]="previewing()"
-                (onClick)="previewUpdate(updating)"
+                (onClick)="previewUpdate()"
               />
-              <app-update-dialog #updating [catalogId]="catalog.snapshot.catalogId" />
             }
           </div>
+        }
+        @if (catalog.owned && catalog.snapshot.status === 'DRAFT') {
+          <!-- It outlives the notice, which goes as soon as the update is saved. -->
+          <app-update-dialog [catalogId]="catalog.snapshot.catalogId" [run]="restructure" />
         }
         @if (catalog.vehicleLineActive === false && catalog.snapshot.status !== 'APPROVED') {
           <p class="notice" role="status" data-notice="vehicle-line">
@@ -659,6 +662,8 @@ export class CatalogEditorPage {
   /** Whether an update from Approved is being worked out. */
   protected readonly previewing = signal(false);
 
+  private readonly updateDialog = viewChild(UpdateDialog);
+
   /** The feature row the person is asked to confirm the removal of, or null while there is none. */
   protected readonly removing = signal<{ feature: FeatureRow; cells: number } | null>(null);
 
@@ -930,13 +935,13 @@ export class CatalogEditorPage {
    * Opens the dialog that shows what an update from Approved would do. It is worked out from the
    * catalog as it is saved, so the saves on their way go first.
    */
-  protected async previewUpdate(dialog: UpdateDialog): Promise<void> {
+  protected async previewUpdate(): Promise<void> {
     const saves = this.saves();
     this.previewing.set(true);
     try {
       await saves?.whenIdle();
       if (!saves?.stopped()) {
-        await dialog.open();
+        await this.updateDialog()?.open();
       }
     } finally {
       this.previewing.set(false);
