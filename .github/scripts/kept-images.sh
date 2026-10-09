@@ -10,12 +10,15 @@
 #   kept-images.sh named   prints, as a step's output, a key that changes when an image named changes
 #   kept-images.sh load    loads what was kept, and pulls what a Dockerfile builds on if it is not there
 #   kept-images.sh keep    says what this run pulled, and gathers up the images to keep
+#
+# Each image is kept as a file of its own, so that they are loaded side by side: one after another
+# took half a minute.
 set -euo pipefail
 # The key is made from sorted lines, which sort alike on every machine this way.
 export LC_ALL=C
 cd "$(dirname "$0")/../.."
 kept="${RUNNER_TEMP:?}/kept-images"
-mkdir -p "$kept"
+mkdir -p "$kept/images"
 
 # The lines that name an image: `image:` of a Compose file, `FROM` of a Dockerfile, and a
 # container of the backend's tests.
@@ -43,10 +46,8 @@ named)
   echo "key=$(naming_lines | sha256sum | cut -c1-16)"
   ;;
 load)
-  : >"$kept/loaded"
-  if [ -f "$kept/images.tar" ]; then
-    docker load --input "$kept/images.tar" | sed -n 's/^Loaded image: //p' >"$kept/loaded"
-  fi
+  find "$kept/images" -name '*.tar' -print0 | xargs -0 -r -P 4 -n 1 docker load --input |
+    sed -n 's/^Loaded image: //p' >"$kept/loaded"
   echo "Kept from an earlier run: $(paste -sd ' ' "$kept/loaded" | grep . || echo nothing)"
   # A build takes what it builds on from this machine when it is here, and what is here can be
   # kept. So it is pulled now, if it was not kept.
@@ -70,7 +71,9 @@ keep)
   # What was restored is kept as it is when it was restored under its own key: nothing changed.
   if [ "${RESTORED_AS_NAMED:-}" != true ]; then
     echo "Kept for the next run: ${images[*]}"
-    docker save --output "$kept/images.tar" "${images[@]}"
+    rm -f "$kept/images"/*.tar
+    printf '%s\n' "${images[@]}" |
+      xargs -P 4 -I {} sh -c 'docker save --output "$0/$(echo "$1" | tr "/:" "__").tar" "$1"' "$kept/images" {}
   fi
   ;;
 *)

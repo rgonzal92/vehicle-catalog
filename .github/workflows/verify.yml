@@ -46,13 +46,11 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: kept
         with:
-          path: ${{ runner.temp }}/kept-images/images.tar
+          path: ${{ runner.temp }}/kept-images/images
           key: images-backend-${{ steps.images.outputs.key }}
           restore-keys: images-backend-
       - name: Load the images that were kept
         run: ${{ github.workspace }}/.github/scripts/kept-images.sh load
-      - name: For one trial run, Docker Hub cannot be reached
-        run: echo "127.0.0.1 registry-1.docker.io auth.docker.io index.docker.io docker.io production.cloudflare.docker.com" | sudo tee -a /etc/hosts && ! curl --silent --max-time 5 --output /dev/null https://registry-1.docker.io/v2/
       - name: Verify
         run: ./mvnw -B verify
       - name: Gather the images to keep
@@ -115,13 +113,11 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: kept
         with:
-          path: ${{ runner.temp }}/kept-images/images.tar
+          path: ${{ runner.temp }}/kept-images/images
           key: images-browser-tests-${{ steps.images.outputs.key }}
           restore-keys: images-browser-tests-
       - name: Load the images that were kept
         run: ${{ github.workspace }}/.github/scripts/kept-images.sh load
-      - name: For one trial run, Docker Hub cannot be reached
-        run: echo "127.0.0.1 registry-1.docker.io auth.docker.io index.docker.io docker.io production.cloudflare.docker.com" | sudo tee -a /etc/hosts && ! curl --silent --max-time 5 --output /dev/null https://registry-1.docker.io/v2/
       - name: Install
         run: npm ci --prefix ../frontend && npm ci
       - name: Install the browser
@@ -172,13 +168,11 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: kept
         with:
-          path: ${{ runner.temp }}/kept-images/images.tar
+          path: ${{ runner.temp }}/kept-images/images
           key: images-host-${{ steps.images.outputs.key }}
           restore-keys: images-host-
       - name: Load the images that were kept
         run: ${{ github.workspace }}/.github/scripts/kept-images.sh load
-      - name: For one trial run, Docker Hub cannot be reached
-        run: echo "127.0.0.1 registry-1.docker.io auth.docker.io index.docker.io docker.io production.cloudflare.docker.com" | sudo tee -a /etc/hosts && ! curl --silent --max-time 5 --output /dev/null https://registry-1.docker.io/v2/
       - name: Check the host's stack
         run: deploy/test/check.sh
       - name: Gather the images to keep
