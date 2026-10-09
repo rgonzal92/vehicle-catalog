@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { choose, createWorkingCopy, expectAccessible, signIn } from './support';
+import { choose, createWorkingCopy, expectAccessible, nextSave, signIn } from './support';
 
 test('an empty working copy says what it lacks, and an edit brings its issues up to date', async ({
   page,
@@ -32,9 +32,50 @@ test('an empty working copy says what it lacks, and an edit brings its issues up
   await expect(counts).toHaveText('3 Errors');
 });
 
-test('a working copy of a seeded catalog has no Error', async ({ page }) => {
+test('a cell that breaks a global rule is marked, listed, and shown from the list', async ({
+  page,
+}) => {
   await signIn(page, 'author');
   await createWorkingCopy(page, 'SUV', 'Compact SUV', '2026');
+  const matrix = page.locator('app-availability-matrix');
+  const rowFilters = page.getByRole('search', { name: 'Feature rows shown' });
+  const cellsOf = (code: string) =>
+    matrix.getByRole('row', { name: new RegExp(code) }).getByRole('cell');
+  const counts = page.locator('[data-issue-counts]');
+  await expect(counts).not.toContainText('Error');
 
-  await expect(page.locator('[data-issue-counts]')).not.toContainText('Error');
+  // The Tow Package is Available on Sport in North America, and requires Heavy-Duty Cooling there.
+  await rowFilters.getByLabel('Code or name').fill('COOLING_HEAVY_DUTY');
+  let saved = nextSave(page);
+  await cellsOf('COOLING_HEAVY_DUTY').nth(2).focus();
+  await page.keyboard.press('-');
+  expect(await saved).toBe(200);
+  await expect(counts).toContainText('1 Error');
+
+  await rowFilters.getByLabel('Code or name').fill('PACKAGE_TOW');
+  const tow = cellsOf('PACKAGE_TOW').nth(2);
+  const says =
+    'Tow Package requires Heavy-Duty Cooling, which is not offered on Sport in North America.';
+  await expect(tow).toHaveText(new RegExp(`^\\s*A ●Error: ${says}`));
+  await expect(tow).toHaveAttribute('title', `Error: ${says}`);
+  await expectAccessible(page);
+
+  await page.getByRole('tab', { name: 'Issues' }).click();
+  const issue = page.getByRole('tabpanel', { name: 'Issues' }).getByRole('row', { name: says });
+  await expect(issue).toContainText('Global rule');
+  await expect(issue).toContainText('Tow Package, Sport in North America');
+  await issue.getByRole('button', { name: /^Show the cell of this issue/ }).click();
+  await expect(page.getByRole('tab', { name: 'Features' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(cellsOf('PACKAGE_TOW').nth(2)).toBeFocused();
+
+  // Putting the cell right clears the issue.
+  await rowFilters.getByLabel('Code or name').fill('COOLING_HEAVY_DUTY');
+  saved = nextSave(page);
+  await cellsOf('COOLING_HEAVY_DUTY').nth(2).focus();
+  await page.keyboard.press('a');
+  expect(await saved).toBe(200);
+  await expect(counts).not.toContainText('Error');
 });

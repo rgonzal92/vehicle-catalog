@@ -329,8 +329,9 @@ class CatalogsIT extends ApplicationIT {
             .map(ILoggingEvent::getFormattedMessage)
             .filter(message -> message.startsWith("Executing prepared SQL statement"))
             .toList();
-    assertThat(sent).hasSize(7);
-    // What the library says today of the catalog's features, trims, and regions is one query.
+    // Besides the catalog and its five content tables: one query for what the library says today of
+    // the catalog's features, trims, and regions, and two for the global rules and their names.
+    assertThat(sent).hasSize(9);
     var readsTheLibrary = Pattern.compile("\\bUNION ALL\\b").asPredicate();
     assertThat(sent).filteredOn(readsTheLibrary).hasSize(1);
     var contents = sent.stream().filter(readsTheLibrary.negate()).toList();

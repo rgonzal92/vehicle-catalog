@@ -352,6 +352,7 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
                       <th scope="col">Severity</th>
                       <th scope="col">Issue</th>
                       <th scope="col">About</th>
+                      <th scope="col">From</th>
                       <th scope="col"><span class="sr-only">Actions</span></th>
                     </tr>
                   </ng-template>
@@ -365,6 +366,7 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
                       </td>
                       <td>{{ issue.message }}</td>
                       <td>{{ about(issue, catalog) }}</td>
+                      <td>{{ from(issue) }}</td>
                       <td class="text-right whitespace-nowrap">
                         @if (isAboutACell(issue)) {
                           <p-button
@@ -757,6 +759,11 @@ export class CatalogEditorPage {
   /** Shows or hides a region's offerings in the matrix. */
   protected isAboutACell(issue: Issue): boolean {
     return issue.featureId !== null && issue.trimId !== null && issue.regionCode !== null;
+  }
+
+  /** Where an issue comes from: a rule of the library, a rule of the catalog, or no rule. */
+  protected from(issue: Issue): string {
+    return issue.rule ? (issue.rule.origin === 'GLOBAL' ? 'Global rule' : 'Catalog rule') : '';
   }
 
   /** What an issue is about, by the names the catalog has for it: a cell, an offering, or less. */

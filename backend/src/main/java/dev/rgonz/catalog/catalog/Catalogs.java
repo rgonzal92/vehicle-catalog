@@ -9,6 +9,7 @@ import dev.rgonz.catalog.catalog.CatalogSnapshot.Trim;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -132,7 +133,8 @@ class Catalogs {
 
   /**
    * What validation needs of the library as it is today: which of the catalog's features are
-   * retired, and which of its trims and regions are inactive. It is read with one query.
+   * retired, which of its trims and regions are inactive, and the global rules with the names of
+   * the features they name. It is read with three queries, however many rules there are.
    */
   private Validation.Library library(long catalogId) {
     var out =
@@ -157,11 +159,56 @@ class Catalogs {
             .query(OutOfUse.class)
             .list();
 
+    var rules =
+        jdbc.sql(
+                """
+                SELECT r.id, r.kind, r.source_feature_id, r.all_regions, r.pair_key,
+                       ARRAY(SELECT t.feature_id FROM global_rule_target t
+                             WHERE t.global_rule_id = r.id ORDER BY t.feature_id) AS targets,
+                       ARRAY(SELECT s.region_code FROM global_rule_region s
+                             WHERE s.global_rule_id = r.id ORDER BY s.region_code) AS regions
+                FROM global_rule r
+                ORDER BY r.id
+                """)
+            .query(
+                (row, _) ->
+                    new Rule(
+                        Rule.Origin.GLOBAL,
+                        String.valueOf(row.getLong("id")),
+                        Rule.Kind.valueOf(row.getString("kind")),
+                        row.getLong("source_feature_id"),
+                        List.of((Long[]) row.getArray("targets").getArray()),
+                        true,
+                        Set.of(),
+                        row.getBoolean("all_regions"),
+                        Set.of((String[]) row.getArray("regions").getArray()),
+                        row.getString("pair_key")))
+            .list();
+    var names =
+        jdbc
+            .sql(
+                """
+                SELECT f.id, f.name
+                FROM feature f
+                WHERE f.id IN (SELECT source_feature_id FROM global_rule
+                               UNION
+                               SELECT feature_id FROM global_rule_target)
+                """)
+            .query(Named.class)
+            .list()
+            .stream()
+            .collect(Collectors.toMap(Named::id, Named::name));
+
     return new Validation.Library(
         keys(out, "FEATURE").map(Long::valueOf).collect(Collectors.toSet()),
         keys(out, "TRIM").map(Long::valueOf).collect(Collectors.toSet()),
-        keys(out, "REGION").collect(Collectors.toSet()));
+        keys(out, "REGION").collect(Collectors.toSet()),
+        rules,
+        names);
   }
+
+  /** A feature by its identity and what it is called. */
+  private record Named(long id, String name) {}
 
   private static Stream<String> keys(List<OutOfUse> out, String kind) {
     return out.stream().filter(entry -> entry.kind().equals(kind)).map(OutOfUse::key);

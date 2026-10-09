@@ -525,8 +525,9 @@ export class AvailabilityMatrix {
     if (row < 0 || offering < 0) {
       return;
     }
-    this.table().scrollToVirtualIndex(row);
-    // The row is drawn once the table has heard of the scroll, which takes a frame or two.
+    // The table draws the row once it has scrolled to it. It can only scroll that far once it has
+    // taken in how many rows it now has, which follows a change of filter by a frame or two, so
+    // the scroll is asked for again until the row is there.
     const reach = (framesLeft: number) => {
       const cell = this.host.querySelector(`tr[data-feature="${featureId}"]`)?.children[
         offering + 2
@@ -537,10 +538,11 @@ export class AvailabilityMatrix {
           cell.focus();
         }
       } else if (framesLeft > 0) {
+        this.table().scrollToVirtualIndex(row);
         requestAnimationFrame(() => reach(framesLeft - 1));
       }
     };
-    reach(10);
+    reach(30);
   }
 
   /**
