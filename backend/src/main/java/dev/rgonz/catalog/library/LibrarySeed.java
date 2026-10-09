@@ -2,6 +2,7 @@ package dev.rgonz.catalog.library;
 
 import dev.rgonz.catalog.core.Seed;
 import dev.rgonz.catalog.library.Features.NewFeature;
+import dev.rgonz.catalog.library.GlobalRules.RuleContent;
 import dev.rgonz.catalog.library.Regions.NewRegion;
 import dev.rgonz.catalog.library.Trims.NewTrim;
 import dev.rgonz.catalog.vehicleline.VehicleLines;
@@ -11,6 +12,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.io.ClassPathResource;
@@ -20,10 +22,11 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Gives an empty library its starting trims, regions, vehicle lines, and features, so the app is
- * usable the moment it runs. The entries come from four files under {@code seed/}, one for each
- * list, written as the admin endpoints take them, and each entry is held to those endpoints' rules.
- * It runs before the seed of the catalogs, which are made of these entries.
+ * Gives an empty library its starting trims, regions, vehicle lines, features, and global rules, so
+ * the app is usable the moment it runs. The entries come from five files under {@code seed/}, one
+ * for each list, written as the admin endpoints take them, and each entry is held to those
+ * endpoints' rules. A global rule names its features by their codes. It runs before the seed of the
+ * catalogs, which are made of these entries.
  */
 @Component
 @Order(1)
@@ -32,6 +35,7 @@ class LibrarySeed implements Seed {
   private final Regions regions;
   private final VehicleLines vehicleLines;
   private final Features features;
+  private final GlobalRules globalRules;
   private final JdbcClient jdbc;
   private final JsonMapper json;
   private final Validator validator;
@@ -41,6 +45,7 @@ class LibrarySeed implements Seed {
       Regions regions,
       VehicleLines vehicleLines,
       Features features,
+      GlobalRules globalRules,
       JdbcClient jdbc,
       JsonMapper json,
       Validator validator) {
@@ -48,6 +53,7 @@ class LibrarySeed implements Seed {
     this.regions = regions;
     this.vehicleLines = vehicleLines;
     this.features = features;
+    this.globalRules = globalRules;
     this.jdbc = jdbc;
     this.json = json;
     this.validator = validator;
@@ -74,6 +80,28 @@ class LibrarySeed implements Seed {
     load("regions.json", NewRegion.class, regions::add);
     load("vehicle-lines.json", NewVehicleLine.class, vehicleLines::add);
     load("features.json", NewFeature.class, features::add);
+    load("global-rules.json", SeededRule.class, rule -> globalRules.add(rule.content(this::id)));
+  }
+
+  /** The feature with the code, which a seeded rule names it by. */
+  private long id(String featureCode) {
+    return jdbc.sql("SELECT id FROM feature WHERE code = :code")
+        .param("code", featureCode)
+        .query(Long.class)
+        .single();
+  }
+
+  /**
+   * A global rule as its seed file writes it, with its features by their codes.
+   *
+   * @param regions the regions the rule applies in, or null when it applies in every region
+   */
+  record SeededRule(
+      GlobalRules.Kind kind, String source, List<String> targets, List<String> regions) {
+    RuleContent content(Function<String, Long> idOf) {
+      return new RuleContent(
+          kind, idOf.apply(source), targets.stream().map(idOf).toList(), regions == null, regions);
+    }
   }
 
   private boolean isEmpty() {

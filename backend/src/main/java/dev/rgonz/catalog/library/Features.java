@@ -34,10 +34,12 @@ class Features {
 
   private final FeatureRepository repository;
   private final FixedLists fixedLists;
+  private final GlobalRules globalRules;
 
-  Features(FeatureRepository repository, FixedLists fixedLists) {
+  Features(FeatureRepository repository, FixedLists fixedLists, GlobalRules globalRules) {
     this.repository = repository;
     this.fixedLists = fixedLists;
+    this.globalRules = globalRules;
   }
 
   /**
@@ -80,9 +82,25 @@ class Features {
     return repository.saveAndFlush(feature);
   }
 
+  /**
+   * Retires or reactivates a feature. One that a global rule names cannot be retired: every catalog
+   * that offers the rule's source would need a feature it can no longer add.
+   */
   @Transactional
   Feature setStatus(long id, Status status) {
     var feature = repository.findById(id).orElseThrow(ApiException::notFound);
+    if (status == Status.RETIRED) {
+      var naming = globalRules.naming(id);
+      if (!naming.isEmpty()) {
+        throw ApiException.inUse(
+            "%s is named by %s. Change or delete %s first."
+                .formatted(
+                    feature.getName(),
+                    naming.size() == 1 ? "a global rule" : naming.size() + " global rules",
+                    naming.size() == 1 ? "it" : "them"),
+            naming);
+      }
+    }
     feature.setStatus(status);
 
     return repository.saveAndFlush(feature);

@@ -1,0 +1,29 @@
+[
+  { "kind": "REQUIRES", "source": "PACKAGE_TOW", "targets": ["COOLING_HEAVY_DUTY"] },
+  { "kind": "REQUIRES", "source": "PACKAGE_TOW_HEAVY_DUTY", "targets": ["COOLING_HEAVY_DUTY"] },
+  { "kind": "REQUIRES", "source": "BRAKE_TRAILER_CONTROLLER", "targets": ["TOW_HITCH_RECEIVER"] },
+  { "kind": "REQUIRES", "source": "POWERTRAIN_HYBRID", "targets": ["BATTERY_COOLING"] },
+  { "kind": "REQUIRES", "source": "SEAT_HEATED_REAR", "targets": ["SEAT_HEATED_FRONT"] },
+  {
+    "kind": "REQUIRES",
+    "source": "WINDSHIELD_HEATED",
+    "targets": ["MIRROR_HEATED"],
+    "regions": ["EU"]
+  },
+  {
+    "kind": "INCLUDES",
+    "source": "PACKAGE_TOW",
+    "targets": ["TOW_HITCH_RECEIVER", "WIRING_TRAILER_7_PIN"]
+  },
+  {
+    "kind": "INCLUDES",
+    "source": "PACKAGE_COLD_WEATHER",
+    "targets": ["SEAT_HEATED_FRONT", "STEERING_WHEEL_HEATED"]
+  },
+  { "kind": "INCLUDES", "source": "PACKAGE_PREMIUM_AUDIO", "targets": ["AUDIO_PREMIUM"] },
+  {
+    "kind": "REQUIRES_ONE_OF",
+    "source": "SAFETY_TRAILER_SWAY_CONTROL",
+    "targets": ["PACKAGE_TOW", "PACKAGE_TOW_HEAVY_DUTY", "TOW_HITCH_RECEIVER"]
+  }
+]

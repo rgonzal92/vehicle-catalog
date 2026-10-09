@@ -31,6 +31,16 @@ public final class ApiException extends ErrorResponseException {
     return new ApiException(HttpStatus.CONFLICT, code, reason);
   }
 
+  /**
+   * The request cannot be applied because other things depend on what it would take away. The
+   * refusal lists them.
+   */
+  public static ApiException inUse(String reason, java.util.List<String> by) {
+    var refusal = new ApiException(HttpStatus.CONFLICT, "IN_USE", reason);
+    refusal.getBody().setProperty("usedBy", by);
+    return refusal;
+  }
+
   /** The request is well formed but breaks a rule. */
   public static ApiException invalid(String reason) {
     return new ApiException(HttpStatusCode.valueOf(422), "VALIDATION", reason);
