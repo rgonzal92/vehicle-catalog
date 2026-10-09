@@ -18,7 +18,7 @@ services:
 
   # Holds the images that are released, as the registry in AWS does for the host.
   registry:
-    image: registry:3.1.2
+    image: registry:3.1.1
     ports:
       - "127.0.0.1:15000:5000"
 
