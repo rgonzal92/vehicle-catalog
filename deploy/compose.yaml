@@ -1,5 +1,6 @@
 # What runs on the host: Caddy, which the distribution reaches; the backend, which Caddy passes the
-# API's requests to; and the database, which nothing outside this stack reaches. The secrets come
+# API's requests to; the worker, which does the jobs the backend leaves it; and the database, which
+# nothing outside this stack reaches. The secrets come
 # from a file beside this one that only root can read, written from Parameter Store whenever the
 # stack is started. What the backend is told about signing in comes from settings.env, which
 # Terraform writes from what it knows of the login provider. What the backend reports of itself
@@ -58,6 +59,55 @@ services:
         mode: non-blocking
     # Healthy means startup has finished and the database answers. A release is given four minutes
     # to get there, on a host that may be short of CPU time, before it counts as one that failed.
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --quiet
+        - --spider
+        - http://127.0.0.1:8080/api/health/readiness
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 4m
+
+  # The backend's image once more, run as the worker: it sends the messages of the jobs the API
+  # wrote and does the jobs whose messages arrive. It starts once the API has migrated the
+  # database, and nothing outside this stack reaches it.
+  worker:
+    image: vehicle-catalog-backend:current
+    pull_policy: never
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    # The same settings as the API's, of which the worker uses where the queue is.
+    env_file:
+      - settings.env
+    environment:
+      SPRING_PROFILES_ACTIVE: worker
+      # The heap may grow to this and no further. Left to itself, Java would let each of the two
+      # processes have a quarter of the host's memory.
+      JAVA_TOOL_OPTIONS: -XX:MaxHeapSize=192m
+      DATABASE_URL: jdbc:postgresql://db:5432/catalog
+      DATABASE_USER: catalog
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?The database password is not set}
+      PUBLIC_URL: https://catalog.rgonz.dev
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?The secret the backend shows the login provider is not set}
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+      # Its traces go to the agent, as the API's do. It sends no metrics.
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://host.docker.internal:4328/v1/traces
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    # Its log goes where the API's goes, under a name of its own.
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: us-east-1
+        awslogs-group: /vehicle-catalog/backend
+        awslogs-stream: worker
+        mode: non-blocking
+    # Healthy means startup has finished and the database answers, as for the API.
     healthcheck:
       test:
         - CMD

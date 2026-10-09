@@ -8,9 +8,13 @@ import dev.rgonz.catalog.job.JobType;
 import dev.rgonz.catalog.job.Jobs;
 import java.time.Duration;
 import java.util.Map;
+import java.util.regex.Pattern;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.ApplicationContext;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
@@ -21,6 +25,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * when these tests are done, so that it runs no job of a test that follows.
  */
 @ActiveProfiles("worker")
+@ExtendWith(OutputCaptureExtension.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class WorkerIT extends ApplicationIT {
   static {
@@ -54,7 +59,7 @@ class WorkerIT extends ApplicationIT {
   }
 
   @Test
-  void itSendsAndRunsAJobWithoutBeingAsked() {
+  void itSendsAndRunsAJobWithoutBeingAskedAndWritesALineForItWithATraceId(CapturedOutput output) {
     // The catalog this job is about does not exist, so there is no one to tell and nothing else
     // to do: the job is done once the worker has got round to it.
     transactions.executeWithoutResult(
@@ -73,5 +78,14 @@ class WorkerIT extends ApplicationIT {
                             .query(String.class)
                             .single())
                     .isEqualTo("SUCCEEDED"));
+    await()
+        .untilAsserted(
+            () ->
+                assertThat(output)
+                    .containsPattern(
+                        Pattern.compile(
+                            "\\[[0-9a-f]{32}-[0-9a-f]{16}\\].* : AFTER_APPROVAL job \\d+ done in"
+                                + " \\d+ ms$",
+                            Pattern.MULTILINE)));
   }
 }

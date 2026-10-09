@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Runs the host's stack on this machine as the host runs it, against stand-ins for the certificate
-# authority, the image registry, Parameter Store, and the CloudWatch agent, and checks what it
-# does: who is answered, how an image is released, what happens to one that does not come up
-# healthy, and what the backend reports of itself.
+# authority, the image registry, Parameter Store, the CloudWatch agent, and the queue of the jobs,
+# and checks what it does: who is answered, how an image is released, what happens to one that
+# does not come up healthy, what the backend reports of itself, and that the worker does a job.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 
@@ -85,8 +85,12 @@ certificate() { # what to show of it
   echo | openssl s_client -connect 127.0.0.1:18443 -servername origin.test 2>/dev/null |
     openssl x509 -noout "$@" 2>/dev/null || true
 }
-running() {
-  docker inspect --format '{{.Image}}' "$(docker compose ps --quiet backend)"
+running() { # the service, which is the API unless the worker is named
+  docker inspect --format '{{.Image}}' "$(docker compose ps --quiet "${1:-backend}")"
+}
+in_the_database() {
+  docker compose exec -T db psql --username catalog --dbname catalog --tuples-only --no-align \
+    --command "$1" 2>&1
 }
 
 # The address the stand-in signs its own certificate with, which Caddy has to trust.
@@ -118,6 +122,11 @@ EOF
 offer never-gets-ready - <<EOF
 FROM $caddy_image
 CMD ["sleep", "infinity"]
+EOF
+# Ready as the API and never as the worker, which is told what it is as the backend's image is.
+offer has-a-worker-that-never-gets-ready - <<EOF
+FROM $caddy_image
+CMD ["sh", "-c", "if [ \"\$SPRING_PROFILES_ACTIVE\" = worker ]; then sleep infinity; else caddy respond --listen :8080; fi"]
 EOF
 # Ready whenever it is asked, like the one that says what reached it, and another image all the same.
 offer another - <<EOF
@@ -208,18 +217,43 @@ expect "the agent is sent nine metrics and no other" \
 expect "the log holds none of the secrets" 0 \
   "$(logged | grep -cF -e "$secret" -e a-password-for-this-check -e a-client-secret-for-this-check || true)"
 
+# The worker, which is the backend's image run beside the API. A job is put into the database as a
+# change puts it there: with its message, unsent. The catalog it names does not exist, so there is
+# no one to tell, and the job is done once the worker has sent its message and received it.
+expect "the worker runs the image the API runs" "$(running)" "$(running worker)"
+quietly in_the_database "WITH queued AS (
+    INSERT INTO job (type, dedupe_key, subject)
+    VALUES ('AFTER_APPROVAL', 'put-there-by-the-check', '{\"catalogId\": -1}')
+    RETURNING id
+  )
+  INSERT INTO outbox (job_id, payload) SELECT id, jsonb_build_object('jobId', id) FROM queued"
+the_job() {
+  in_the_database "SELECT status FROM job WHERE dedupe_key = 'put-there-by-the-check'"
+}
+for _ in $(seq 1 30); do
+  [ "$(the_job)" = SUCCEEDED ] && break
+  sleep 1
+done
+expect "a job put into the database is sent, run, and done by the worker" SUCCEEDED "$(the_job)"
+expect "the worker's log is one object to a line, and a job's line carries a trace id" yes \
+  "$(whether grep -qE '^[0-9a-f]{32}$' <<<"$(docker compose logs --no-log-prefix worker 2>&1 |
+    jq --raw-input --raw-output \
+      'fromjson? | select(.message | startswith("AFTER_APPROVAL job")) | .traceId' | tail -n 1)")"
+asks_the_worker() { # the path
+  docker compose exec -T worker wget --quiet --spider "http://127.0.0.1:8080$1"
+}
+expect "the worker answers its health check and has nothing at an address the API answers" \
+  "yes no" "$(whether asks_the_worker /api/health/readiness) $(whether asks_the_worker /api/demo-accounts)"
+
 releases "the image that runs is released again" 0 "$registry/backend:real"
 expect "and the one before it is still the one before it" "yes yes" "$(kept real) $(kept echo)"
 
-in_the_database() {
-  docker compose exec -T db psql --username catalog --dbname catalog --tuples-only --no-align \
-    --command "$1" 2>&1
-}
 quietly in_the_database 'CREATE TABLE kept_by_the_check AS SELECT 7 AS it'
 backend="$(running)"
-for image in stops-at-once never-gets-ready; do
+for image in stops-at-once never-gets-ready has-a-worker-that-never-gets-ready; do
   releases "an image that $(tr - ' ' <<<"$image") fails its release" 1 "$registry/backend:$image"
-  expect "the image that ran before it runs again" "$backend" "$(running)"
+  expect "the image that ran before it runs again, as the API and as the worker" \
+    "$backend $backend" "$(running) $(running worker)"
   expect "and the site answers, healthy" yes "$(healthy)"
   expect "and the image that failed is not kept" no "$(kept "$image")"
 done
@@ -265,8 +299,10 @@ expect "the host listens on ports 80 and 443, for Caddy" "80:80 443:443" \
   "$(jq --raw-output '[.services[].ports // [] | .[] | "\(.published):\(.target)"] | join(" ")' <<<"$hosts")"
 expect "the database listens on no port of the host" null \
   "$(jq --compact-output .services.db.ports <<<"$hosts")"
-expect "everything comes back when the host restarts" "unless-stopped unless-stopped unless-stopped" \
-  "$(jq --raw-output '[.services[].restart] | join(" ")' <<<"$hosts")"
+expect "everything comes back when the host restarts" 4 \
+  "$(jq '[.services[] | select(.restart == "unless-stopped")] | length' <<<"$hosts")"
+expect "and those four are all that runs there" "backend caddy db worker" \
+  "$(jq --raw-output '.services | keys | join(" ")' <<<"$hosts")"
 
 # Without a secret, Caddy does not start at all.
 expect "no secret, no start" no \

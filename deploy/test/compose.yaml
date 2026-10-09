@@ -1,6 +1,6 @@
 # Laid over ../compose.yaml to try the host's stack on one machine: a stand-in for the certificate
-# authority, a registry to release images from, a stand-in for the CloudWatch agent, a name that
-# only this network knows, and ports of its own.
+# authority, a registry to release images from, stand-ins for the CloudWatch agent and for the
+# queue of the jobs, a name that only this network knows, and ports of its own.
 services:
   # Stands in for Let's Encrypt. It comes to port 80 of the name to check, as Let's Encrypt does.
   authority:
@@ -28,6 +28,13 @@ services:
     image: otel/opentelemetry-collector:0.162.0
     volumes:
       - ./test/agent.yaml:/etc/otelcol/config.yaml:ro
+
+  # Stands in for the queue of the jobs in AWS, with its one queue.
+  queue:
+    image: softwaremill/elasticmq-native:1.7.1
+    configs:
+      - source: queue
+        target: /opt/elasticmq.conf
 
   caddy:
     depends_on:
@@ -59,3 +66,21 @@ services:
     # An image that never gets ready is known for one sooner than on the host.
     healthcheck:
       start_period: 1m
+
+  worker:
+    environment:
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://agent:4318/v1/traces
+    logging: !reset null
+    healthcheck:
+      start_period: 1m
+
+configs:
+  queue:
+    content: |
+      include classpath("application.conf")
+
+      queues {
+        jobs {
+          defaultVisibilityTimeout = 120 seconds
+        }
+      }

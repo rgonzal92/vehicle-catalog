@@ -98,8 +98,8 @@ resource "aws_iam_role_policy_attachment" "host_systems_manager" {
 }
 
 # That policy and the ones written here are all its role has: to fetch the backend's images, to
-# change roles, to report to Amazon CloudWatch, and to write backups. An apply removes any other policy given to it,
-# in a file here or by hand.
+# change roles, to report to Amazon CloudWatch, to write backups, and to work off the jobs. An
+# apply removes any other policy given to it, in a file here or by hand.
 resource "aws_iam_role_policies_exclusive" "host" {
   role_name = aws_iam_role.host.name
   policy_names = [
@@ -107,6 +107,7 @@ resource "aws_iam_role_policies_exclusive" "host" {
     aws_iam_role_policy.host_administer_roles.name,
     aws_iam_role_policy.host_report.name,
     aws_iam_role_policy.host_back_up.name,
+    aws_iam_role_policy.host_jobs.name,
   ]
 }
 
@@ -191,6 +192,15 @@ resource "aws_ssm_parameter" "origin_secret" {
   value       = random_password.origin_secret.result
 }
 
+locals {
+  # What the stack on the host is told and need not be kept secret: who signs in and where, and
+  # where the queue of the jobs is. The host keeps it in a file beside the stack's.
+  host_settings = join("\n", [
+    local.login_settings,
+    "JOBS_QUEUE_URL=${aws_sqs_queue.jobs.url}",
+  ])
+}
+
 # Has the host run the stack as deploy/ has it, with the backend image released last. It runs when
 # the host first reports to Systems Manager and again whenever what it runs changes, so a change to
 # deploy/ or to the secret reaches the host with an apply and without a new host. The apply that
@@ -216,7 +226,7 @@ resource "aws_ssm_association" "host_stack" {
       agent_file      = chomp(file("${path.module}/../deploy/agent.json"))
       backup_script   = chomp(file("${path.module}/../deploy/backup.sh"))
       backup_bucket   = aws_s3_bucket.backups.bucket
-      settings        = local.login_settings
+      settings        = local.host_settings
       secret_version  = aws_ssm_parameter.origin_secret.version
 
       login_secret_version = aws_ssm_parameter.login_client_secret.version
