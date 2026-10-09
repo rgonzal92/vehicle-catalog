@@ -30,6 +30,12 @@ class JobQueue {
   /** The name of the attribute, and of the header elsewhere, that carries a message's trace. */
   static final String TRACE = "traceparent";
 
+  /**
+   * The name of the attribute that says which of a job's messages this is: the id of the row it was
+   * sent from. A job has one message for each time it was queued.
+   */
+  static final String MESSAGE = "message";
+
   /** The most messages one request receives, which is the most SQS gives at once. */
   static final int MOST_AT_ONCE = 10;
 
@@ -81,10 +87,12 @@ class JobQueue {
   /**
    * Sends a message for a job.
    *
+   * @param row the id of the row the message is sent from
    * @param traceparent the trace the job was written in, or null when it was written in none
    */
-  void send(String body, String type, String traceparent) {
+  void send(long row, String body, String type, String traceparent) {
     var attributes = new HashMap<String, MessageAttributeValue>();
+    attributes.put(MESSAGE, text(Long.toString(row)));
     attributes.put("type", text(type));
     if (traceparent != null) {
       attributes.put(TRACE, text(traceparent));
@@ -97,7 +105,10 @@ class JobQueue {
     return MessageAttributeValue.builder().dataType("String").stringValue(value).build();
   }
 
-  /** What a message says beside its body: its job's type, and its trace when it has one. */
+  /**
+   * What a message says beside its body: which of its job's messages it is, its job's type, and its
+   * trace when it has one.
+   */
   static Map<String, String> attributesOf(Message message) {
     var said = new HashMap<String, String>();
     message.messageAttributes().forEach((name, value) -> said.put(name, value.stringValue()));
@@ -158,6 +169,7 @@ class JobQueue {
                 request
                     .queueUrl(failedUrl)
                     .maxNumberOfMessages(MOST_AT_ONCE)
+                    .messageAttributeNames("All")
                     .visibilityTimeout(0)
                     .waitTimeSeconds(0))
         .messages();

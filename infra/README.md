@@ -246,6 +246,13 @@ failed, the job is Failed and the queue moves its message to `vehicle-catalog-jo
 alarm `vehicle-catalog-jobs-failed` goes off while that queue holds a message. It tells no one: it
 is there to be looked at.
 
+A try can also end without the worker keeping what went wrong, as when the worker is stopped or
+killed in the middle of it. The queue gives such a job's message up all the same, after three
+deliveries, and the worker then makes the job Failed when it next looks through the dead-letter
+queue, which it does every minute. Such a job has no failure of its own to show: the Jobs page
+says of it that the queue gave up its message, and no try at the job said why. The worker's log
+around the times of its deliveries is where to look.
+
 ```sh
 aws cloudwatch describe-alarms --alarm-names vehicle-catalog-jobs-failed \
   --query 'MetricAlarms[0].StateValue'
