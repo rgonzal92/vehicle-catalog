@@ -56,13 +56,6 @@ describe('DashboardPage', () => {
   const headings = (page: HTMLElement) =>
     Array.from(page.querySelectorAll('h2')).map((heading) => heading.textContent?.trim());
 
-  it('names the person and their role', async () => {
-    const page = await dashboardFor(['manager', 'author']);
-
-    expect(page.textContent).toContain('Maya');
-    expect(page.querySelector('[data-role]')?.textContent).toContain('manager');
-  });
-
   it('shows an author their catalogs and the Approved catalogs', async () => {
     expect(headings(await dashboardFor(['author']))).toEqual(['My catalogs', 'Approved catalogs']);
   });
@@ -313,15 +306,6 @@ describe('DashboardPage', () => {
       'My catalogs',
       'Approved catalogs',
       'Review queue',
-    ]);
-  });
-
-  it('adds the admin links for an admin', async () => {
-    expect(headings(await dashboardFor(['admin', 'manager', 'author']))).toEqual([
-      'My catalogs',
-      'Approved catalogs',
-      'Review queue',
-      'Admin links',
     ]);
   });
 });

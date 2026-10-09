@@ -153,7 +153,7 @@ describe('CatalogEditorPage', () => {
       request.flush(answer);
     }
     const element = fixture.nativeElement as HTMLElement;
-    await vi.waitFor(() => expect(element.querySelector('h1')).not.toBeNull());
+    await vi.waitFor(() => expect(element.querySelector('h2, p')).not.toBeNull());
 
     return element;
   }
@@ -190,7 +190,7 @@ describe('CatalogEditorPage', () => {
   it('describes the catalog and shows its matrix on the Features tab', async () => {
     const element = await page(workingCopy);
 
-    expect(element.querySelector('h1')?.textContent).toBe('Winter update');
+    expect(element.querySelector('h2')?.textContent).toBe('Winter update');
     expect(described(element)).toEqual({
       'Vehicle line': 'Compact SUV',
       'Model year': '2027',
@@ -485,7 +485,7 @@ describe('CatalogEditorPage', () => {
       expect(request.request.body).toEqual({ name: 'Spring update' });
       request.flush({ revision: 5 });
       await vi.waitFor(() =>
-        expect(element.querySelector('h1')?.textContent).toBe('Spring update'),
+        expect(element.querySelector('h2')?.textContent).toBe('Spring update'),
       );
       // The matrix is left as it is, and the next edit is one of the new revision.
       expect(matrixOf(element).textContent).toContain('editable: true');
@@ -514,7 +514,7 @@ describe('CatalogEditorPage', () => {
 
       button(element, 'Cancel')!.click();
       await vi.waitFor(() =>
-        expect(element.querySelector('h1')?.textContent).toBe('Winter update'),
+        expect(element.querySelector('h2')?.textContent).toBe('Winter update'),
       );
       // The focus is back on the button that opened the box.
       await vi.waitFor(() => expect(document.activeElement).toBe(button(element, 'Rename')));
@@ -534,7 +534,7 @@ describe('CatalogEditorPage', () => {
       );
       backend.expectNone({ method: 'PATCH', url: '/api/catalogs/41' });
       await vi.waitFor(() =>
-        expect(element.querySelector('h1')?.textContent).toBe('Winter update'),
+        expect(element.querySelector('h2')?.textContent).toBe('Winter update'),
       );
     });
 
@@ -554,7 +554,7 @@ describe('CatalogEditorPage', () => {
       box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 
       await vi.waitFor(() =>
-        expect(element.querySelector('h1')?.textContent).toBe('Winter update'),
+        expect(element.querySelector('h2')?.textContent).toBe('Winter update'),
       );
       backend.expectNone({ method: 'PATCH', url: '/api/catalogs/41' });
     });

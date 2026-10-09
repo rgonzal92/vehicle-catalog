@@ -11,6 +11,11 @@ export async function signIn(page: Page, username: string): Promise<void> {
 
 /** Signs out and waits for the landing page. */
 export async function signOut(page: Page): Promise<void> {
+  // Sign out is in the person's account, which the frame around a page holds. The page for a
+  // person without a role has no frame and has Sign out on it.
+  if (!page.url().endsWith('/no-role')) {
+    await page.getByRole('button', { name: /^Account: / }).click();
+  }
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page).toHaveURL('/');
   await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();

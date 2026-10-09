@@ -1,7 +1,6 @@
 import { DatePipe } from '@angular/common';
 import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { RouterLink } from '@angular/router';
 import { Button } from 'primeng/button';
 import { Dialog } from 'primeng/dialog';
 import { Message } from 'primeng/message';
@@ -13,23 +12,11 @@ import { ListedUser, ROLE_NAMES, Users } from './users';
 
 /** Where an admin sees the people who use the app and changes their roles. */
 @Component({
-  imports: [
-    DatePipe,
-    ReactiveFormsModule,
-    RouterLink,
-    Button,
-    Dialog,
-    Message,
-    Select,
-    TableModule,
-  ],
+  imports: [DatePipe, ReactiveFormsModule, Button, Dialog, Message, Select, TableModule],
   selector: 'app-users-page',
   template: `
-    <main class="mx-auto max-w-5xl px-6 py-10">
-      <a class="text-primary underline" routerLink="/dashboard">Dashboard</a>
-      <h1 class="mt-4 text-2xl font-semibold">Users</h1>
-
-      <p-table class="mt-6 block" [value]="users.users()">
+    <div class="max-w-5xl">
+      <p-table class="block" [value]="users.users()">
         <ng-template #header>
           <tr>
             <th scope="col">Username</th>
@@ -102,7 +89,7 @@ import { ListedUser, ROLE_NAMES, Users } from './users';
           </div>
         </form>
       </p-dialog>
-    </main>
+    </div>
   `,
 })
 export class UsersPage {

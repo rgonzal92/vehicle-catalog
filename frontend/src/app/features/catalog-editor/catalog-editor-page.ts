@@ -11,7 +11,7 @@ import {
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { Button } from 'primeng/button';
 import { Dialog } from 'primeng/dialog';
@@ -56,7 +56,6 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
 @Component({
   imports: [
     ReactiveFormsModule,
-    RouterLink,
     Button,
     Dialog,
     InputText,
@@ -75,13 +74,12 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
   ],
   selector: 'app-catalog-editor-page',
   template: `
-    <main class="px-6 py-10">
-      <a class="text-primary underline" routerLink="/dashboard">Dashboard</a>
+    <div>
       @if (catalog(); as catalog) {
-        <header class="mt-4">
+        <header>
           @if (renaming()) {
             <!-- The page keeps its heading while the name is a box to type in. -->
-            <h1 class="sr-only">{{ catalog.name }}</h1>
+            <h2 class="sr-only">{{ catalog.name }}</h2>
             <form
               class="flex flex-wrap items-center gap-2"
               [formGroup]="newName"
@@ -110,7 +108,7 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
             }
           } @else {
             <div class="flex flex-wrap items-center gap-2">
-              <h1 class="text-2xl font-semibold">{{ catalog.name }}</h1>
+              <h2 class="text-2xl font-semibold">{{ catalog.name }}</h2>
               @if (editable()) {
                 <p-button
                   #renameButton
@@ -305,10 +303,9 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
           </p-tabpanels>
         </p-tabs>
       } @else if (missing()) {
-        <h1 class="mt-4 text-2xl font-semibold">Catalog</h1>
-        <p class="mt-2">There is no catalog at this address.</p>
+        <p>There is no catalog at this address.</p>
       }
-    </main>
+    </div>
   `,
 })
 export class CatalogEditorPage {

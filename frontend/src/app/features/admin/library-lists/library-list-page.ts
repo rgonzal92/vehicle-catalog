@@ -1,6 +1,6 @@
 import { Component, inject, signal } from '@angular/core';
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { Button } from 'primeng/button';
 import { Dialog } from 'primeng/dialog';
@@ -17,14 +17,12 @@ import { LibraryEntry, LibraryList } from './library-list';
  * library's ordered lists. The route says which list: trims or regions.
  */
 @Component({
-  imports: [ReactiveFormsModule, RouterLink, Button, Dialog, InputText, Message, TableModule, Tag],
+  imports: [ReactiveFormsModule, Button, Dialog, InputText, Message, TableModule, Tag],
   providers: [LibraryEntries],
   selector: 'app-library-list-page',
   template: `
-    <main class="mx-auto max-w-5xl px-6 py-10">
-      <a class="text-primary underline" routerLink="/dashboard">Dashboard</a>
-      <header class="mt-4 flex items-center justify-between gap-4">
-        <h1 class="text-2xl font-semibold">{{ list.title }}</h1>
+    <div class="max-w-5xl">
+      <header class="flex justify-end">
         <p-button [label]="'Add ' + list.singular" (onClick)="startAdding()" />
       </header>
 
@@ -121,7 +119,7 @@ import { LibraryEntry, LibraryList } from './library-list';
           </div>
         </form>
       </p-dialog>
-    </main>
+    </div>
   `,
 })
 export class LibraryListPage {
