@@ -14,10 +14,15 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
+import software.amazon.awssdk.services.sqs.model.MessageSystemAttributeName;
+import software.amazon.awssdk.services.sqs.model.QueueAttributeName;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The queue that carries the jobs' messages: Amazon SQS, or a stand-in that speaks as it does. A
- * message's body names its job, and the job's type travels beside it as an attribute.
+ * message's body names its job, and the job's type travels beside it as an attribute. A message
+ * that has been delivered as often as the queue delivers one, and was never deleted, is moved to
+ * the dead-letter queue.
  */
 @Component
 @TalksToTheQueue
@@ -32,10 +37,22 @@ class JobQueue {
   private static final Pattern AMAZON = Pattern.compile("sqs\\.([a-z0-9-]+)\\.amazonaws\\.com");
 
   private final SqsClient sqs;
+  private final JsonMapper json;
   private final String url;
 
-  JobQueue(@Value("${app.jobs.queue-url}") String url) {
+  /**
+   * Where the dead-letter queue is: the queue that takes a message once this one has delivered it
+   * as often as it does. It is named after this one.
+   */
+  private final String failedUrl;
+
+  /** How often the queue delivers a message, once that has been asked of it. */
+  private Integer mostDeliveries;
+
+  JobQueue(@Value("${app.jobs.queue-url}") String url, JsonMapper json) {
     this.url = url;
+    this.failedUrl = url + "-failed";
+    this.json = json;
     this.sqs = client(URI.create(url));
   }
 
@@ -99,13 +116,62 @@ class JobQueue {
                     .queueUrl(url)
                     .maxNumberOfMessages(MOST_AT_ONCE)
                     .messageAttributeNames("All")
+                    .messageSystemAttributeNames(
+                        MessageSystemAttributeName.APPROXIMATE_RECEIVE_COUNT)
                     .waitTimeSeconds((int) wait.toSeconds()))
         .messages();
   }
 
-  /** Removes every message, the hidden ones too. Only tests have a use for it. */
+  /** How many times the message has been delivered, this time included. */
+  static int deliveriesOf(Message message) {
+    return Integer.parseInt(
+        message.attributes().get(MessageSystemAttributeName.APPROXIMATE_RECEIVE_COUNT));
+  }
+
+  /**
+   * How often the queue delivers a message before it gives it up to the dead-letter queue. The
+   * queue itself says so, and a queue that gives nothing up delivers without end.
+   */
+  int mostDeliveries() {
+    if (mostDeliveries == null) {
+      var redrive =
+          sqs.getQueueAttributes(
+                  request ->
+                      request.queueUrl(url).attributeNames(QueueAttributeName.REDRIVE_POLICY))
+              .attributes()
+              .get(QueueAttributeName.REDRIVE_POLICY);
+      mostDeliveries =
+          redrive == null
+              ? Integer.MAX_VALUE
+              : json.readTree(redrive).required("maxReceiveCount").asInt();
+    }
+    return mostDeliveries;
+  }
+
+  /**
+   * Up to ten of the messages in the dead-letter queue, which stay as visible there as they were:
+   * whoever counts the messages in it goes on counting them.
+   */
+  List<Message> receiveFailed() {
+    return sqs.receiveMessage(
+            request ->
+                request
+                    .queueUrl(failedUrl)
+                    .maxNumberOfMessages(MOST_AT_ONCE)
+                    .visibilityTimeout(0)
+                    .waitTimeSeconds(0))
+        .messages();
+  }
+
+  void deleteFailed(Message message) {
+    sqs.deleteMessage(
+        request -> request.queueUrl(failedUrl).receiptHandle(message.receiptHandle()));
+  }
+
+  /** Removes every message from both queues, the hidden ones too. Only tests have a use for it. */
   void empty() {
     sqs.purgeQueue(request -> request.queueUrl(url));
+    sqs.purgeQueue(request -> request.queueUrl(failedUrl));
   }
 
   void delete(Message message) {

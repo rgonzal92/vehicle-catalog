@@ -3,7 +3,8 @@
 # on the host beside the API; docs/adr/0011 says why it alone talks to the queue.
 
 # Where a message goes once it has been received three times and was not deleted. It is kept
-# there for fourteen days, which is as long as SQS keeps anything.
+# there for fourteen days, which is as long as SQS keeps anything. The worker finds this queue by
+# its name, which is the jobs' queue's with "-failed" after it.
 resource "aws_sqs_queue" "jobs_failed" {
   name                      = "vehicle-catalog-jobs-failed"
   message_retention_seconds = 14 * 24 * 60 * 60
@@ -31,6 +32,28 @@ resource "aws_sqs_queue_redrive_allow_policy" "jobs_failed" {
     redrivePermission = "byQueue"
     sourceQueueArns   = [aws_sqs_queue.jobs.arn]
   })
+}
+
+# Goes off while the dead-letter queue holds a message, which is a job that has failed for good:
+# its message was delivered three times and its work failed each time. The worker takes a job's
+# message out of that queue once the job has been retried and done, so the alarm is quiet again
+# when no job is failed. It tells no one: it is there to be looked at, as the one on the backend's
+# health is. SQS reports the queue's depth at no charge.
+resource "aws_cloudwatch_metric_alarm" "jobs_failed" {
+  alarm_name        = "vehicle-catalog-jobs-failed"
+  alarm_description = "A job has failed for good: its message is in the dead-letter queue."
+
+  namespace   = "AWS/SQS"
+  metric_name = "ApproximateNumberOfMessagesVisible"
+  dimensions  = { QueueName = aws_sqs_queue.jobs_failed.name }
+  statistic   = "Maximum"
+  period      = 60
+
+  evaluation_periods  = 1
+  comparison_operator = "GreaterThanThreshold"
+  threshold           = 0
+  # A queue that nothing has touched for hours reports nothing, and holds nothing.
+  treat_missing_data = "notBreaching"
 }
 
 # What working the jobs off takes, on these two queues and on no other.

@@ -144,11 +144,24 @@ public abstract class ApplicationIT {
             .endpointOverride(URI.create(queueServerUrl()))
             .credentialsProvider(AnonymousCredentialsProvider.create())
             .build()) {
+      // What was delivered three times and never deleted goes to the queue named after this one.
+      var failed = sqs.createQueue(queue -> queue.queueName("jobs-failed")).queueUrl();
+      var failedArn =
+          sqs.getQueueAttributes(
+                  queue -> queue.queueUrl(failed).attributeNames(QueueAttributeName.QUEUE_ARN))
+              .attributes()
+              .get(QueueAttributeName.QUEUE_ARN);
       sqs.createQueue(
           queue ->
               queue
                   .queueName("jobs")
-                  .attributes(Map.of(QueueAttributeName.VISIBILITY_TIMEOUT, "1")));
+                  .attributes(
+                      Map.of(
+                          QueueAttributeName.VISIBILITY_TIMEOUT,
+                          "1",
+                          QueueAttributeName.REDRIVE_POLICY,
+                          "{\"deadLetterTargetArn\": \"%s\", \"maxReceiveCount\": \"3\"}"
+                              .formatted(failedArn))));
     }
   }
 

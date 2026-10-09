@@ -29,7 +29,7 @@ services:
     volumes:
       - ./test/agent.yaml:/etc/otelcol/config.yaml:ro
 
-  # Stands in for the queue of the jobs in AWS, with its one queue.
+  # Stands in for the queues of the jobs in AWS: the queue itself and its dead-letter queue.
   queue:
     image: softwaremill/elasticmq-native:1.7.1
     configs:
@@ -82,5 +82,10 @@ configs:
       queues {
         jobs {
           defaultVisibilityTimeout = 120 seconds
+          deadLettersQueue {
+            name = "jobs-failed"
+            maxReceiveCount = 3
+          }
         }
+        jobs-failed {}
       }

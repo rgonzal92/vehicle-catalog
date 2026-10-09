@@ -180,9 +180,10 @@ services:
       timeout: 3s
       retries: 12
 
-  # Stands in for Amazon SQS, whose protocol it speaks. It keeps the one queue the jobs' messages
-  # travel on, and hides a message that a worker has received for two minutes, as the queue in AWS
-  # does. Only the worker talks to it.
+  # Stands in for Amazon SQS, whose protocol it speaks. It keeps the queue the jobs' messages travel
+  # on and the dead-letter queue beside it, as AWS does: a message that a worker has received is
+  # hidden for two minutes, and one that was delivered three times and never deleted is moved to
+  # the dead-letter queue. Only the worker talks to it.
   queue:
     image: softwaremill/elasticmq-native:1.7.1
     configs:
@@ -197,7 +198,12 @@ configs:
       queues {
         jobs {
           defaultVisibilityTimeout = 120 seconds
+          deadLettersQueue {
+            name = "jobs-failed"
+            maxReceiveCount = 3
+          }
         }
+        jobs-failed {}
       }
 
 volumes:
