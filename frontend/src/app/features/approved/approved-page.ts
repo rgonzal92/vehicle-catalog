@@ -1,6 +1,6 @@
 import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { Copy } from '@primeicons/angular/copy';
 import { Button, ButtonDirective, ButtonIcon, ButtonLabel } from 'primeng/button';
@@ -8,13 +8,15 @@ import { TableModule } from 'primeng/table';
 import { Catalog, Catalogs, VersionSummary } from '../../core/catalogs';
 import { FixedLists } from '../../core/fixed-lists';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
+import { Issue } from '../../shared/availability-matrix/matrix';
+import { IssueCounts, IssueList } from '../../shared/issues';
 import { NewCatalogDialog } from '../../shared/new-catalog-dialog/new-catalog-dialog';
 import { Loading, ReadFailed } from '../../shared/read-state';
 
 /**
  * A lineage's Approved versions: the list of them, and the read-only matrix of the one being shown,
  * which is the current one until another is chosen. Each version shows the labels it was approved
- * with.
+ * with, and the issues it has against the library as it is today.
  */
 @Component({
   imports: [
@@ -26,6 +28,8 @@ import { Loading, ReadFailed } from '../../shared/read-state';
     ButtonLabel,
     TableModule,
     AvailabilityMatrix,
+    IssueCounts,
+    IssueList,
     NewCatalogDialog,
     Loading,
     ReadFailed,
@@ -90,14 +94,34 @@ import { Loading, ReadFailed } from '../../shared/read-state';
           </p-table>
         </section>
 
+        <section class="surface max-w-5xl" aria-labelledby="issues">
+          <div class="surface-header">
+            <h2 id="issues" class="font-semibold">Issues</h2>
+            <app-issue-counts
+              aria-live="polite"
+              data-issue-counts
+              [errors]="errors()"
+              [warnings]="issues().length - errors()"
+            />
+          </div>
+          <app-issue-list
+            none="This version has no issues, as the library is today."
+            [issues]="issues()"
+            [contents]="catalog.snapshot"
+            (showCell)="showCell($event, matrix)"
+          />
+        </section>
+
         <section class="surface" aria-labelledby="matrix">
           <div class="surface-header">
             <h2 id="matrix" class="font-semibold">Features</h2>
           </div>
           <app-availability-matrix
+            #matrix
             class="h-[70vh] min-h-96"
             [contents]="catalog.snapshot"
             [categories]="fixedLists.categories()"
+            [issues]="issues()"
           />
         </section>
       } @else if (missing()) {
@@ -120,6 +144,18 @@ export class ApprovedPage {
 
   /** The version being shown, once it has loaded. */
   protected readonly catalog = signal<Catalog | null>(null);
+
+  /**
+   * What validation finds in the version being shown against the library as it is today, which may
+   * be more than when it was approved. The version itself does not change.
+   */
+  protected readonly issues = computed(() => {
+    const shown = this.catalog();
+    return shown ? this.catalogs.issuesOf(shown.snapshot.catalogId) : [];
+  });
+  protected readonly errors = computed(
+    () => this.issues().filter(({ severity }) => severity === 'ERROR').length,
+  );
 
   /** Whether the address names no lineage, or one without an Approved version. */
   protected readonly missing = signal(false);
@@ -145,6 +181,14 @@ export class ApprovedPage {
       }
     } catch {
       // The failure has already been shown as a message.
+    }
+  }
+
+  /** Brings the cell an issue is about into view in the matrix. */
+  protected showCell(issue: Issue, matrix: AvailabilityMatrix): void {
+    const { featureId, trimId, regionCode } = issue;
+    if (featureId !== null && trimId !== null && regionCode !== null) {
+      matrix.show({ featureId, trimId, regionCode });
     }
   }
 

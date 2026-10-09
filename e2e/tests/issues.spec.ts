@@ -79,3 +79,18 @@ test('a cell that breaks a global rule is marked, listed, and shown from the lis
   expect(await saved).toBe(200);
   await expect(counts).not.toContainText('Error');
 });
+
+test('the dashboard counts the issues of each working copy', async ({ page }) => {
+  await signIn(page, 'admin');
+  const name = await createWorkingCopy(page, 'Car', 'Sports Coupe', '2027');
+  await expect(page.locator('[data-issue-counts]')).toHaveText('3 Errors');
+
+  await page
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link', { name: 'Dashboard' })
+    .click();
+
+  const listed = page.getByRole('region', { name: 'My catalogs' }).getByRole('row', { name });
+  await expect(listed).toContainText('3 Errors');
+  await expectAccessible(page);
+});

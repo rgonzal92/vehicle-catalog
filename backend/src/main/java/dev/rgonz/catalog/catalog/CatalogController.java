@@ -2,16 +2,19 @@ package dev.rgonz.catalog.catalog;
 
 import dev.rgonz.catalog.catalog.CatalogEdits.CellChange;
 import dev.rgonz.catalog.catalog.CatalogRules.RuleContent;
+import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
 import dev.rgonz.catalog.catalog.Catalogs.CatalogView;
 import dev.rgonz.catalog.catalog.Catalogs.LineageSummary;
 import dev.rgonz.catalog.catalog.Catalogs.VersionSummary;
 import dev.rgonz.catalog.catalog.ChangeHistory.ChangePage;
+import dev.rgonz.catalog.catalog.Issue.Severity;
 import dev.rgonz.catalog.catalog.WorkingCopies.NewWorkingCopy;
 import dev.rgonz.catalog.catalog.WorkingCopies.StartPoint;
 import dev.rgonz.catalog.catalog.WorkingCopies.WorkingCopy;
 import dev.rgonz.catalog.core.ApiException;
 import dev.rgonz.catalog.user.AppUsers;
 import jakarta.validation.Valid;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpHeaders;
@@ -70,11 +73,52 @@ class CatalogController {
     return catalogs.versions(id);
   }
 
-  /** The caller's working copies. */
+  /** The caller's working copies, each with how many Errors and Warnings it has today. */
   @GetMapping(value = "/api/catalogs", params = "scope=mine")
-  List<WorkingCopy> mine(Authentication caller) {
-    return workingCopies.ownedBy(people.idOf(caller));
+  List<ListedWorkingCopy> mine(Authentication caller) {
+    var owner = people.idOf(caller);
+
+    // ponytail: each working copy is read whole and validated, ten queries apiece for the 20 an
+    // owner can have at most. Keep the counts with the catalog if this list gets slow.
+    return workingCopies.ownedBy(owner).stream()
+        .map(
+            copy -> {
+              var issues =
+                  catalogs.find(copy.id(), owner).map(CatalogView::issues).orElseGet(List::of);
+              var errors =
+                  issues.stream().filter(issue -> issue.severity() == Severity.ERROR).count();
+
+              return new ListedWorkingCopy(
+                  copy.id(),
+                  copy.name(),
+                  copy.vehicleLine(),
+                  copy.modelYear(),
+                  copy.status(),
+                  copy.revision(),
+                  copy.updatedAt(),
+                  errors,
+                  issues.size() - errors);
+            })
+        .toList();
   }
+
+  /**
+   * A working copy as its owner's list shows it.
+   *
+   * @param revision what an edit made from the list, such as deleting it, names
+   * @param errors how many Errors validation finds in it against the library as it is today
+   * @param warnings how many Warnings
+   */
+  record ListedWorkingCopy(
+      long id,
+      String name,
+      String vehicleLine,
+      int modelYear,
+      Status status,
+      long revision,
+      Instant updatedAt,
+      long errors,
+      long warnings) {}
 
   /** What a new working copy for the vehicle line and model year would start from. */
   @GetMapping("/api/catalogs/start-point")

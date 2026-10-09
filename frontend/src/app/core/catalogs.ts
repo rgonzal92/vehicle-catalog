@@ -124,6 +124,9 @@ export interface WorkingCopy {
   /** What an edit made from the list, such as deleting it, names. */
   revision: number;
   updatedAt: string;
+  /** How many Errors and Warnings validation finds in it against the library as it is today. */
+  errors: number;
+  warnings: number;
 }
 
 /**
