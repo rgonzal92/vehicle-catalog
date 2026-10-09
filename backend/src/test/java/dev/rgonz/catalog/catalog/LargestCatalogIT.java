@@ -157,7 +157,7 @@ class LargestCatalogIT extends WorkingCopyTests {
                 .param("target", target)
                 .query(row -> {});
     var statements = copyStatements();
-    assertThat(statements).as("a statement for each content table").hasSize(5);
+    assertThat(statements).as("a statement for each content table and rule table").hasSize(9);
     LongConsumer oneByOne =
         target ->
             statements.forEach(

@@ -2,14 +2,18 @@ package dev.rgonz.catalog.catalog;
 
 import dev.rgonz.catalog.core.Role;
 import dev.rgonz.catalog.core.Seed;
+import dev.rgonz.catalog.library.RuleKind;
 import dev.rgonz.catalog.user.DemoPeople;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,10 +35,10 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <p>The file lists the versions of each lineage in order, and a version after the one it is based
  * on. A version names its vehicle line by code, its regions by code with the names of the trims
- * sold in each, and its feature rows by code. A feature row's cells are one string: a group of
- * characters for each region, in the regions' order and separated by spaces, and in each group a
- * character for each trim sold there, in the trims' order. S is Standard, A is Available, and - is
- * Not offered.
+ * sold in each, its rules by a name each, and its feature rows by code. A feature row's cells are
+ * one string: a group of characters for each region, in the regions' order and separated by spaces,
+ * and in each group a character for each trim sold there, in the trims' order. S is Standard, A is
+ * Available, and - is Not offered.
  */
 @Component
 @Order(2)
@@ -107,19 +111,38 @@ class CatalogSeed implements Seed {
         unknown(
             "region",
             "SELECT code FROM region",
-            catalogs.stream().flatMap(catalog -> catalog.offerings().keySet().stream())));
+            catalogs.stream()
+                .flatMap(
+                    catalog ->
+                        Stream.concat(
+                            catalog.offerings().keySet().stream(),
+                            catalog.storedRules().stream()
+                                .flatMap(rule -> rule.regions().stream())))));
     missing.addAll(
         unknown(
             "trim",
             "SELECT name FROM trim",
             catalogs.stream()
-                .flatMap(catalog -> catalog.offerings().values().stream())
-                .flatMap(List::stream)));
+                .flatMap(
+                    catalog ->
+                        Stream.concat(
+                            catalog.offerings().values().stream().flatMap(List::stream),
+                            catalog.storedRules().stream()
+                                .flatMap(rule -> rule.trims().stream())))));
     missing.addAll(
         unknown(
             "feature",
             "SELECT code FROM feature",
-            catalogs.stream().flatMap(catalog -> catalog.features().keySet().stream())));
+            catalogs.stream()
+                .flatMap(
+                    catalog ->
+                        Stream.concat(
+                            catalog.features().keySet().stream(),
+                            catalog.storedRules().stream()
+                                .flatMap(
+                                    rule ->
+                                        Stream.concat(
+                                            Stream.of(rule.source()), rule.targets().stream()))))));
 
     return missing;
   }
@@ -202,6 +225,91 @@ class CatalogSeed implements Seed {
         .param(
             "availabilities",
             cells.stream().map(cell -> String.valueOf(cell.availability())).toArray(String[]::new))
+        .update();
+    addRules(catalog, seeded.storedRules());
+  }
+
+  /**
+   * Adds the catalog's rules, each with its targets and the trims and regions it lists, in one
+   * statement per table. A rule names feature rows, trims, and regions of its own catalog, which
+   * the database sees to.
+   */
+  private void addRules(long catalog, List<StoredRule> rules) {
+    jdbc.sql(
+            """
+            INSERT INTO catalog_rule (catalog_id, rule_key, kind, source_feature_id, all_trims,
+                                      all_regions, pair_key)
+            SELECT :catalog, r.key::uuid, r.kind, f.id, r.all_trims, r.all_regions,
+                   r.pair_key::uuid
+            FROM unnest(:keys::text[], :kinds::text[], :sources::text[], :allTrims::boolean[],
+                        :allRegions::boolean[], :pairKeys::text[])
+                     AS r (key, kind, source, all_trims, all_regions, pair_key)
+            JOIN feature f ON f.code = r.source
+            """)
+        .param("catalog", catalog)
+        .param("keys", rules.stream().map(rule -> rule.key().toString()).toArray(String[]::new))
+        .param("kinds", rules.stream().map(rule -> rule.kind().name()).toArray(String[]::new))
+        .param("sources", rules.stream().map(StoredRule::source).toArray(String[]::new))
+        .param(
+            "allTrims", rules.stream().map(rule -> rule.trims().isEmpty()).toArray(Boolean[]::new))
+        .param(
+            "allRegions",
+            rules.stream().map(rule -> rule.regions().isEmpty()).toArray(Boolean[]::new))
+        .param(
+            "pairKeys",
+            rules.stream()
+                .map(rule -> rule.pairKey() == null ? null : rule.pairKey().toString())
+                .toArray(String[]::new))
+        .update();
+    addWhatRulesList(
+        catalog,
+        rules,
+        StoredRule::targets,
+        """
+        INSERT INTO catalog_rule_target (catalog_id, rule_key, feature_id)
+        SELECT :catalog, l.key::uuid, f.id
+        FROM unnest(:keys::text[], :named::text[]) AS l (key, named)
+        JOIN feature f ON f.code = l.named
+        """);
+    addWhatRulesList(
+        catalog,
+        rules,
+        StoredRule::trims,
+        """
+        INSERT INTO catalog_rule_trim (catalog_id, rule_key, trim_id)
+        SELECT :catalog, l.key::uuid, t.id
+        FROM unnest(:keys::text[], :named::text[]) AS l (key, named)
+        JOIN trim t ON t.name = l.named
+        """);
+    addWhatRulesList(
+        catalog,
+        rules,
+        StoredRule::regions,
+        """
+        INSERT INTO catalog_rule_region (catalog_id, rule_key, region_code)
+        SELECT :catalog, l.key::uuid, l.named
+        FROM unnest(:keys::text[], :named::text[]) AS l (key, named)
+        """);
+  }
+
+  /** Runs the statement over each rule's key with each entry the rule lists, as {@code l}. */
+  private void addWhatRulesList(
+      long catalog,
+      List<StoredRule> rules,
+      Function<StoredRule, List<String>> listed,
+      String statement) {
+    var keys = new ArrayList<String>();
+    var named = new ArrayList<String>();
+    for (var rule : rules) {
+      for (var entry : listed.apply(rule)) {
+        keys.add(rule.key().toString());
+        named.add(entry);
+      }
+    }
+    jdbc.sql(statement)
+        .param("catalog", catalog)
+        .param("keys", keys.toArray(String[]::new))
+        .param("named", named.toArray(String[]::new))
         .update();
   }
 
@@ -291,6 +399,7 @@ class CatalogSeed implements Seed {
    *
    * @param base the version this one was copied from, in the same vehicle line, if any
    * @param offerings each region's code with the names of the trims sold there
+   * @param rules the rules that belong to the version, if any
    * @param features each feature row's code with its cells, a character for each offering
    */
   record SeededCatalog(
@@ -301,6 +410,7 @@ class CatalogSeed implements Seed {
       Base base,
       Instant approvedAt,
       Map<String, List<String>> offerings,
+      List<SeededRule> rules,
       Map<String, String> features) {
 
     /** The version a seeded one was copied from: its model year and its number there. */
@@ -308,6 +418,41 @@ class CatalogSeed implements Seed {
 
     String title() {
       return "%s %d version %d".formatted(vehicleLine, modelYear, version);
+    }
+
+    /**
+     * The rules as they are stored. An exclusion is stored as a pair: the rule as written, and the
+     * same rule the other way round.
+     */
+    List<StoredRule> storedRules() {
+      var stored = new ArrayList<StoredRule>();
+      for (var rule : rules == null ? List.<SeededRule>of() : rules) {
+        var paired = rule.kind() == RuleKind.EXCLUDES;
+        if (paired && rule.targets().size() != 1) {
+          throw new IllegalStateException(
+              "the exclusion %s needs exactly one target".formatted(rule.key()));
+        }
+        var pairKey = paired ? keyOf(rule.key() + " pair") : null;
+        stored.add(rule.stored(keyOf(rule.key()), rule.source(), rule.targets(), pairKey));
+        if (paired) {
+          stored.add(
+              rule.stored(
+                  keyOf(rule.key() + " mirrored"),
+                  rule.targets().getFirst(),
+                  List.of(rule.source()),
+                  pairKey));
+        }
+      }
+
+      return stored;
+    }
+
+    /**
+     * The key that a name stands for in every version of the vehicle line, so that a rule is the
+     * same rule from one version to the next.
+     */
+    private UUID keyOf(String name) {
+      return UUID.nameUUIDFromBytes((vehicleLine + " " + name).getBytes(StandardCharsets.UTF_8));
     }
 
     /** The offerings in the order a feature row's characters follow: region by region. */
@@ -343,6 +488,48 @@ class CatalogSeed implements Seed {
       return cells;
     }
   }
+
+  /**
+   * A rule of a seeded version, as the seed file writes it.
+   *
+   * @param key a name for the rule, which the versions of a vehicle line share for the same rule
+   * @param source the source feature's code
+   * @param targets the target features' codes; exactly one for an exclusion
+   * @param trims the names of the trims the rule covers, or null when it covers every trim
+   * @param regions the codes of the regions the rule covers, or null when it covers every region
+   */
+  record SeededRule(
+      String key,
+      RuleKind kind,
+      String source,
+      List<String> targets,
+      List<String> trims,
+      List<String> regions) {
+
+    StoredRule stored(UUID ruleKey, String from, List<String> to, UUID pairKey) {
+      return new StoredRule(
+          ruleKey,
+          kind,
+          from,
+          to,
+          trims == null ? List.of() : trims,
+          regions == null ? List.of() : regions,
+          pairKey);
+    }
+  }
+
+  /**
+   * A rule as it is stored, by the names the seed file uses. A scope that lists nothing covers
+   * everything.
+   */
+  record StoredRule(
+      UUID key,
+      RuleKind kind,
+      String source,
+      List<String> targets,
+      List<String> trims,
+      List<String> regions,
+      UUID pairKey) {}
 
   /** One trim sold in one region, by the names the seed file uses. */
   record SeededOffering(String trim, String region) {}

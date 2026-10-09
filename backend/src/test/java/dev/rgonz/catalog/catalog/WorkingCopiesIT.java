@@ -28,9 +28,14 @@ class WorkingCopiesIT extends WorkingCopyTests {
           "catalog_region", "region_code",
           "catalog_trim_region", "trim_id, region_code",
           "catalog_feature", "feature_id",
-          "catalog_cell", "feature_id, trim_id, region_code, availability");
+          "catalog_cell", "feature_id, trim_id, region_code, availability",
+          "catalog_rule", "rule_key, kind, source_feature_id, all_trims, all_regions, pair_key",
+          "catalog_rule_target", "rule_key, feature_id",
+          "catalog_rule_trim", "rule_key, trim_id",
+          "catalog_rule_region", "rule_key, region_code");
 
   @Autowired MeterRegistry metrics;
+  @Autowired CatalogRules catalogRules;
 
   @BeforeEach
   void seededCatalogs() throws Exception {
@@ -63,6 +68,9 @@ class WorkingCopiesIT extends WorkingCopyTests {
         .containsEntry("revision", 0L)
         .containsEntry("version_number", null);
     assertSameContents(copy, current);
+    assertThat(catalogRules.brokenPairs()).as("a pair is copied whole").isEmpty();
+    assertThat(count("catalog_rule WHERE catalog_id = %d AND pair_key IS NOT NULL", copy))
+        .isEqualTo(2);
   }
 
   @Test
@@ -118,9 +126,15 @@ class WorkingCopiesIT extends WorkingCopyTests {
 
   @Test
   void aCopyKeepsEntriesTheLibraryHasSinceRetiredOrDeactivated() {
-    jdbc.sql("UPDATE trim SET active = false WHERE name = 'Sport'").update();
+    // The seeded rules name leather seats, the trim Off-Road, and the region Europe.
+    jdbc.sql("UPDATE trim SET active = false WHERE name IN ('Sport', 'Off-Road')").update();
     jdbc.sql("UPDATE region SET active = false WHERE code = 'EU'").update();
-    jdbc.sql("UPDATE feature SET status = 'RETIRED' WHERE code = 'ROOF_PANORAMIC'").update();
+    jdbc.sql(
+            """
+            UPDATE feature SET status = 'RETIRED'
+            WHERE code IN ('ROOF_PANORAMIC', 'SEAT_LEATHER')
+            """)
+        .update();
 
     var copy = idOf(create(ana(), "Winter update", line("COMPACT_SUV"), 2026));
 
