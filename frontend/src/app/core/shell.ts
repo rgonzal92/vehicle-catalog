@@ -15,6 +15,7 @@ import { Car } from '@primeicons/angular/car';
 import { Globe } from '@primeicons/angular/globe';
 import { Home } from '@primeicons/angular/home';
 import { List } from '@primeicons/angular/list';
+import { ListCheck } from '@primeicons/angular/list-check';
 import { Moon } from '@primeicons/angular/moon';
 import { Sitemap } from '@primeicons/angular/sitemap';
 import { Sun } from '@primeicons/angular/sun';
@@ -71,6 +72,7 @@ const SIDEBAR = 'sidebar';
     Sun,
     Tags,
     User,
+    ListCheck,
     Users,
     Button,
     ButtonDirective,
@@ -225,6 +227,20 @@ const SIDEBAR = 'sidebar';
                         >
                           <svg data-p-icon="users" />
                           <span>Users</span>
+                        </a>
+                      </p-sidebar-menu-item>
+                      <p-sidebar-menu-item>
+                        <a
+                          #jobs="routerLinkActive"
+                          pSidebarMenuButton
+                          routerLink="/admin/jobs"
+                          routerLinkActive
+                          ariaCurrentWhenActive="page"
+                          title="Jobs"
+                          [isActive]="jobs.isActive"
+                        >
+                          <svg data-p-icon="list-check" />
+                          <span>Jobs</span>
                         </a>
                       </p-sidebar-menu-item>
                     </p-sidebar-menu>

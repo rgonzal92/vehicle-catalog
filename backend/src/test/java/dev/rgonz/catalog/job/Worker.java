@@ -36,6 +36,16 @@ public final class Worker {
         .toList();
   }
 
+  /** Looks through the dead-letter queue as the worker does every minute. */
+  public static int sweeps(ApplicationContext application) {
+    return application.getBean(Consumer.class).sweepTheDeadLetterQueue();
+  }
+
+  /** The bodies of the messages that are in the dead-letter queue. */
+  public static List<String> inTheDeadLetterQueue(ApplicationContext application) {
+    return application.getBean(JobQueue.class).receiveFailed().stream().map(Message::body).toList();
+  }
+
   /** Leaves no job and no message, in the database or on the queue, for the test that follows. */
   public static void forgets(ApplicationContext application) {
     application

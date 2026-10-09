@@ -9,8 +9,9 @@ import org.springframework.scheduling.support.ScheduledTaskObservationContext;
 import org.springframework.stereotype.Component;
 
 /**
- * What the worker does for as long as it runs: it sends the messages that changes left unsent, and
- * runs the jobs whose messages arrive. Only the worker does either.
+ * What the worker does for as long as it runs: it sends the messages that changes left unsent, runs
+ * the jobs whose messages arrive, and keeps the dead-letter queue to the jobs that are failed. Only
+ * the worker does any of it.
  */
 @Component
 @Profile("worker")
@@ -44,6 +45,12 @@ class WorkerLoops {
     while (publisher.sendUnsent() == JobQueue.MOST_AT_ONCE) {
       // A full batch says there may be more.
     }
+  }
+
+  /** Clears the dead-letter queue, every minute, of the jobs that are no longer failed. */
+  @Scheduled(fixedDelayString = "PT1M")
+  void sweep() {
+    consumer.sweepTheDeadLetterQueue();
   }
 
   /** Waits on the queue without a pause: a message is handled as soon as it arrives. */

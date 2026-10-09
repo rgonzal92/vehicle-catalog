@@ -241,6 +241,21 @@ A job that has not been done is in the database with the status `QUEUED`, and a 
 not been sent to the queue yet is in `outbox` without a time in `sent_at`. With the worker stopped,
 both wait there and nothing else is affected.
 
+A job whose work fails is tried again each time its message is delivered. When the third try has
+failed, the job is Failed and the queue moves its message to `vehicle-catalog-jobs-failed`. The
+alarm `vehicle-catalog-jobs-failed` goes off while that queue holds a message. It tells no one: it
+is there to be looked at.
+
+```sh
+aws cloudwatch describe-alarms --alarm-names vehicle-catalog-jobs-failed \
+  --query 'MetricAlarms[0].StateValue'
+```
+
+The Jobs page, which an admin reaches from the sidebar, lists the jobs with what the last failed
+try of each said. Once what made a job fail is put right, Retry there has it tried once more. When
+it has been done, the worker takes its message out of the dead-letter queue within a minute, and
+the alarm is quiet again.
+
 ## Backups
 
 Every night at 02:30 UTC the host writes a copy of the database to the bucket

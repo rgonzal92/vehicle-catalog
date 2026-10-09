@@ -98,6 +98,7 @@ describe('Shell', () => {
       'Feature library',
       'Global rules',
       'Users',
+      'Jobs',
     ]);
   });
 

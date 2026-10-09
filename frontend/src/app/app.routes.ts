@@ -105,6 +105,13 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/admin/users/users-page').then((page) => page.UsersPage),
       },
+      {
+        path: 'admin/jobs',
+        title: 'Jobs · Vehicle Catalog',
+        canActivate: [holding('admin')],
+        loadComponent: () =>
+          import('./features/admin/jobs/jobs-page').then((page) => page.JobsPage),
+      },
     ],
   },
   // The matrix at full size on generated data. A production build has neither the route nor the page.

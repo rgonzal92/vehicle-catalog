@@ -54,6 +54,43 @@ run "a_message_no_one_could_handle_goes_to_the_dead_letter_queue" {
   }
 }
 
+run "a_job_that_has_failed_for_good_sets_off_an_alarm" {
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.jobs_failed.namespace == "AWS/SQS"
+      && aws_cloudwatch_metric_alarm.jobs_failed.metric_name == "ApproximateNumberOfMessagesVisible"
+      && aws_cloudwatch_metric_alarm.jobs_failed.dimensions == tomap({ QueueName = aws_sqs_queue.jobs_failed.name })
+    )
+    error_message = "The alarm watches how many messages the dead-letter queue holds."
+  }
+
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.jobs_failed.statistic == "Maximum"
+      && aws_cloudwatch_metric_alarm.jobs_failed.comparison_operator == "GreaterThanThreshold"
+      && aws_cloudwatch_metric_alarm.jobs_failed.threshold == 0
+      && aws_cloudwatch_metric_alarm.jobs_failed.period == 60
+      && aws_cloudwatch_metric_alarm.jobs_failed.evaluation_periods == 1
+    )
+    error_message = "The alarm goes off at one message, within a minute."
+  }
+
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.jobs_failed.treat_missing_data == "notBreaching"
+    error_message = "A dead-letter queue that reports nothing holds nothing, and sets off no alarm."
+  }
+
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.jobs_failed.alarm_actions == null
+    error_message = "The alarm tells no one: it is there to be looked at."
+  }
+
+  assert {
+    condition     = aws_sqs_queue.jobs_failed.name == "${aws_sqs_queue.jobs.name}-failed"
+    error_message = "The dead-letter queue is named after the jobs' queue, which is how the worker finds it."
+  }
+}
+
 run "the_host_works_off_these_two_queues_and_no_other" {
   assert {
     condition = jsondecode(aws_iam_role_policy.host_jobs.policy).Statement == [{

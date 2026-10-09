@@ -14,12 +14,15 @@ import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
+import software.amazon.awssdk.services.sqs.model.Message;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Runs the jobs whose messages arrive. A message is deleted only once its job's work is saved, so a
  * stop in the middle leaves the message to be delivered again. A message can arrive twice for that
- * reason and others; a job that is done already is not done again.
+ * reason and others; a job that is done already is not done again. A job whose work fails is tried
+ * again when its message is delivered again, and has failed for good once the queue gives the
+ * message up.
  */
 @Component
 @TalksToTheQueue
@@ -31,7 +34,7 @@ class Consumer {
   private final JobQueue queue;
   private final JsonMapper json;
   private final ObservationRegistry observations;
-  private final Map<JobType, JobHandler> handlers;
+  private final Map<String, JobHandler> handlers;
 
   Consumer(
       JdbcClient jdbc,
@@ -46,7 +49,8 @@ class Consumer {
     this.json = json;
     this.observations = observations;
     this.handlers =
-        handlers.stream().collect(Collectors.toMap(JobHandler::type, Function.identity()));
+        handlers.stream()
+            .collect(Collectors.toMap(handler -> handler.type().name(), Function.identity()));
   }
 
   /**
@@ -61,10 +65,63 @@ class Consumer {
         run(message.body(), JobQueue.attributesOf(message));
         queue.delete(message);
       } catch (RuntimeException failure) {
-        log.warn("A job was not done, and its message will be delivered again", failure);
+        log.warn("A job was not done", failure);
+        keepThatItFailed(message, failure);
       }
     }
     return messages.size();
+  }
+
+  /**
+   * Keeps that a try at a job failed, and why. The job's own work went with its transaction, so
+   * this is saved by itself. The queue delivers the message again unless it has delivered it as
+   * often as it does: then the job has failed for good, and stays so until an admin has it retried.
+   */
+  private void keepThatItFailed(Message message, RuntimeException failure) {
+    try {
+      jdbc.sql(
+              """
+              UPDATE job
+              SET attempts = attempts + 1, error = :error,
+                  status = CASE WHEN :last THEN 'FAILED' ELSE status END, updated_at = now()
+              WHERE id = :id AND status <> 'SUCCEEDED'
+              """)
+          .param("error", failure.toString().lines().findFirst().orElse("").strip())
+          .param("last", JobQueue.deliveriesOf(message) >= queue.mostDeliveries())
+          .param("id", jobOf(message.body()))
+          .update();
+    } catch (RuntimeException unkept) {
+      log.warn("That a job failed could not be kept", unkept);
+    }
+  }
+
+  /**
+   * Looks through the dead-letter queue and deletes each message whose job is no longer failed: one
+   * that was retried and has been done since, and one that no longer exists. So the dead-letter
+   * queue holds the jobs that are failed now, and whoever watches its depth is told of nothing
+   * else.
+   *
+   * @return how many messages it deleted
+   */
+  int sweepTheDeadLetterQueue() {
+    int deleted = 0;
+    for (var message : queue.receiveFailed()) {
+      boolean failed =
+          jdbc.sql("SELECT EXISTS (SELECT 1 FROM job WHERE id = :id AND status = 'FAILED')")
+              .param("id", jobOf(message.body()))
+              .query(Boolean.class)
+              .single();
+      if (!failed) {
+        queue.deleteFailed(message);
+        deleted++;
+      }
+    }
+    return deleted;
+  }
+
+  /** The job a message names. */
+  private long jobOf(String body) {
+    return json.readTree(body).required("jobId").asLong();
   }
 
   /**
@@ -76,7 +133,7 @@ class Consumer {
    * @param said what the message says beside its body: its job's type, and its trace if it has one
    */
   private void run(String body, Map<String, String> said) {
-    long id = json.readTree(body).required("jobId").asLong();
+    long id = jobOf(body);
     var started = System.nanoTime();
     var received = new ReceiverContext<Map<String, String>>(Map::get, Kind.CONSUMER);
     received.setCarrier(said);
@@ -123,13 +180,16 @@ class Consumer {
           if (job.get().status().equals("SUCCEEDED")) {
             return job.get().type() + " job %d was done already";
           }
-          handlers
-              .get(JobType.valueOf(job.get().type()))
-              .handle(json.readTree(job.get().subject()));
+          var handler = handlers.get(job.get().type());
+          if (handler == null) {
+            throw new IllegalStateException("Nothing here does a job of type " + job.get().type());
+          }
+          handler.handle(json.readTree(job.get().subject()));
           jdbc.sql(
                   """
                   UPDATE job
-                  SET status = 'SUCCEEDED', attempts = attempts + 1, updated_at = now()
+                  SET status = 'SUCCEEDED', attempts = attempts + 1, error = NULL,
+                      updated_at = now()
                   WHERE id = :id
                   """)
               .param("id", id)

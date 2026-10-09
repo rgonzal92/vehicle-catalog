@@ -30,6 +30,7 @@ const demoAccounts = [
       'Feature library',
       'Global rules',
       'Users',
+      'Jobs',
     ],
   },
 ];
