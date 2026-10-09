@@ -41,6 +41,14 @@
   @apply flex flex-wrap items-center justify-between gap-4 border-b border-surface px-4 py-3;
 }
 
+/*
+ * A standing notice about the state of what a page shows, such as a catalog that cannot be
+ * submitted. It is there when the page is drawn, so it is no alert.
+ */
+@utility notice {
+  @apply rounded-border border border-l-4 border-surface border-l-amber-600 bg-surface-0 px-4 py-3 dark:border-l-amber-400 dark:bg-surface-900;
+}
+
 /* What a surface says when it has nothing to show. */
 @utility surface-empty {
   @apply px-4 py-8 text-center text-muted-color;

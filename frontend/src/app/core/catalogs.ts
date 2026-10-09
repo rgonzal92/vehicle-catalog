@@ -78,6 +78,12 @@ export interface Catalog {
   approvedAt: string | null;
   /** Whether the signed-in person owns it, which lets them edit it while it is in status Draft. */
   owned: boolean;
+  /** Whether its vehicle line is active. A catalog of an inactive line cannot be submitted. */
+  vehicleLineActive: boolean;
+  /** What its owner said when they last submitted it, if anything. */
+  submitNote: string | null;
+  /** When it was last submitted, or null when it never was. */
+  submittedAt: string | null;
   /**
    * The Approved version it was copied from, or null when it started empty. After a carryover its
    * model year is an earlier one than the catalog's.
@@ -176,6 +182,9 @@ export type StartPoint =
  */
 export type CatalogEdit = (revision: number) => Promise<number>;
 
+/** The most characters a note to a reviewer, or a reviewer's comment, has. */
+export const LONGEST_NOTE = 1000;
+
 /** The most characters a catalog's name has. */
 export const LONGEST_CATALOG_NAME = 80;
 
@@ -269,6 +278,23 @@ export class Catalogs {
    */
   async delete(catalogId: number, revision: number): Promise<void> {
     await this.send('DELETE', `/api/catalogs/${catalogId}`, revision);
+  }
+
+  /**
+   * Submits a working copy for review, with a note for the reviewer if there is one. The backend
+   * refuses while the catalog has an Error or its vehicle line is inactive.
+   */
+  submit(catalogId: number, revision: number, note: string): Promise<number> {
+    return this.edit(catalogId, 'POST', '/submit', revision, { note });
+  }
+
+  /** Makes a Submitted catalog a Draft again. Its status guards it, so it names no revision. */
+  async withdraw(catalogId: number): Promise<void> {
+    await firstValueFrom(
+      this.http
+        .post<Edited>(`/api/catalogs/${catalogId}/withdraw`, null)
+        .pipe(timeout(SAVE_PATIENCE)),
+    );
   }
 
   /** Sets cells of a working copy. Setting a cell to Not offered removes it. */

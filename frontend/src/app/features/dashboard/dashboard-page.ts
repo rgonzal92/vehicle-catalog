@@ -103,6 +103,18 @@ import { reasonOf } from '../../shared/reason-of';
                       (onClick)="askToDelete(catalog)"
                     />
                   }
+                  @if (catalog.status === 'SUBMITTED') {
+                    <p-button
+                      class="ml-2"
+                      label="Withdraw"
+                      severity="secondary"
+                      size="small"
+                      [text]="true"
+                      [ariaLabel]="'Withdraw ' + catalog.name"
+                      [disabled]="withdrawing() === catalog.id"
+                      (onClick)="withdraw(catalog)"
+                    />
+                  }
                 </td>
               </tr>
             </ng-template>
@@ -242,6 +254,9 @@ export class DashboardPage {
   /** Whether the deletion is on its way, so that a second click deletes nothing more. */
   protected readonly deletingNow = signal(false);
 
+  /** The id of the catalog whose withdrawal is on its way, or null while none is. */
+  protected readonly withdrawing = signal<number | null>(null);
+
   /** The working copy the person was last asked about, which is where the focus goes back to. */
   private lastAsked?: WorkingCopy;
 
@@ -300,6 +315,25 @@ export class DashboardPage {
     this.deletionRefusal.set(refusal);
     this.deleting.set(deletable ? listed : null);
     this.deletingNow.set(false);
+  }
+
+  /**
+   * Makes a Submitted catalog a Draft again, and reads the list again either way. A refusal is
+   * shown as a message.
+   */
+  protected async withdraw(catalog: WorkingCopy): Promise<void> {
+    if (this.withdrawing() !== null) {
+      return;
+    }
+
+    this.withdrawing.set(catalog.id);
+    try {
+      await this.catalogs.withdraw(catalog.id);
+    } catch (error) {
+      this.messages.add({ severity: 'error', summary: 'Not withdrawn', detail: reasonOf(error) });
+    }
+    await this.readMine();
+    this.withdrawing.set(null);
   }
 
   protected readMine(): Promise<void> {

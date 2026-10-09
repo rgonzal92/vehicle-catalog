@@ -36,13 +36,14 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Shows everyone with a role the lineages, their Approved versions, and a catalog's contents, and
  * lets each of them create, edit, rename, and delete working copies of their own, keep their rules,
- * and read a catalog's change history.
+ * submit them for review and withdraw them, and read a catalog's change history.
  */
 @RestController
 class CatalogController {
   private final Catalogs catalogs;
   private final WorkingCopies workingCopies;
   private final CatalogEdits edits;
+  private final Submissions submissions;
   private final ChangeHistory history;
   private final AppUsers people;
 
@@ -50,11 +51,13 @@ class CatalogController {
       Catalogs catalogs,
       WorkingCopies workingCopies,
       CatalogEdits edits,
+      Submissions submissions,
       ChangeHistory history,
       AppUsers people) {
     this.catalogs = catalogs;
     this.workingCopies = workingCopies;
     this.edits = edits;
+    this.submissions = submissions;
     this.history = history;
     this.people = people;
   }
@@ -289,6 +292,30 @@ class CatalogController {
       Authentication caller) {
     return saved(id, caller, edits.deleteRule(id, people.idOf(caller), ifMatch, ruleKey));
   }
+
+  /**
+   * Submits the caller's working copy for review, with a note if they give one. It names the
+   * revision it was made from, as an edit does.
+   */
+  @PostMapping("/api/catalogs/{id}/submit")
+  ResponseEntity<Edited> submit(
+      @PathVariable long id,
+      @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+      @RequestBody(required = false) Submission given,
+      Authentication caller) {
+    var note = given == null ? null : given.note();
+
+    return saved(id, caller, submissions.submit(id, people.idOf(caller), ifMatch, note));
+  }
+
+  /** Makes the caller's Submitted catalog a Draft again. */
+  @PostMapping("/api/catalogs/{id}/withdraw")
+  ResponseEntity<Edited> withdraw(@PathVariable long id, Authentication caller) {
+    return saved(id, caller, submissions.withdraw(id, people.idOf(caller)));
+  }
+
+  /** What an owner says when they submit a catalog: a note, or nothing. */
+  record Submission(String note) {}
 
   private ResponseEntity<Edited> saved(long id, Authentication caller, long revision) {
     return saved(id, caller, revision, List.of());

@@ -103,6 +103,40 @@ describe('DashboardPage', () => {
     expect(link?.getAttribute('aria-label')).toBe('Open Winter update');
   });
 
+  it('withdraws a Submitted catalog from the list, and reads the list again', async () => {
+    const submitted = {
+      id: 42,
+      name: 'Summer update',
+      vehicleLine: 'Compact SUV',
+      modelYear: 2027,
+      status: 'SUBMITTED',
+      revision: 3,
+      updatedAt: '2026-01-09T10:00:00Z',
+      errors: 0,
+      warnings: 0,
+    };
+    const page = await dashboardFor(['author'], [], [submitted]);
+    const backend = TestBed.inject(HttpTestingController);
+    const row = await firstRow(page, 'my-catalogs');
+    const action = (label: string) =>
+      Array.from(row.querySelectorAll('button')).find(
+        (candidate) => candidate.getAttribute('aria-label') === label,
+      );
+    expect(action('Delete Summer update'), 'only a Draft is deleted').toBeUndefined();
+
+    action('Withdraw Summer update')!.click();
+
+    backend.expectOne({ method: 'POST', url: '/api/catalogs/42/withdraw' }).flush({ revision: 4 });
+    (await vi.waitFor(() => backend.expectOne('/api/catalogs?scope=mine'))).flush([
+      { ...submitted, status: 'DRAFT', revision: 4 },
+    ]);
+    await vi.waitFor(() =>
+      expect(
+        page.querySelector('section[aria-labelledby="my-catalogs"] tbody tr')?.textContent,
+      ).toContain('Draft'),
+    );
+  });
+
   describe('deleting a working copy', () => {
     const winterUpdate = {
       id: 41,
