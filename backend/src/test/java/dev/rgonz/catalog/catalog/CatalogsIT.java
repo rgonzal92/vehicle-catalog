@@ -305,7 +305,7 @@ class CatalogsIT extends ApplicationIT {
   }
 
   @Test
-  void aCatalogIsLoadedWithOneQueryForItselfAndOneForEachContentTable() {
+  void aCatalogIsLoadedWithOneQueryForItselfOneForEachContentTableAndOneForTheLibrary() {
     var catalog = version(2);
     var reader = person("a-reader");
     var statements = new ListAppender<ILoggingEvent>();
@@ -329,7 +329,11 @@ class CatalogsIT extends ApplicationIT {
             .map(ILoggingEvent::getFormattedMessage)
             .filter(message -> message.startsWith("Executing prepared SQL statement"))
             .toList();
-    assertThat(sent).hasSize(6);
+    assertThat(sent).hasSize(7);
+    // What the library says today of the catalog's features, trims, and regions is one query.
+    var readsTheLibrary = Pattern.compile("\\bUNION ALL\\b").asPredicate();
+    assertThat(sent).filteredOn(readsTheLibrary).hasSize(1);
+    var contents = sent.stream().filter(readsTheLibrary.negate()).toList();
     for (var table :
         List.of(
             "catalog_trim",
@@ -338,7 +342,7 @@ class CatalogsIT extends ApplicationIT {
             "catalog_feature",
             "catalog_cell")) {
       var readsTable = Pattern.compile("\\bFROM " + table + "\\b").asPredicate();
-      assertThat(sent).as(table).filteredOn(readsTable).hasSize(1);
+      assertThat(contents).as(table).filteredOn(readsTable).hasSize(1);
     }
   }
 

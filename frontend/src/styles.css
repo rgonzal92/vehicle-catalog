@@ -60,3 +60,15 @@
 @utility matrix-standard {
   @apply bg-highlight font-semibold;
 }
+
+/*
+ * A cell of the matrix that has an Error, or that has nothing worse than a Warning: a ring inside
+ * the cell, which leaves the cell's ground to say what its value is.
+ */
+@utility matrix-error {
+  @apply inset-ring-2 inset-ring-red-600 dark:inset-ring-red-400;
+}
+
+@utility matrix-warning {
+  @apply inset-ring-2 inset-ring-amber-600 dark:inset-ring-amber-400;
+}

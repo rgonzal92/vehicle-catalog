@@ -6,7 +6,7 @@ import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/route
 import { MessageService } from 'primeng/api';
 import { Named } from '../../core/fixed-lists';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
-import { Cell, FeatureRow, MatrixContents } from '../../shared/availability-matrix/matrix';
+import { Cell, FeatureRow, Issue, MatrixContents } from '../../shared/availability-matrix/matrix';
 import { CatalogEditorPage } from './catalog-editor-page';
 
 /**
@@ -30,6 +30,7 @@ class MatrixStandIn {
   readonly editable = input(false);
   readonly hiddenRegions = input<ReadonlySet<string>>(new Set());
   readonly featureFilter = input<(feature: FeatureRow) => boolean>(() => true);
+  readonly issues = input<Issue[]>([]);
   readonly cellChange = output<Cell>();
   readonly featureRemove = output<{ feature: FeatureRow; cells: number }>();
   protected readonly manualAvailable = manualAvailable;
@@ -51,6 +52,10 @@ class MatrixStandIn {
   notSaved(cell: Cell, reason: string): void {
     told.push(['not saved', cell, reason]);
   }
+
+  show(cell: Pick<Cell, 'featureId' | 'trimId' | 'regionCode'>): void {
+    shown.push(cell);
+  }
 }
 
 const manualAvailable: Cell = { featureId: 7, trimId: 1, regionCode: 'NA', availability: 'A' };
@@ -60,6 +65,9 @@ let told: unknown[][];
 
 /** Where the matrix has been asked to put the focus, in order. */
 let focused: string[];
+
+/** The cells the matrix has been asked to bring into view, in order. */
+let shown: unknown[];
 
 describe('CatalogEditorPage', () => {
   let backend: HttpTestingController;
@@ -81,6 +89,7 @@ describe('CatalogEditorPage', () => {
   beforeEach(() => {
     told = [];
     focused = [];
+    shown = [];
   });
 
   const workingCopy = {
@@ -957,5 +966,111 @@ describe('CatalogEditorPage', () => {
     (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush(workingCopy);
     await vi.waitFor(() => expect(element.querySelector('h2')?.textContent).toBe('Winter update'));
     expect(element.querySelector('app-read-failed')).toBeNull();
+  });
+
+  describe('the issues of the catalog', () => {
+    const emptyOffering: Issue = {
+      code: 'OFFERING_EMPTY',
+      severity: 'ERROR',
+      trimId: 1,
+      regionCode: 'NA',
+      featureId: null,
+      relatedFeatureIds: [],
+      rule: null,
+      message: 'Base in North America has no Standard or Available feature.',
+    };
+    const neverOffered: Issue = {
+      code: 'FEATURE_NEVER_OFFERED',
+      severity: 'WARNING',
+      trimId: null,
+      regionCode: null,
+      featureId: 2,
+      relatedFeatureIds: [],
+      rule: null,
+      message: 'Tow Package is not offered in any offering.',
+    };
+    const roofOnBase: Issue = {
+      code: 'REQUIRED_NOT_OFFERED',
+      severity: 'ERROR',
+      trimId: 1,
+      regionCode: 'NA',
+      featureId: 1,
+      relatedFeatureIds: [2],
+      rule: null,
+      message:
+        'Panoramic Roof requires Tow Package, which is not offered on Base in North America.',
+    };
+
+    const counts = (element: HTMLElement) =>
+      Array.from(element.querySelectorAll('[data-issue-counts] p-tag'), (tag) =>
+        tag.textContent?.trim(),
+      ).join(', ');
+
+    const tab = (element: HTMLElement, name: string) =>
+      Array.from(element.querySelectorAll<HTMLElement>('[role="tab"]')).find(
+        (candidate) => candidate.textContent?.trim() === name,
+      )!;
+
+    /** What each row of the Issues tab says, cell by cell. */
+    const listed = (element: HTMLElement) =>
+      Array.from(element.querySelectorAll('p-tabpanel:nth-of-type(2) tbody tr')).map((row) =>
+        Array.from(row.querySelectorAll('td'), (cell) => cell.textContent?.trim()),
+      );
+
+    it('says how many Errors and Warnings there are, and lists them with what each is about', async () => {
+      const element = await page({ ...workingCopy, issues: [emptyOffering, neverOffered] });
+
+      expect(counts(element)).toBe('1 Error, 1 Warning');
+      tab(element, 'Issues').click();
+
+      await vi.waitFor(() =>
+        expect(listed(element)).toEqual([
+          ['Error', emptyOffering.message, 'Base in North America', ''],
+          ['Warning', neverOffered.message, 'Tow Package', ''],
+        ]),
+      );
+    });
+
+    it('says so when the catalog has no issues', async () => {
+      const element = await page({ ...workingCopy, issues: [] });
+
+      expect(counts(element)).toBe('No issues');
+      tab(element, 'Issues').click();
+
+      await vi.waitFor(() => expect(element.textContent).toContain('This catalog has no issues.'));
+    });
+
+    it('gives the matrix the issues, and takes the ones an edit answers with', async () => {
+      const element = await page({ ...workingCopy, issues: [roofOnBase] });
+      expect(counts(element)).toBe('1 Error');
+
+      matrixOf(element).click();
+      (await saveRequest()).flush({ revision: 5, issues: [neverOffered] });
+
+      await vi.waitFor(() => expect(counts(element)).toBe('1 Warning'));
+    });
+
+    it('shows the cell of an issue on the Features tab, whatever the filters keep from view', async () => {
+      const element = await page({ ...workingCopy, issues: [roofOnBase] });
+      tab(element, 'Issues').click();
+      await vi.waitFor(() =>
+        expect(tab(element, 'Issues').getAttribute('aria-selected')).toBe('true'),
+      );
+      const show = await vi.waitFor(() => {
+        const found = element.querySelector<HTMLElement>(
+          'button[aria-label^="Show the cell of this issue"]',
+        );
+        expect(found).not.toBeNull();
+        return found!;
+      });
+      expect(listed(element)[0][2]).toBe('Panoramic Roof, Base in North America');
+
+      show.click();
+
+      await vi.waitFor(() =>
+        expect(shown).toEqual([{ featureId: 1, trimId: 1, regionCode: 'NA' }]),
+      );
+      expect(tab(element, 'Features').getAttribute('aria-selected')).toBe('true');
+    });
   });
 });

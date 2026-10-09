@@ -28,6 +28,55 @@ describe('Catalogs', () => {
     await expect(saved).resolves.toBe(5);
   });
 
+  const noTrims = {
+    code: 'NO_TRIMS',
+    severity: 'ERROR',
+    trimId: null,
+    regionCode: null,
+    featureId: null,
+    relatedFeatureIds: [],
+    rule: null,
+    message: 'The catalog has no trims.',
+  } as const;
+
+  it('keeps the issues a catalog is read with, and then the ones each edit answers with', async () => {
+    expect(catalogs.issuesOf(41)).toEqual([]);
+
+    const read = catalogs.find(41);
+    backend.expectOne('/api/catalogs/41').flush({ snapshot: { revision: 4 }, issues: [noTrims] });
+    await read;
+    expect(catalogs.issuesOf(41)).toEqual([noTrims]);
+
+    const saved = catalogs.addTrims(41, 4, [1]);
+    backend
+      .expectOne({ method: 'POST', url: '/api/catalogs/41/trims' })
+      .flush({ revision: 5, issues: [] });
+    await saved;
+    expect(catalogs.issuesOf(41)).toEqual([]);
+    expect(catalogs.issuesOf(42)).toEqual([]);
+  });
+
+  it('does not let an answer that arrives late put older issues back', async () => {
+    const earlier = catalogs.setCells(41, 4, [manualAvailable]);
+    const later = catalogs.setCells(41, 5, [manualAvailable]);
+    const [slow, quick] = backend.match({ method: 'PUT', url: '/api/catalogs/41/cells' });
+
+    quick.flush({ revision: 6, issues: [] });
+    await later;
+    slow.flush({ revision: 5, issues: [noTrims] });
+    await earlier;
+
+    expect(catalogs.issuesOf(41)).toEqual([]);
+  });
+
+  it('takes a catalog to have no issues when the backend names none', async () => {
+    const saved = catalogs.setCells(41, 4, [manualAvailable]);
+    backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/cells' }).flush({ revision: 5 });
+    await saved;
+
+    expect(catalogs.issuesOf(41)).toEqual([]);
+  });
+
   it('sends each edit of trims, regions, and offerings as one made from a revision', async () => {
     const edits: [Promise<number>, string, string, unknown][] = [
       [catalogs.addTrims(41, 4, [1, 2]), 'POST', '/api/catalogs/41/trims', { trimIds: [1, 2] }],
