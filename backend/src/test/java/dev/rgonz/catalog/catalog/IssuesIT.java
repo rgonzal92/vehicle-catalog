@@ -305,4 +305,40 @@ class IssuesIT extends WorkingCopyTests {
 
     assertThat(errors(open(ana(), copy))).isEmpty();
   }
+
+  @Test
+  void aConflictThatOnlyAChainOfRulesMakesIsFoundOnTheCellOfTheFeatureThatStartsIt() {
+    // Ventilated seats, heated rear seats, and the hands-free liftgate are each Available on
+    // Touring, in both regions, so no rule below is broken by itself.
+    var chain =
+        List.of(
+            List.of("REQUIRES", "SEAT_VENTILATED_FRONT", "SEAT_HEATED_REAR"),
+            List.of("REQUIRES", "SEAT_HEATED_REAR", "LIFTGATE_HANDS_FREE"),
+            List.of("EXCLUDES", "SEAT_VENTILATED_FRONT", "LIFTGATE_HANDS_FREE"));
+    MvcTestResult answer = null;
+
+    for (var rule : chain) {
+      answer =
+          edit(
+              ana(),
+              mvc.post().uri("/api/catalogs/{id}/rules", copy),
+              "\"" + revision(copy) + "\"",
+              """
+              {"kind": "%s", "sourceFeatureId": %d, "targetFeatureIds": [%d],
+               "allTrims": true, "trimIds": [], "allRegions": true, "regionCodes": []}
+              """
+                  .formatted(rule.get(0), feature(rule.get(1)), feature(rule.get(2))));
+      assertThat(answer).hasStatusOk();
+    }
+
+    assertThat(errors(answer)).containsExactly("FEATURE_UNSELECTABLE", "FEATURE_UNSELECTABLE");
+    var unselectable = "$.issues[?(@.code == 'FEATURE_UNSELECTABLE')]";
+    assertThat(ApplicationIT.<List<Integer>>read(answer, unselectable + ".featureId"))
+        .containsOnly((int) feature("SEAT_VENTILATED_FRONT"));
+    assertThat(ApplicationIT.<List<String>>read(answer, unselectable + ".message"))
+        .first()
+        .asString()
+        .startsWith("Ventilated Front Seats can never be ordered on Touring in North America.")
+        .contains("Ventilated Front Seats brings Heated Rear Seats, which brings");
+  }
 }

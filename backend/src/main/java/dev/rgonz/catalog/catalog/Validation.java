@@ -9,6 +9,7 @@ import dev.rgonz.catalog.catalog.CatalogSnapshot.Trim;
 import dev.rgonz.catalog.catalog.Issue.Code;
 import dev.rgonz.catalog.catalog.Issue.RuleReference;
 import dev.rgonz.catalog.catalog.Issue.Severity;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -30,6 +31,12 @@ import java.util.stream.Stream;
  * rules and takes none away. A feature that is not a feature row of the catalog counts as Not
  * offered in every offering, which is how a global rule reaches a catalog that says nothing of its
  * target.
+ *
+ * <p>A conflict can also come about through a chain of rules alone: A requires B, B requires C, and
+ * A excludes C. So in each offering it follows the Requires and Includes rules from what is
+ * Standard, and from each Available feature, and looks for two features that exclude each other
+ * among what that brings together. A Requires one of is not followed, so a feature whose every
+ * alternative leads to a conflict is not found.
  */
 final class Validation {
   private Validation() {}
@@ -268,23 +275,168 @@ final class Validation {
      */
     private void check(Offering offering, String where) {
       var pairsChecked = new HashSet<String>();
+      // What each feature brings with it by a Requires or an Includes, and the exclusions, each
+      // once: what the chains of the offering are made of.
+      Map<Long, List<Long>> brings = new HashMap<>();
+      var exclusions = new ArrayList<Rule>();
       for (Rule rule : rules) {
         if (!rule.covers(offering)) {
           continue;
         }
         var source = value(rule.sourceFeatureId(), offering);
         switch (rule.kind()) {
-          case REQUIRES -> requires(rule, source, offering, where);
-          case INCLUDES -> includes(rule, source, offering, where);
+          case REQUIRES -> {
+            requires(rule, source, offering, where);
+            brings
+                .computeIfAbsent(rule.sourceFeatureId(), _ -> new ArrayList<>())
+                .addAll(rule.targetFeatureIds());
+          }
+          case INCLUDES -> {
+            includes(rule, source, offering, where);
+            brings
+                .computeIfAbsent(rule.sourceFeatureId(), _ -> new ArrayList<>())
+                .addAll(rule.targetFeatureIds());
+          }
           case REQUIRES_ONE_OF -> requiresOneOf(rule, source, offering, where);
           case EXCLUDES -> {
             // An exclusion is two rules that say the same, and is checked once.
             if (pairsChecked.add(rule.origin() + " " + rule.pairKey())) {
               excludes(rule, source, offering, where);
+              exclusions.add(rule);
             }
           }
         }
       }
+      // Without a rule to follow, every conflict there can be is one the checks above have found.
+      if (!brings.isEmpty() && !exclusions.isEmpty()) {
+        chains(offering, where, brings, exclusions);
+      }
+    }
+
+    /**
+     * Follows the chains of an offering. The standard set is every Standard feature with all that
+     * those bring; two of its members that exclude each other are a conflict of the offering. The
+     * selection set of an Available feature is the standard set, the feature, and all that it
+     * brings; two of its members that exclude each other mean the feature can never be ordered.
+     *
+     * <p>Each conflict is reported once, by the most direct check that finds it: not here when the
+     * two features have an Excludes Error of their own in the offering, and not for an Available
+     * feature when both are in the standard set already.
+     */
+    private void chains(
+        Offering offering, String where, Map<Long, List<Long>> brings, List<Rule> exclusions) {
+      var standard = new ArrayList<Long>();
+      var available = new ArrayList<Long>();
+      for (FeatureRow feature : catalog.featureRows()) {
+        switch (value(feature.id(), offering)) {
+          case S -> standard.add(feature.id());
+          case A -> available.add(feature.id());
+          case N -> {}
+        }
+      }
+      var standardSet = reached(standard, brings);
+      for (Rule exclusion : exclusions) {
+        long one = exclusion.sourceFeatureId();
+        long other = exclusion.targetFeatureIds().getFirst();
+        if (standardSet.containsKey(one)
+            && standardSet.containsKey(other)
+            && !excludedDirectly(one, other, offering)) {
+          add(
+              Code.STANDARD_SET_CONFLICT,
+              exclusion,
+              offering,
+              null,
+              List.of(one, other),
+              "What is Standard on %s cannot be built. %s%s and %s exclude each other."
+                  .formatted(
+                      where,
+                      chainsTo(standardSet, standardSet, one, other),
+                      name(one),
+                      name(other)));
+        }
+      }
+      for (long feature : available) {
+        // A feature that brings nothing can still exclude what the standard set brings.
+        var chosen = reached(List.of(feature), brings);
+        for (Rule exclusion : exclusions) {
+          long one = exclusion.sourceFeatureId();
+          long other = exclusion.targetFeatureIds().getFirst();
+          boolean together =
+              (chosen.containsKey(one) || standardSet.containsKey(one))
+                  && (chosen.containsKey(other) || standardSet.containsKey(other));
+          boolean inTheStandardSet = standardSet.containsKey(one) && standardSet.containsKey(other);
+          if (together && !inTheStandardSet && !excludedDirectly(one, other, offering)) {
+            add(
+                Code.FEATURE_UNSELECTABLE,
+                exclusion,
+                offering,
+                feature,
+                List.of(one, other),
+                "%s can never be ordered on %s. %s%s and %s exclude each other."
+                    .formatted(
+                        name(feature),
+                        where,
+                        chainsTo(chosen, standardSet, one, other),
+                        name(one),
+                        name(other)));
+          }
+        }
+      }
+    }
+
+    /**
+     * The features given and everything they bring, each with the feature that brought it, or null
+     * for one of those given. A feature is found by the shortest chain to it.
+     */
+    private static Map<Long, Long> reached(List<Long> from, Map<Long, List<Long>> brings) {
+      var found = new HashMap<Long, Long>();
+      var next = new ArrayDeque<Long>();
+      for (long feature : from) {
+        found.put(feature, null);
+        next.add(feature);
+      }
+      while (!next.isEmpty()) {
+        long feature = next.remove();
+        for (long brought : brings.getOrDefault(feature, List.of())) {
+          if (!found.containsKey(brought)) {
+            found.put(brought, feature);
+            next.add(brought);
+          }
+        }
+      }
+      return found;
+    }
+
+    /** Whether the check of an exclusion on its own reports the two features in the offering. */
+    private boolean excludedDirectly(long one, long other, Offering offering) {
+      var first = value(one, offering);
+      var second = value(other, offering);
+      return (first == Availability.S && second != Availability.N)
+          || (second == Availability.S && first != Availability.N);
+    }
+
+    /**
+     * The chains that lead to two features, each as a sentence: "Tow Package brings Trailer Hitch
+     * Receiver, which brings Trailer Wiring. ". A feature that nothing brought has no chain. A
+     * feature is looked for among the first features reached, then the others.
+     */
+    private String chainsTo(Map<Long, Long> first, Map<Long, Long> others, long one, long other) {
+      return Stream.of(one, other)
+          .map(feature -> chainTo(first.containsKey(feature) ? first : others, feature))
+          .filter(chain -> !chain.isEmpty())
+          .distinct()
+          .map(chain -> chain + ". ")
+          .collect(Collectors.joining());
+    }
+
+    private String chainTo(Map<Long, Long> reached, long feature) {
+      var chain = new ArrayDeque<String>();
+      for (Long link = feature; link != null; link = reached.get(link)) {
+        chain.addFirst(name(link));
+      }
+      return chain.size() < 2
+          ? ""
+          : chain.removeFirst() + " brings " + String.join(", which brings ", chain);
     }
 
     private void requires(Rule rule, Availability source, Offering offering, String where) {
@@ -411,7 +563,7 @@ final class Validation {
         Code code,
         Rule rule,
         Offering offering,
-        long featureId,
+        Long featureId,
         List<Long> related,
         String message) {
       found.add(
