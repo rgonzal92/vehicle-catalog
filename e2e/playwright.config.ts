@@ -49,6 +49,7 @@ const parts = [
     'jobs',
     'shell',
     'matrix-proof',
+    'trial',
   ],
 ];
 
