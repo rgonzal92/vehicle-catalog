@@ -66,9 +66,11 @@ services:
     # How long a container has to get ready is left to its image here, where the host's file gives
     # every image four minutes. check.sh gives the backend's own image a minute. The images it
     # makes for itself answer at once or never and are given no time at all, so one that never gets
-    # ready is known for one after three tries.
+    # ready is known for one after three tries. A container is asked every two seconds here, where
+    # the host asks every five: this check waits for the answer some twenty times.
     healthcheck:
       start_period: !reset null
+      interval: 2s
 
   worker:
     environment:
@@ -78,6 +80,7 @@ services:
     logging: !reset null
     healthcheck:
       start_period: !reset null
+      interval: 2s
 
 configs:
   queue:

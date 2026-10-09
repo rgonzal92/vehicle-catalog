@@ -111,12 +111,13 @@ kept() { # name
   whether docker image inspect "${offered[$1]}"
 }
 # The backend's own image, with one thing laid over it for this check: the minute it has to get
-# ready. Docker gives a container the start period its image names when the stack's file names
-# none, and test/compose.yaml names none. The health check itself stays the one of the host's file.
+# ready, in which it is asked every second. Docker gives a container the start period its image
+# names when the stack's file names none, and test/compose.yaml names none. The health check
+# itself stays the one of the host's file.
 quietly docker build --quiet --tag vehicle-catalog-backend:as-built "$here/../../backend"
 offer real - <<EOF
 FROM vehicle-catalog-backend:as-built
-HEALTHCHECK --start-period=1m CMD ["true"]
+HEALTHCHECK --start-period=1m --start-interval=1s CMD ["true"]
 EOF
 # Says what reached it, and that it is ready whenever it is asked.
 offer echo - <<EOF
