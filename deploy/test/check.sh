@@ -239,6 +239,13 @@ expect "the worker's log is one object to a line, and a job's line carries a tra
   "$(whether grep -qE '^[0-9a-f]{32}$' <<<"$(docker compose logs --no-log-prefix worker 2>&1 |
     jq --raw-input --raw-output \
       'fromjson? | select(.message | startswith("AFTER_APPROVAL job")) | .traceId' | tail -n 1)")"
+# The worker traces a job while it does it, and sends the trace where the API sends its own.
+job_span='^ *Name +: AFTER_APPROVAL job$'
+for _ in $(seq 1 30); do
+  grep -qE "$job_span" <<<"$(reported)" && break
+  sleep 1
+done
+expect "the agent is sent the trace of the job" yes "$(whether grep -qE "$job_span" <<<"$(reported)")"
 asks_the_worker() { # the path
   docker compose exec -T worker wget --quiet --spider "http://127.0.0.1:8080$1"
 }

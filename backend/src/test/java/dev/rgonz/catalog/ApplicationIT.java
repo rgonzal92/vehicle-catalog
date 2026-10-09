@@ -12,6 +12,7 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.DefaultApplicationArguments;
+import org.springframework.boot.micrometer.tracing.test.autoconfigure.AutoConfigureTracing;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -62,6 +63,9 @@ import software.amazon.awssdk.services.sqs.model.QueueAttributeName;
       "spring.security.oauth2.client.registration.cognito.client-secret=test-secret"
     })
 @AutoConfigureMockMvc
+// A trace is passed on with a message as it is where the application really runs. A test is
+// otherwise started with that turned off.
+@AutoConfigureTracing
 public abstract class ApplicationIT {
   /** The address visitors use, which differs from the address the tests call. */
   protected static final String PUBLIC_URL = "https://catalog.example.test";

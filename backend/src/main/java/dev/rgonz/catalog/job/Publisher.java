@@ -33,7 +33,7 @@ class Publisher {
           var unsent =
               jdbc.sql(
                       """
-                      SELECT o.id, o.payload::text AS body, j.type
+                      SELECT o.id, o.payload::text AS body, j.type, o.traceparent
                       FROM outbox o
                       JOIN job j ON j.id = o.job_id
                       WHERE o.sent_at IS NULL
@@ -45,7 +45,7 @@ class Publisher {
                   .query(Unsent.class)
                   .list();
           for (var message : unsent) {
-            queue.send(message.body(), message.type());
+            queue.send(message.body(), message.type(), message.traceparent());
             jdbc.sql("UPDATE outbox SET sent_at = now() WHERE id = :id")
                 .param("id", message.id())
                 .update();
@@ -54,5 +54,5 @@ class Publisher {
         });
   }
 
-  private record Unsent(long id, String body, String type) {}
+  private record Unsent(long id, String body, String type, String traceparent) {}
 }

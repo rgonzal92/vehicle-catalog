@@ -7,18 +7,24 @@ import dev.rgonz.catalog.core.Role;
 import dev.rgonz.catalog.job.Worker;
 import java.time.Duration;
 import java.util.Map;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.ApplicationContext;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /**
- * Checks what follows an approval: a job that the worker runs once, whatever stops in between,
- * which tells the catalog's owner. Each test starts from the seeded catalogs, a working copy of
- * Compact SUV 2026 that Ana has submitted, and no job or message from before.
+ * Checks what follows an approval: a job that the worker runs once, whatever stops in between, as
+ * part of the trace of the request that approved, which tells the catalog's owner. Each test starts
+ * from the seeded catalogs, a working copy of Compact SUV 2026 that Ana has submitted, and no job
+ * or message from before.
  */
+@ExtendWith(OutputCaptureExtension.class)
 class AfterApprovalIT extends WorkingCopyTests {
   @Autowired ApplicationContext application;
 
@@ -164,6 +170,44 @@ class AfterApprovalIT extends WorkingCopyTests {
                 assertThat(Worker.takesAndStops(application))
                     .as("the message, once it would have been delivered again")
                     .isEmpty());
+  }
+
+  @Test
+  void theRequestThatApprovesAndTheJobItCausesAreOneTrace(CapturedOutput output) {
+    decide(mia(), "approve", "\"1\"");
+
+    Worker.runs(application);
+
+    var request = traceOf(output, "POST /api/catalogs/%d/approve 200 in \\d+ ms".formatted(copy));
+    assertThat(request).as("the trace of the request").isNotNull();
+    assertThat(jdbc.sql("SELECT traceparent FROM outbox").query(String.class).single())
+        .as("what the message carried")
+        .matches("00-" + request + "-[0-9a-f]{16}-[0-9a-f]{2}");
+    assertThat(traceOf(output, "AFTER_APPROVAL job \\d+ done in \\d+ ms"))
+        .as("the trace of the job")
+        .isEqualTo(request);
+  }
+
+  @Test
+  void aMessageThatCarriesNoTraceIsHandledAllTheSame() {
+    decide(mia(), "approve", "\"1\"");
+    jdbc.sql("UPDATE outbox SET traceparent = NULL").update();
+
+    Worker.runs(application);
+
+    assertThat(notifications()).isOne();
+  }
+
+  /** The id of the trace in which the last line that reads like this was written, if any was. */
+  private static String traceOf(CapturedOutput output, String line) {
+    var written =
+        Pattern.compile("\\[([0-9a-f]{32})-[0-9a-f]{16}\\].* : " + line + "$", Pattern.MULTILINE)
+            .matcher(output.getAll());
+    String trace = null;
+    while (written.find()) {
+      trace = written.group(1);
+    }
+    return trace;
   }
 
   /** How many notifications Ana has. */
