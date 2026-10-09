@@ -95,6 +95,11 @@ export interface Catalog {
   /** When it was last submitted, or null when it never was. */
   submittedAt: string | null;
   /**
+   * Whether it is a working copy whose base is no longer its lineage's current Approved. A stale
+   * catalog cannot be submitted or approved until it has been updated from that version.
+   */
+  stale: boolean;
+  /**
    * The Approved version it was copied from, or null when it started empty. After a carryover its
    * model year is an earlier one than the catalog's.
    */
@@ -382,6 +387,20 @@ export class Catalogs {
    */
   submit(catalogId: number, revision: number, note: string): Promise<number> {
     return this.edit(catalogId, 'POST', '/submit', revision, { note });
+  }
+
+  /**
+   * Approves a Submitted catalog as the reviewer saw it, which makes it the next Approved version
+   * of its lineage. The backend refuses a catalog that has an Error, is stale, or whose vehicle
+   * line is inactive, and one that has changed since that revision.
+   */
+  approve(catalogId: number, revision: number, comment: string): Promise<number> {
+    return this.edit(catalogId, 'POST', '/approve', revision, { comment });
+  }
+
+  /** Rejects a Submitted catalog as the reviewer saw it, with the reason, back to its owner. */
+  reject(catalogId: number, revision: number, comment: string): Promise<number> {
+    return this.edit(catalogId, 'POST', '/reject', revision, { comment });
   }
 
   /** Makes a Submitted catalog a Draft again. Its status guards it, so it names no revision. */
