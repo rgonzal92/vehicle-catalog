@@ -99,6 +99,15 @@ class RenameAndDeleteIT extends WorkingCopyTests {
   @Test
   void theOwnerDeletesAWorkingCopyWithItsContentsAndItsChangeHistory() {
     setCells(ana(), copy, "\"0\"", cell("TRANS_MANUAL", "Base", "NA", "A"));
+    edit(
+        ana(),
+        mvc.post().uri("/api/catalogs/{id}/rules", copy),
+        "\"1\"",
+        """
+        {"kind": "EXCLUDES", "sourceFeatureId": %d, "targetFeatureIds": [%d],
+         "allTrims": false, "trimIds": [%d], "allRegions": false, "regionCodes": ["NA"]}
+        """
+            .formatted(feature("TRANS_MANUAL"), feature("SEAT_LEATHER"), trim("Base")));
     var approved = approved("COMPACT_SUV", 2026, 2);
     var sibling = workingCopy(ben(), "COMPACT_SUV", 2026);
     var lineages = jdbc.sql("SELECT * FROM lineage ORDER BY id").query().listOfRows();
@@ -106,10 +115,10 @@ class RenameAndDeleteIT extends WorkingCopyTests {
     var siblingRows = rowsOf(sibling);
     assertThat(rowsOf(copy))
         .as("every table that holds something of a catalog holds something of this one")
-        .containsKeys("catalog", "catalog_cell", "catalog_change")
+        .containsKeys("catalog", "catalog_cell", "catalog_change", "catalog_rule_trim")
         .allSatisfy((table, rows) -> assertThat(rows).as(table).isPositive());
 
-    var deleted = delete(ana(), copy, "\"1\"");
+    var deleted = delete(ana(), copy, "\"2\"");
 
     assertThat(deleted).hasStatus(204);
     assertThat(rowsOf(copy).values()).as("nothing of it is left").allMatch(rows -> rows == 0);

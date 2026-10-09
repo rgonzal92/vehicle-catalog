@@ -1013,7 +1013,7 @@ describe('CatalogEditorPage', () => {
 
     /** What each row of the Issues tab says, cell by cell. */
     const listed = (element: HTMLElement) =>
-      Array.from(element.querySelectorAll('p-tabpanel:nth-of-type(2) tbody tr')).map((row) =>
+      Array.from(element.querySelectorAll('p-tabpanel:nth-of-type(3) tbody tr')).map((row) =>
         Array.from(row.querySelectorAll('td'), (cell) => cell.textContent?.trim()),
       );
 
@@ -1028,6 +1028,20 @@ describe('CatalogEditorPage', () => {
           ['Error', emptyOffering.message, 'Base in North America', '', ''],
           ['Warning', neverOffered.message, 'Tow Package', '', ''],
         ]),
+      );
+    });
+
+    it('shows the rules on the Rules tab, read when the tab is chosen', async () => {
+      const element = await page({ ...workingCopy, issues: [] });
+      expect(element.querySelector('app-rules-tab')).toBeNull();
+
+      tab(element, 'Rules').click();
+
+      (await vi.waitFor(() => backend.expectOne('/api/global-rules'))).flush([]);
+      await vi.waitFor(() =>
+        expect(element.querySelector('app-rules-tab')?.textContent).toContain(
+          'This catalog has no rules',
+        ),
       );
     });
 

@@ -13,6 +13,17 @@ export const RULE_KIND_NAMES: Record<RuleKind, string> = {
   EXCLUDES: 'Excludes',
 };
 
+/** The fewest targets a rule of each kind has. */
+export const FEWEST_TARGETS: Record<RuleKind, number> = {
+  REQUIRES: 1,
+  REQUIRES_ONE_OF: 2,
+  INCLUDES: 1,
+  EXCLUDES: 1,
+};
+
+/** The most targets a rule has. */
+export const MOST_TARGETS = 20;
+
 /** A feature as a rule names it. */
 export interface NamedFeature {
   id: number;

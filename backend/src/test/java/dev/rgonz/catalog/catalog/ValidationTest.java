@@ -54,7 +54,7 @@ class ValidationTest {
       List<FeatureRow> featureRows,
       List<Cell> cells) {
     return new CatalogSnapshot(
-        41, 3, Status.DRAFT, 4, trims, regions, offerings, featureRows, cells);
+        41, 3, Status.DRAFT, 4, trims, regions, offerings, featureRows, cells, List.of());
   }
 
   private static CatalogSnapshot sound() {

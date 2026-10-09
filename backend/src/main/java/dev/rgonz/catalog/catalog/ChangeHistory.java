@@ -80,8 +80,9 @@ class ChangeHistory {
    * A change names only what its kind is about, and the rest is null.
    *
    * @param oldValue what the change replaced: a cell's availability (S, A, or N) for a change of
-   *     kind {@code CELL_SET}, or a catalog's name for one of kind {@code RENAMED}
-   * @param newValue what it was replaced with
+   *     kind {@code CELL_SET}, a catalog's name for one of kind {@code RENAMED}, or a rule in words
+   *     for one that changed or removed a rule
+   * @param newValue what it was replaced with; a change that added a rule has this alone
    */
   record Change(
       long id,

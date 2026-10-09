@@ -96,8 +96,7 @@ class LibrarySeed implements Seed {
    *
    * @param regions the regions the rule applies in, or null when it applies in every region
    */
-  record SeededRule(
-      GlobalRules.Kind kind, String source, List<String> targets, List<String> regions) {
+  record SeededRule(RuleKind kind, String source, List<String> targets, List<String> regions) {
     RuleContent content(Function<String, Long> idOf) {
       return new RuleContent(
           kind, idOf.apply(source), targets.stream().map(idOf).toList(), regions == null, regions);

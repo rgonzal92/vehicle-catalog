@@ -11,8 +11,10 @@ import { Select } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { Tag } from 'primeng/tag';
 import {
+  FEWEST_TARGETS,
   GlobalRule,
   GlobalRules,
+  MOST_TARGETS,
   RULE_KIND_NAMES,
   RuleKind,
   ruleInWords,
@@ -20,17 +22,6 @@ import {
 import { Library, LibraryFeature, LibraryRegion } from '../../../core/library';
 import { Loading, ReadFailed } from '../../../shared/read-state';
 import { reasonOf } from '../../../shared/reason-of';
-
-/** The fewest targets a rule of each kind has. */
-const FEWEST_TARGETS: Record<RuleKind, number> = {
-  REQUIRES: 1,
-  REQUIRES_ONE_OF: 2,
-  INCLUDES: 1,
-  EXCLUDES: 1,
-};
-
-/** The most targets a rule has. */
-const MOST_TARGETS = 20;
 
 /** Where an admin adds, changes, and deletes the library's global rules. */
 @Component({

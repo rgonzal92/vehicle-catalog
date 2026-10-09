@@ -1,16 +1,19 @@
 package dev.rgonz.catalog.catalog;
 
+import dev.rgonz.catalog.catalog.CatalogRules.RuleContent;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Availability;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
 import dev.rgonz.catalog.core.ApiException;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import java.util.regex.Pattern;
@@ -23,10 +26,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Edits working copies: their names, their cells, the library trims, regions, and features they
- * have added, and where each trim is sold. It also deletes them. Only a catalog in status Draft can
- * be edited, and only by its owner. Every edit names the revision it was made from and runs in one
- * transaction that locks the catalog, so edits of one catalog happen one after another and none
- * overwrites a change it has not seen.
+ * have added, where each trim is sold, and their rules. It also deletes them. Only a catalog in
+ * status Draft can be edited, and only by its owner. Every edit names the revision it was made from
+ * and runs in one transaction that locks the catalog, so edits of one catalog happen one after
+ * another and none overwrites a change it has not seen.
  */
 @Service
 class CatalogEdits {
@@ -51,10 +54,16 @@ class CatalogEdits {
 
   private final JdbcClient jdbc;
   private final TransactionTemplate transactions;
+  private final CatalogRules rules;
   private final Timer editTime;
 
-  CatalogEdits(JdbcClient jdbc, TransactionTemplate transactions, MeterRegistry metrics) {
+  CatalogEdits(
+      JdbcClient jdbc,
+      TransactionTemplate transactions,
+      CatalogRules rules,
+      MeterRegistry metrics) {
     this.jdbc = jdbc;
+    this.rules = rules;
     this.transactions = transactions;
     this.editTime =
         Timer.builder("catalog.edit")
@@ -197,64 +206,109 @@ class CatalogEdits {
 
   /**
    * Removes a trim from the catalog, and with it its offerings and their cells, which the database
-   * sees to.
+   * sees to. The trim leaves the trim scope of every rule, and a rule that covered no other trim is
+   * deleted.
    */
-  long removeTrim(long catalogId, long actorId, String ifMatch, long trimId) {
-    return edit(
-        catalogId,
-        actorId,
-        ifMatch,
-        () -> {
-          var removed =
-              jdbc.sql("DELETE FROM catalog_trim WHERE catalog_id = :catalog AND trim_id = :trim")
-                  .param("catalog", catalogId)
-                  .param("trim", trimId)
-                  .update();
-          if (removed == 0) {
-            throw ApiException.notFound();
-          }
-          jdbc.sql(
-                  """
+  Removed removeTrim(long catalogId, long actorId, String ifMatch, long trimId) {
+    var rulesDeleted = new ArrayList<String>();
+    var revision =
+        edit(
+            catalogId,
+            actorId,
+            ifMatch,
+            () -> {
+              rulesDeleted.addAll(rules.deleteThoseOnlyOnTrim(catalogId, actorId, trimId));
+              var removed =
+                  jdbc.sql(
+                          "DELETE FROM catalog_trim WHERE catalog_id = :catalog AND trim_id = :trim")
+                      .param("catalog", catalogId)
+                      .param("trim", trimId)
+                      .update();
+              if (removed == 0) {
+                throw ApiException.notFound();
+              }
+              jdbc.sql(
+                      """
                   INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
                   VALUES (:catalog, :actor, 'TRIM_REMOVED', jsonb_build_object('trimId', :trim))
                   """)
-              .param("catalog", catalogId)
-              .param("actor", actorId)
-              .param("trim", trimId)
-              .update();
-          return true;
-        });
+                  .param("catalog", catalogId)
+                  .param("actor", actorId)
+                  .param("trim", trimId)
+                  .update();
+              return true;
+            });
+
+    return new Removed(revision, rulesDeleted);
   }
 
-  /** Removes a region from the catalog, and with it its offerings and their cells. */
-  long removeRegion(long catalogId, long actorId, String ifMatch, String regionCode) {
-    return edit(
-        catalogId,
-        actorId,
-        ifMatch,
-        () -> {
-          var removed =
-              jdbc.sql(
-                      """
+  /**
+   * Removes a region from the catalog, and with it its offerings and their cells. The region leaves
+   * the region scope of every rule, and a rule that covered no other region is deleted.
+   */
+  Removed removeRegion(long catalogId, long actorId, String ifMatch, String regionCode) {
+    var rulesDeleted = new ArrayList<String>();
+    var revision =
+        edit(
+            catalogId,
+            actorId,
+            ifMatch,
+            () -> {
+              rulesDeleted.addAll(rules.deleteThoseOnlyInRegion(catalogId, actorId, regionCode));
+              var removed =
+                  jdbc.sql(
+                          """
                       DELETE FROM catalog_region
                       WHERE catalog_id = :catalog AND region_code = :region
                       """)
-                  .param("catalog", catalogId)
-                  .param("region", regionCode)
-                  .update();
-          if (removed == 0) {
-            throw ApiException.notFound();
-          }
-          jdbc.sql(
-                  """
+                      .param("catalog", catalogId)
+                      .param("region", regionCode)
+                      .update();
+              if (removed == 0) {
+                throw ApiException.notFound();
+              }
+              jdbc.sql(
+                      """
                   INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
                   VALUES (:catalog, :actor, 'REGION_REMOVED',
                           jsonb_build_object('regionCode', :region))
                   """)
-              .param("catalog", catalogId)
-              .param("actor", actorId)
-              .param("region", regionCode)
-              .update();
+                  .param("catalog", catalogId)
+                  .param("actor", actorId)
+                  .param("region", regionCode)
+                  .update();
+              return true;
+            });
+
+    return new Removed(revision, rulesDeleted);
+  }
+
+  /** Adds a rule to the catalog, or for an exclusion a pair for each target. */
+  long addRule(long catalogId, long actorId, String ifMatch, RuleContent given) {
+    return edit(
+        catalogId,
+        actorId,
+        ifMatch,
+        () -> {
+          rules.add(catalogId, actorId, given);
+          return true;
+        });
+  }
+
+  /** Changes a rule of the catalog, and its pair with it. */
+  long changeRule(long catalogId, long actorId, String ifMatch, UUID ruleKey, RuleContent given) {
+    return edit(
+        catalogId, actorId, ifMatch, () -> rules.change(catalogId, actorId, ruleKey, given));
+  }
+
+  /** Deletes a rule of the catalog, and its pair with it. */
+  long deleteRule(long catalogId, long actorId, String ifMatch, UUID ruleKey) {
+    return edit(
+        catalogId,
+        actorId,
+        ifMatch,
+        () -> {
+          rules.delete(catalogId, actorId, ruleKey);
           return true;
         });
   }
@@ -315,7 +369,11 @@ class CatalogEdits {
     transactions.executeWithoutResult(
         transaction -> {
           lockToEdit(catalogId, actorId, ifMatch);
-          // Cells go with their feature rows, and offerings with their trims.
+          // Rules go first, since they hold on to the feature rows they name. Cells go with their
+          // feature rows, and offerings with their trims.
+          jdbc.sql("DELETE FROM catalog_rule WHERE catalog_id = :id")
+              .param("id", catalogId)
+              .update();
           jdbc.sql("DELETE FROM catalog_feature WHERE catalog_id = :id")
               .param("id", catalogId)
               .update();
@@ -385,13 +443,22 @@ class CatalogEdits {
         });
   }
 
-  /** Removes a feature row from the catalog, and with it its cells, which the database sees to. */
+  /**
+   * Removes a feature row from the catalog, and with it its cells, which the database sees to. A
+   * row that a rule of the catalog names stays.
+   */
   long removeFeature(long catalogId, long actorId, String ifMatch, long featureId) {
     return edit(
         catalogId,
         actorId,
         ifMatch,
         () -> {
+          var naming = rules.naming(catalogId, featureId);
+          if (!naming.isEmpty()) {
+            throw ApiException.inUse(
+                "A rule of this catalog names this feature. Change or delete the rule first.",
+                naming);
+          }
           var removed =
               jdbc.sql(
                       """
@@ -723,6 +790,12 @@ class CatalogEdits {
           && AVAILABILITIES.contains(availability);
     }
   }
+
+  /**
+   * What removing a trim or a region answers with: the revision the catalog is at afterwards, and
+   * the rules that were deleted with it, each in words and a pair once.
+   */
+  record Removed(long revision, List<String> rulesDeleted) {}
 
   /** What an edit checks of a catalog once it has locked it. */
   private record Locked(long ownerId, Status status, long revision) {}
