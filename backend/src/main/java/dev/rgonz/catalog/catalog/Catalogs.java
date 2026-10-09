@@ -91,6 +91,20 @@ class Catalogs {
    */
   @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
   Optional<CatalogView> find(long id, long viewerId) {
+    return read(id, viewerId)
+        .map(catalog -> catalog.withIssues(Validation.issues(catalog.snapshot(), library(id))));
+  }
+
+  /**
+   * A catalog's contents alone, if the viewer may open it, for what compares catalogs and has no
+   * use for their issues.
+   */
+  @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+  Optional<CatalogSnapshot> contents(long id, long viewerId) {
+    return read(id, viewerId).map(CatalogView::snapshot);
+  }
+
+  private Optional<CatalogView> read(long id, long viewerId) {
     return jdbc.sql(
             """
             SELECT c.id, c.lineage_id, c.status, c.revision, c.name, c.version_number,
@@ -133,8 +147,7 @@ class Catalogs {
                             header.baseModelYear(),
                             header.baseVersionNumber()),
                     snapshot(header),
-                    List.of()))
-        .map(catalog -> catalog.withIssues(Validation.issues(catalog.snapshot(), library(id))));
+                    List.of()));
   }
 
   /**

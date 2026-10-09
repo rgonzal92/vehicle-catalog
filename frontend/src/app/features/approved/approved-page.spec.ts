@@ -191,6 +191,57 @@ describe('ApprovedPage', () => {
     expect(shown).toEqual([{ featureId: 7, trimId: 1, regionCode: 'NA' }]);
   });
 
+  it('compares another version with the one shown, from the earlier to the later', async () => {
+    const element = await page(versions);
+    (await catalogRequest(12)).flush({ ...catalog(versions[0], []), issues: [] });
+    const compare = await vi.waitFor(() => {
+      const found = element.querySelector<HTMLElement>(
+        'button[aria-label="Compare version 1 with version 2"]',
+      );
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(element.querySelector('#comparison')).toBeNull();
+
+    compare.click();
+
+    const asked = await vi.waitFor(() =>
+      backend.expectOne((request) => request.url === '/api/catalogs/12/diff'),
+    );
+    expect(asked.request.params.get('against')).toBe('11');
+    asked.flush({
+      trimsAdded: [],
+      trimsRemoved: [],
+      regionsAdded: [],
+      regionsRemoved: [],
+      offeringsAdded: [],
+      offeringsRemoved: [],
+      featureRowsAdded: [
+        { id: 7, code: 'POWERTRAIN_HYBRID', kind: 'FEATURE', name: 'Hybrid Powertrain' },
+      ],
+      featureRowsRemoved: [],
+      cellsChanged: [],
+      rulesAdded: [],
+      rulesRemoved: [],
+      rulesChanged: [],
+    });
+
+    await vi.waitFor(() =>
+      expect(element.querySelector('#comparison')?.textContent?.trim()).toBe(
+        'Changes from version 1 to version 2',
+      ),
+    );
+    expect(element.querySelector('app-catalog-changes')?.textContent).toContain(
+      'Hybrid Powertrain (POWERTRAIN_HYBRID)',
+    );
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(element.querySelector('#comparison')),
+    );
+
+    element.querySelector<HTMLElement>('button[aria-label="Close the comparison"]')!.click();
+    await vi.waitFor(() => expect(element.querySelector('#comparison')).toBeNull());
+  });
+
   it('says so when the version has no issues', async () => {
     const element = await page(versions);
     (await catalogRequest(12)).flush({ ...catalog(versions[0], []), issues: [] });

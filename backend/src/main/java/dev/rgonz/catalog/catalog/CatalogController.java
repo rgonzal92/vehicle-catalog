@@ -7,6 +7,7 @@ import dev.rgonz.catalog.catalog.Catalogs.CatalogView;
 import dev.rgonz.catalog.catalog.Catalogs.LineageSummary;
 import dev.rgonz.catalog.catalog.Catalogs.VersionSummary;
 import dev.rgonz.catalog.catalog.ChangeHistory.ChangePage;
+import dev.rgonz.catalog.catalog.Diff.Changes;
 import dev.rgonz.catalog.catalog.Issue.Severity;
 import dev.rgonz.catalog.catalog.WorkingCopies.NewWorkingCopy;
 import dev.rgonz.catalog.catalog.WorkingCopies.StartPoint;
@@ -362,6 +363,31 @@ class CatalogController {
       throw ApiException.notFound();
     }
     return history.page(id, page, size);
+  }
+
+  /**
+   * What changed from another catalog to this one, for anyone who may open both. The other is named
+   * by its id, or as {@code base}: the catalog this one was copied from, or an empty catalog when
+   * it started empty.
+   */
+  @GetMapping("/api/catalogs/{id}/diff")
+  Changes diff(@PathVariable long id, @RequestParam String against, Authentication caller) {
+    var viewer = people.idOf(caller);
+    var catalog = catalogs.find(id, viewer).orElseThrow(ApiException::notFound);
+    Long other;
+    if (against.equals("base")) {
+      other = catalog.base() == null ? null : catalog.base().catalogId();
+    } else if (against.matches("\\d{1,18}")) {
+      other = Long.valueOf(against);
+    } else {
+      throw ApiException.badRequest("Name the catalog to compare with by its id, or as base.");
+    }
+    var before =
+        other == null
+            ? CatalogSnapshot.empty()
+            : catalogs.contents(other, viewer).orElseThrow(ApiException::notFound);
+
+    return Diff.between(before, catalog.snapshot());
   }
 
   /**

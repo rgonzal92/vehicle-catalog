@@ -1,7 +1,15 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, signal } from '@angular/core';
 import { firstValueFrom, timeout } from 'rxjs';
-import { Cell, Issue, MatrixContents } from '../shared/availability-matrix/matrix';
+import {
+  Availability,
+  Cell,
+  FeatureRow,
+  Issue,
+  MatrixContents,
+  MatrixRegion,
+  MatrixTrim,
+} from '../shared/availability-matrix/matrix';
 import { RuleKind } from './global-rules';
 
 /** A lineage with its current Approved version, as the dashboard lists it. */
@@ -99,6 +107,50 @@ export interface Catalog {
   };
   /** What validation finds in it against the library as it is today, Errors before Warnings. */
   issues: Issue[];
+}
+
+/** An offering with the names of its trim and its region. */
+export interface NamedOffering {
+  trimId: number;
+  trim: string;
+  regionCode: string;
+  region: string;
+}
+
+/** A cell whose availability changed, with the names of what it is a cell of. */
+export interface CellChange {
+  featureId: number;
+  featureCode: string;
+  feature: string;
+  trimId: number;
+  trim: string;
+  regionCode: string;
+  region: string;
+  before: Availability;
+  after: Availability;
+}
+
+/**
+ * What changed from one catalog to another. What was added or changed is named by the labels of
+ * the later catalog, and what was removed by those of the earlier one. An exclusion is listed once
+ * for its pair.
+ */
+export interface CatalogChanges {
+  trimsAdded: MatrixTrim[];
+  trimsRemoved: MatrixTrim[];
+  regionsAdded: MatrixRegion[];
+  regionsRemoved: MatrixRegion[];
+  offeringsAdded: NamedOffering[];
+  offeringsRemoved: NamedOffering[];
+  featureRowsAdded: FeatureRow[];
+  featureRowsRemoved: FeatureRow[];
+  /** The cells of rows and offerings that both catalogs have. */
+  cellsChanged: CellChange[];
+  /** Each rule by its key and in words. */
+  rulesAdded: { key: string; rule: string }[];
+  rulesRemoved: { key: string; rule: string }[];
+  /** Each rule that says something else, with what it said before and what it says after. */
+  rulesChanged: { key: string; before: string; after: string }[];
 }
 
 /** What a saved edit of a working copy answers with: where it led, and the issues there. */
@@ -264,6 +316,16 @@ export class Catalogs {
   changes(catalogId: number, page: number, size: number): Promise<ChangePage> {
     return firstValueFrom(
       this.http.get<ChangePage>(`/api/catalogs/${catalogId}/changes`, { params: { page, size } }),
+    );
+  }
+
+  /**
+   * What changed from another catalog to this one. The other is named by its id, or as `base`: the
+   * catalog this one was copied from, or nothing when it started empty.
+   */
+  diff(catalogId: number, against: number | 'base'): Promise<CatalogChanges> {
+    return firstValueFrom(
+      this.http.get<CatalogChanges>(`/api/catalogs/${catalogId}/diff`, { params: { against } }),
     );
   }
 
