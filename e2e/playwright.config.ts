@@ -8,10 +8,14 @@ import { defineConfig, devices } from '@playwright/test';
  * It needs a `.env` at the repository root with the database password, `npm ci` run in
  * `frontend/` and here, and the browser installed with `npx playwright install chromium`.
  */
+/** The part of the suite to run, as "1/2", where the pipeline runs it in parts. */
+const [current, total] = (process.env.SHARD ?? '').split('/').map(Number);
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
+  shard: total ? { current, total } : undefined,
   // A test keeps to catalogs of its own, so the tests run side by side: as many at a time as half
   // the machine's processors, which is Playwright's own choice and comes to two in the pipeline.
   // Four at a time there left the browsers short of processor time, and tests failed for it.
