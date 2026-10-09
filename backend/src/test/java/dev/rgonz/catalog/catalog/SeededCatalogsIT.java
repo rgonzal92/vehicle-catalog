@@ -11,6 +11,7 @@ import dev.rgonz.catalog.catalog.CatalogSnapshot.Trim;
 import dev.rgonz.catalog.core.Role;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -43,6 +44,7 @@ class SeededCatalogsIT extends ApplicationIT {
           "TRANS_MANUAL");
 
   @Autowired Catalogs catalogs;
+  @Autowired CatalogRules catalogRules;
 
   /** The seeded catalogs: Compact SUV 2026 in two versions, and three more. */
   private List<Seeded> seeded;
@@ -127,6 +129,43 @@ class SeededCatalogsIT extends ApplicationIT {
                 .query(String.class)
                 .list())
         .containsExactly("Compact SUV 2026 version 2");
+  }
+
+  @Test
+  void everySeededCatalogHasRulesOfItsOwnAndOneOfThemLimitedToOneRegion() {
+    var all = new SoftAssertions();
+
+    for (var catalog : seeded) {
+      var rules = catalog.snapshot().rules();
+      all.assertThat(rules).as(catalog.title()).hasSizeGreaterThanOrEqualTo(5);
+      all.assertThat(rules)
+          .as("%s has a rule limited to one region", catalog.title())
+          .anyMatch(rule -> !rule.allRegions() && rule.regionCodes().size() == 1);
+      all.assertThat(rules)
+          .as("%s has a rule limited to some trims", catalog.title())
+          .anyMatch(rule -> !rule.allTrims());
+      all.assertThat(rules)
+          .as("%s has an exclusion", catalog.title())
+          .anyMatch(rule -> rule.pairKey() != null);
+    }
+    all.assertThat(catalogRules.brokenPairs()).as("every exclusion is a whole pair").isEmpty();
+    all.assertAll();
+  }
+
+  @Test
+  void aRuleKeepsItsKeyThroughTheVersionsOfTheCompactSuv() {
+    var keys =
+        seeded.stream()
+            .filter(catalog -> catalog.title().startsWith("Compact SUV"))
+            .map(
+                catalog ->
+                    catalog.snapshot().rules().stream().map(Rule::key).collect(Collectors.toSet()))
+            .toList();
+
+    assertThat(keys).hasSize(3);
+    assertThat(keys.get(1)).as("version 2 adds to version 1").containsAll(keys.get(0));
+    assertThat(keys.get(2)).as("2027 adds to 2026 version 2").containsAll(keys.get(1));
+    assertThat(keys.get(2).size()).isGreaterThan(keys.get(0).size());
   }
 
   @Test

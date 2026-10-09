@@ -11,6 +11,12 @@ test('an owner adds, changes, and deletes a rule of a working copy', async ({ pa
       name: /^Tow Package Requires Heavy-Duty Cooling Every trim Every region Global$/,
     }),
   ).toBeVisible();
+  // The working copy starts with the rules of the Approved version it was copied from.
+  await expect(
+    rules.getByRole('row', {
+      name: /^AM\/FM Radio Requires Digital Radio Every trim Europe Catalog/,
+    }),
+  ).toBeVisible();
   await expectAccessible(page);
 
   await rules.getByRole('button', { name: 'Add rule' }).click();
@@ -57,7 +63,7 @@ test('an owner adds, changes, and deletes a rule of a working copy', async ({ pa
   );
   await asking.getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(asking).toBeHidden();
-  await expect(rules.getByRole('row', { name: /Catalog/ })).toHaveCount(0);
+  await expect(rules.getByRole('row', { name: /^Leather Seats Requires/ })).toHaveCount(0);
 
   await page.getByRole('tab', { name: 'History' }).click();
   const history = page.getByRole('tabpanel', { name: 'History' });
@@ -90,8 +96,9 @@ test('an exclusion of a working copy is kept, shown, and deleted as a pair', asy
   await expect(page.getByRole('listbox')).toBeHidden();
   await adding.getByRole('button', { name: 'Save' }).click();
   await expect(adding).toBeHidden();
-  // The library's own exclusions are listed too, so the catalog's are told by their origin.
-  await expect(rules.getByRole('row', { name: /Excludes.*Catalog/ })).toHaveCount(2);
+  // The library's own exclusions are listed too, so the catalog's are told by their origin: the
+  // pair the copy started with, and the new one.
+  await expect(rules.getByRole('row', { name: /Excludes.*Catalog/ })).toHaveCount(4);
 
   await rules
     .getByRole('button', {
@@ -112,5 +119,34 @@ test('an exclusion of a working copy is kept, shown, and deleted as a pair', asy
   );
   await asking.getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(asking).toBeHidden();
-  await expect(rules.getByRole('row', { name: /Excludes.*Catalog/ })).toHaveCount(0);
+  await expect(rules.getByRole('row', { name: /Excludes.*Catalog/ })).toHaveCount(2);
+});
+
+test('an Approved version shows its rules, and nobody changes them', async ({ page }) => {
+  await signIn(page, 'author');
+  const lineages = (await (await page.request.get('/api/lineages')).json()) as {
+    vehicleLine: string;
+    modelYear: number;
+    catalogId: number;
+  }[];
+  const sedan = lineages.find(
+    ({ vehicleLine, modelYear }) => vehicleLine === 'Sedan' && modelYear === 2027,
+  )!;
+
+  await page.goto(`/catalogs/${sedan.catalogId}`);
+  await page.getByRole('tab', { name: 'Rules' }).click();
+  const rules = page.getByRole('tabpanel', { name: 'Rules' });
+
+  await expect(
+    rules.getByRole('row', {
+      name: /^Lane Keep Assist Requires Driver Monitoring Every trim Europe Catalog$/,
+    }),
+  ).toBeVisible();
+  await expect(
+    rules.getByRole('row', {
+      name: /^8-Speed Automatic Transmission Requires Steering-Wheel Paddle Shifters Sport Every region Catalog$/,
+    }),
+  ).toBeVisible();
+  await expect(rules.getByRole('button', { name: 'Add rule' })).toHaveCount(0);
+  await expect(rules.getByRole('button', { name: /^Edit the rule/ })).toHaveCount(0);
 });

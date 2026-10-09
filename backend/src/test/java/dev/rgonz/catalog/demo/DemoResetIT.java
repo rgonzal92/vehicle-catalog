@@ -102,6 +102,7 @@ class DemoResetIT extends ApplicationIT {
     for (var subject : owners) {
       var copy = workingCopyOf(subject);
       jdbc.sql("DELETE FROM catalog_cell WHERE catalog_id = ?").param(copy).update();
+      jdbc.sql("DELETE FROM catalog_rule WHERE catalog_id = ?").param(copy).update();
       jdbc.sql(
               "INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)"
                   + " VALUES (?, ?, 'RENAMED', '{}')")
@@ -438,6 +439,21 @@ class DemoResetIT extends ApplicationIT {
             JOIN which ON which.id = cc.catalog_id
             JOIN feature f ON f.id = cc.feature_id
             JOIN trim t ON t.id = cc.trim_id
+            UNION ALL
+            SELECT 'catalog rule ' || concat_ws('|', which.catalog, r.rule_key, r.kind, f.code,
+                       r.all_trims, r.all_regions, r.pair_key,
+                       (SELECT string_agg(tf.code, ',' ORDER BY tf.code)
+                        FROM catalog_rule_target t JOIN feature tf ON tf.id = t.feature_id
+                        WHERE t.catalog_id = r.catalog_id AND t.rule_key = r.rule_key),
+                       (SELECT string_agg(tr.name, ',' ORDER BY tr.name)
+                        FROM catalog_rule_trim t JOIN trim tr ON tr.id = t.trim_id
+                        WHERE t.catalog_id = r.catalog_id AND t.rule_key = r.rule_key),
+                       (SELECT string_agg(s.region_code, ',' ORDER BY s.region_code)
+                        FROM catalog_rule_region s
+                        WHERE s.catalog_id = r.catalog_id AND s.rule_key = r.rule_key))
+            FROM catalog_rule r
+            JOIN which ON which.id = r.catalog_id
+            JOIN feature f ON f.id = r.source_feature_id
             ORDER BY 1
             """)
         .query(String.class)

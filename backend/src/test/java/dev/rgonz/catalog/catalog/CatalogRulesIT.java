@@ -19,7 +19,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  * Checks that the owner of a working copy in status Draft keeps rules that belong to it, and that
  * its rules stay whole when a feature row, a trim, or a region is removed. Each test starts from
  * the seeded catalogs and a working copy of Compact SUV 2026 that Ana owns, with the trims Base,
- * Sport, Touring, and Off-Road, the regions North America and Europe, and no rules.
+ * Sport, Touring, and Off-Road, the regions North America and Europe, and its rules taken away.
  */
 class CatalogRulesIT extends WorkingCopyTests {
   @Autowired CatalogRules catalogRules;
@@ -31,6 +31,8 @@ class CatalogRulesIT extends WorkingCopyTests {
   void anasWorkingCopy() throws Exception {
     seedLibraryAndCatalogs();
     copy = workingCopy(ana(), "COMPACT_SUV", 2026);
+    // The copy starts with the rules of its base, which these tests do without.
+    jdbc.sql("DELETE FROM catalog_rule WHERE catalog_id = :copy").param("copy", copy).update();
   }
 
   @AfterEach

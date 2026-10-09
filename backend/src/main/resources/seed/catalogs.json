@@ -9,6 +9,40 @@
       "NA": ["Base", "Sport", "Touring", "Off-Road"],
       "EU": ["Base", "Sport", "Touring"]
     },
+    "rules": [
+      {
+        "key": "ventilated-seats-need-leather",
+        "kind": "REQUIRES",
+        "source": "SEAT_VENTILATED_FRONT",
+        "targets": ["SEAT_LEATHER"]
+      },
+      {
+        "key": "technology-package-content",
+        "kind": "INCLUDES",
+        "source": "PACKAGE_TECHNOLOGY",
+        "targets": ["ADAS_SURROUND_VIEW", "HEAD_UP_DISPLAY"]
+      },
+      {
+        "key": "inflator-kit-or-spare",
+        "kind": "EXCLUDES",
+        "source": "TIRE_INFLATOR_KIT",
+        "targets": ["SPARE_COMPACT"]
+      },
+      {
+        "key": "radio-needs-digital-in-europe",
+        "kind": "REQUIRES",
+        "source": "RADIO_AM_FM",
+        "targets": ["RADIO_DIGITAL"],
+        "regions": ["EU"]
+      },
+      {
+        "key": "all-terrain-needs-full-spare",
+        "kind": "REQUIRES",
+        "source": "TIRE_ALL_TERRAIN",
+        "targets": ["SPARE_FULL_SIZE"],
+        "trims": ["Off-Road"]
+      }
+    ],
     "features": {
       "ENGINE_15T_I4":             "SS-- SSS",
       "ENGINE_20T_I4":             "-ASS --A",
@@ -168,6 +202,52 @@
       "NA": ["Base", "Sport", "Touring", "Off-Road"],
       "EU": ["Base", "Sport", "Touring"]
     },
+    "rules": [
+      {
+        "key": "ventilated-seats-need-leather",
+        "kind": "REQUIRES",
+        "source": "SEAT_VENTILATED_FRONT",
+        "targets": ["SEAT_LEATHER"]
+      },
+      {
+        "key": "technology-package-content",
+        "kind": "INCLUDES",
+        "source": "PACKAGE_TECHNOLOGY",
+        "targets": ["ADAS_SURROUND_VIEW", "HEAD_UP_DISPLAY"]
+      },
+      {
+        "key": "inflator-kit-or-spare",
+        "kind": "EXCLUDES",
+        "source": "TIRE_INFLATOR_KIT",
+        "targets": ["SPARE_COMPACT"]
+      },
+      {
+        "key": "radio-needs-digital-in-europe",
+        "kind": "REQUIRES",
+        "source": "RADIO_AM_FM",
+        "targets": ["RADIO_DIGITAL"],
+        "regions": ["EU"]
+      },
+      {
+        "key": "all-terrain-needs-full-spare",
+        "kind": "REQUIRES",
+        "source": "TIRE_ALL_TERRAIN",
+        "targets": ["SPARE_FULL_SIZE"],
+        "trims": ["Off-Road"]
+      },
+      {
+        "key": "hybrid-needs-regenerative-brakes",
+        "kind": "REQUIRES",
+        "source": "POWERTRAIN_HYBRID",
+        "targets": ["BRAKE_REGENERATIVE"]
+      },
+      {
+        "key": "black-appearance-package-content",
+        "kind": "INCLUDES",
+        "source": "PACKAGE_BLACK_APPEARANCE",
+        "targets": ["BADGES_BLACK"]
+      }
+    ],
     "features": {
       "ENGINE_15T_I4":             "SS-- SSS",
       "ENGINE_20T_I4":             "-ASS --A",
@@ -334,6 +414,58 @@
       "EU": ["Base", "Sport", "Touring"],
       "ASIA": ["Base", "Touring"]
     },
+    "rules": [
+      {
+        "key": "ventilated-seats-need-leather",
+        "kind": "REQUIRES",
+        "source": "SEAT_VENTILATED_FRONT",
+        "targets": ["SEAT_LEATHER"]
+      },
+      {
+        "key": "technology-package-content",
+        "kind": "INCLUDES",
+        "source": "PACKAGE_TECHNOLOGY",
+        "targets": ["ADAS_SURROUND_VIEW", "HEAD_UP_DISPLAY"]
+      },
+      {
+        "key": "inflator-kit-or-spare",
+        "kind": "EXCLUDES",
+        "source": "TIRE_INFLATOR_KIT",
+        "targets": ["SPARE_COMPACT"]
+      },
+      {
+        "key": "radio-needs-digital-in-europe",
+        "kind": "REQUIRES",
+        "source": "RADIO_AM_FM",
+        "targets": ["RADIO_DIGITAL"],
+        "regions": ["EU"]
+      },
+      {
+        "key": "all-terrain-needs-full-spare",
+        "kind": "REQUIRES",
+        "source": "TIRE_ALL_TERRAIN",
+        "targets": ["SPARE_FULL_SIZE"],
+        "trims": ["Off-Road"]
+      },
+      {
+        "key": "hybrid-needs-regenerative-brakes",
+        "kind": "REQUIRES",
+        "source": "POWERTRAIN_HYBRID",
+        "targets": ["BRAKE_REGENERATIVE"]
+      },
+      {
+        "key": "black-appearance-package-content",
+        "kind": "INCLUDES",
+        "source": "PACKAGE_BLACK_APPEARANCE",
+        "targets": ["BADGES_BLACK"]
+      },
+      {
+        "key": "traffic-jam-needs-adaptive-cruise",
+        "kind": "REQUIRES",
+        "source": "ADAS_TRAFFIC_JAM",
+        "targets": ["ADAS_ADAPTIVE_CRUISE"]
+      }
+    ],
     "features": {
       "ENGINE_15T_I4":             "SS-- SSS SS",
       "ENGINE_20T_I4":             "-ASS --A -A",
@@ -501,6 +633,46 @@
       "NA": ["Base", "Sport", "Luxury", "Off-Road"],
       "SA": ["Base", "Off-Road"]
     },
+    "rules": [
+      {
+        "key": "mud-tires-need-off-road-suspension",
+        "kind": "REQUIRES",
+        "source": "TIRE_MUD_TERRAIN",
+        "targets": ["SUSP_OFF_ROAD"]
+      },
+      {
+        "key": "heavy-tow-needs-heavy-brakes",
+        "kind": "REQUIRES",
+        "source": "PACKAGE_TOW_HEAVY_DUTY",
+        "targets": ["BRAKE_HEAVY_DUTY"]
+      },
+      {
+        "key": "off-road-package-content",
+        "kind": "INCLUDES",
+        "source": "PACKAGE_OFF_ROAD",
+        "targets": ["SUSP_OFF_ROAD", "SKID_PLATES", "DIFF_LOCKING_REAR"]
+      },
+      {
+        "key": "running-boards-or-rock-rails",
+        "kind": "EXCLUDES",
+        "source": "RUNNING_BOARDS",
+        "targets": ["ROCK_RAILS"]
+      },
+      {
+        "key": "diesel-needs-block-heater-in-north-america",
+        "kind": "REQUIRES",
+        "source": "ENGINE_30D_V6",
+        "targets": ["HEATER_ENGINE_BLOCK"],
+        "regions": ["NA"]
+      },
+      {
+        "key": "all-terrain-needs-off-road-wheels",
+        "kind": "REQUIRES",
+        "source": "TIRE_ALL_TERRAIN",
+        "targets": ["WHEEL_18_OFF_ROAD"],
+        "trims": ["Off-Road"]
+      }
+    ],
     "features": {
       "ENGINE_35_V6":                  "SS-- S-",
       "ENGINE_53_V8":                  "AASS -A",
@@ -685,6 +857,46 @@
       "EU": ["Base", "Sport", "Luxury"],
       "ASIA": ["Base", "Touring", "Luxury"]
     },
+    "rules": [
+      {
+        "key": "massage-seats-need-ventilation",
+        "kind": "REQUIRES",
+        "source": "SEAT_MASSAGE_FRONT",
+        "targets": ["SEAT_VENTILATED_FRONT"]
+      },
+      {
+        "key": "traffic-jam-needs-lane-centering",
+        "kind": "REQUIRES",
+        "source": "ADAS_TRAFFIC_JAM",
+        "targets": ["ADAS_LANE_CENTERING"]
+      },
+      {
+        "key": "rear-comfort-package-content",
+        "kind": "INCLUDES",
+        "source": "PACKAGE_REAR_COMFORT",
+        "targets": ["SEAT_HEATED_REAR", "CLIMATE_REAR"]
+      },
+      {
+        "key": "sport-seats-or-massage",
+        "kind": "EXCLUDES",
+        "source": "SEAT_SPORT",
+        "targets": ["SEAT_MASSAGE_FRONT"]
+      },
+      {
+        "key": "lane-keep-needs-driver-monitoring-in-europe",
+        "kind": "REQUIRES",
+        "source": "ADAS_LANE_KEEP",
+        "targets": ["ADAS_DRIVER_MONITORING"],
+        "regions": ["EU"]
+      },
+      {
+        "key": "automatic-needs-paddles",
+        "kind": "REQUIRES",
+        "source": "TRANS_AUTO_8",
+        "targets": ["PADDLE_SHIFTERS"],
+        "trims": ["Sport"]
+      }
+    ],
     "features": {
       "ENGINE_15T_I4":               "S-SS S-S SSS",
       "ENGINE_20T_I4":               "-S-- -S- ---",
