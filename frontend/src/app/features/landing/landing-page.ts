@@ -58,7 +58,8 @@ interface DemoAccount {
         </p-table>
         <p class="border-t border-surface px-4 py-3 text-sm text-muted-color" data-reset-notice>
           This is a demo. Everything visitors do here is deleted every day at 03:00 UTC, including
-          what the demo accounts own. The accounts themselves stay, so you can sign in again.
+          what the demo accounts own, their notifications, and the spreadsheets they exported. The
+          accounts themselves stay, so you can sign in again.
         </p>
       </section>
     </main>

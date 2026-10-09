@@ -1,5 +1,6 @@
 package dev.rgonz.catalog.demo;
 
+import dev.rgonz.catalog.core.ResetCleanup;
 import dev.rgonz.catalog.core.Seed;
 import dev.rgonz.catalog.user.SandboxRoles;
 import java.sql.SQLException;
@@ -20,8 +21,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * The demo reset: every day at 03:00 UTC the library and the catalogs go back to what a first start
  * leaves, so that nothing a visitor did lasts longer than a day. Every working copy, every Approved
- * version that is not seeded, and all change history go, whoever they belong to. The people who
- * have signed in stay on record, and so do the accounts at the login provider.
+ * version that is not seeded, and all change history go, whoever they belong to, and with them the
+ * jobs, what people were told, and the spreadsheets they exported. A job from before a reset finds
+ * itself gone and does nothing. The people who have signed in stay on record, and so do the
+ * accounts at the login provider.
  *
  * <p>The API runs it. The worker, which is the same build, does not: one reset a day is enough.
  */
@@ -41,15 +44,17 @@ class DemoReset {
   private static final String DEADLOCK_DETECTED = "40P01";
 
   /**
-   * The tables that hold the library and the catalogs, and every table that refers to one of them,
-   * whatever is added later: what a catalog is made of and its change history.
+   * The tables that hold the library, the catalogs, the jobs, and what people were told, and every
+   * table that refers to one of them, whatever is added later: what a catalog is made of, its
+   * change history, its checks and exports, and the jobs' messages.
    */
   private static final String CONTENT_TABLES =
       """
       WITH RECURSIVE content AS (
           SELECT oid FROM pg_class
           WHERE relnamespace = current_schema()::regnamespace
-            AND relname IN ('lineage', 'catalog', 'vehicle_line', 'trim', 'region', 'feature')
+            AND relname IN ('lineage', 'catalog', 'vehicle_line', 'trim', 'region', 'feature',
+                            'job', 'notification')
           UNION
           SELECT referring.conrelid
           FROM pg_constraint referring
@@ -62,17 +67,20 @@ class DemoReset {
   private final JdbcClient jdbc;
   private final TransactionTemplate transactions;
   private final List<Seed> seeds;
+  private final List<ResetCleanup> cleanups;
   private final SandboxRoles sandboxRoles;
 
   DemoReset(
       JdbcClient jdbc,
       TransactionTemplate transactions,
       List<Seed> seeds,
+      List<ResetCleanup> cleanups,
       SandboxRoles sandboxRoles,
       @Value("${app.demo-reset.cron}") String schedule) {
     this.jdbc = jdbc;
     this.transactions = transactions;
     this.seeds = seeds;
+    this.cleanups = cleanups;
     this.sandboxRoles = sandboxRoles;
     if (schedule.equals(Scheduled.CRON_DISABLED)) {
       log.warn("The demo reset is turned off: what visitors do here stays");
@@ -102,10 +110,10 @@ class DemoReset {
    * Empties the library and the catalogs and seeds them again, in one transaction.
    *
    * <p>It first takes every table for itself, and only if all of them are free at that moment.
-   * While a request is in the middle of using one, the reset holds nothing and asks again shortly,
-   * so the two never wait for each other in a circle. Once it has the tables, a request that
-   * arrives waits and then finds the seeded state. Emptying a table leaves the counter behind its
-   * ids where it is, so no id is ever used twice.
+   * While a request is in the middle of using one, or the worker is in the middle of a job, the
+   * reset holds nothing and asks again shortly, so the two never wait for each other in a circle.
+   * Once it has the tables, a request that arrives waits and then finds the seeded state. Emptying
+   * a table leaves the counter behind its ids where it is, so no id is ever used twice.
    *
    * <p>One kind of request does not find the seeded state: one that reads as of the moment it
    * arrived, as reading a whole catalog does. If it arrives while the tables are held, it finds
@@ -121,6 +129,7 @@ class DemoReset {
               var tables = jdbc.sql(CONTENT_TABLES).query(String.class).single();
               jdbc.sql("LOCK TABLE " + tables + " IN ACCESS EXCLUSIVE MODE NOWAIT").update();
               jdbc.sql("TRUNCATE " + tables).update();
+              cleanUp();
               for (var seed : seeds) {
                 try {
                   seed.run(new DefaultApplicationArguments());
@@ -135,6 +144,20 @@ class DemoReset {
           throw failure;
         }
         pause();
+      }
+    }
+  }
+
+  /**
+   * Removes what is kept outside the database. Whatever fails at that is left where it is, and the
+   * reset goes on: the catalogs are put back all the same.
+   */
+  private void cleanUp() {
+    for (var cleanup : cleanups) {
+      try {
+        cleanup.clean();
+      } catch (RuntimeException failure) {
+        log.error("What is kept outside the database was not all removed", failure);
       }
     }
   }

@@ -4,14 +4,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jayway.jsonpath.JsonPath;
 import dev.rgonz.catalog.ApplicationIT;
+import dev.rgonz.catalog.core.ResetCleanup;
 import dev.rgonz.catalog.core.Role;
 import dev.rgonz.catalog.core.Seed;
+import dev.rgonz.catalog.job.JobType;
+import dev.rgonz.catalog.job.Jobs;
+import dev.rgonz.catalog.job.Worker;
 import dev.rgonz.catalog.user.SandboxRoles;
 import java.io.IOException;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -40,6 +45,8 @@ class DemoResetIT extends ApplicationIT {
   private static final String VISITOR = "sandbox-visitor";
 
   @Autowired DemoReset reset;
+  @Autowired Jobs jobs;
+  @Autowired List<Seed> seeds;
   @Autowired DataSource dataSource;
   @Autowired TransactionTemplate transactions;
   @Autowired SandboxRoles sandboxRoles;
@@ -216,7 +223,7 @@ class DemoResetIT extends ApplicationIT {
           throw new IllegalStateException("A seed file could not be read");
         };
 
-    new DemoReset(jdbc, transactions, List.of(failing), sandboxRoles, "-").run();
+    new DemoReset(jdbc, transactions, List.of(failing), List.of(), sandboxRoles, "-").run();
 
     assertThat(content()).as("emptying the tables was undone with the rest").isEqualTo(worked);
     assertThat(mvc.get().uri("/api/admin/users").with(signedInAs(Role.ADMIN, "operator")))
@@ -283,6 +290,132 @@ class DemoResetIT extends ApplicationIT {
       resetting.get(20, TimeUnit.SECONDS);
     }
     assertThat(content()).isEqualTo(seeded);
+  }
+
+  @Test
+  void whenWhatIsKeptOutsideTheDatabaseCannotBeRemovedTheCatalogsArePutBackAllTheSame() {
+    var seeded = content();
+    jdbc.sql("INSERT INTO trim (name, sort_order) VALUES ('A visitor''s trim', 99)").update();
+    ResetCleanup failing =
+        () -> {
+          throw new IllegalStateException("The bucket could not be reached");
+        };
+
+    new DemoReset(jdbc, transactions, seeds, List.of(failing), sandboxRoles, "-").run();
+
+    assertThat(content()).isEqualTo(seeded);
+  }
+
+  /** Leaves what a day's work leaves beside the catalogs, and answers with the job's id. */
+  private long aJobANotificationAndAnExport() {
+    var copy = workingCopyOf("author");
+    transactions.executeWithoutResult(
+        change ->
+            jobs.queue(JobType.AFTER_APPROVAL, "left-before-a-reset", Map.of("catalogId", copy)));
+    jdbc.sql(
+            """
+            INSERT INTO notification (user_id, kind, event_key, payload)
+            VALUES (:person, 'CATALOG_APPROVED', 'told-before-a-reset', '{}')
+            """)
+        .param("person", person("author"))
+        .update();
+    var export =
+        jdbc.sql(
+                """
+                INSERT INTO catalog_export (catalog_id, requested_by, file_name)
+                VALUES (:catalog, :person, 'A spreadsheet.xlsx')
+                RETURNING id
+                """)
+            .param("catalog", copy)
+            .param("person", person("author"))
+            .query(Long.class)
+            .single();
+    exportedFile(export + ".xlsx");
+
+    return jdbc.sql("SELECT id FROM job WHERE dedupe_key = 'left-before-a-reset'")
+        .query(Long.class)
+        .single();
+  }
+
+  @Test
+  void itLeavesNoJobMessageNotificationExportOrExportedFileFromBeforeIt() {
+    Worker.forgets(context);
+    var job = aJobANotificationAndAnExport();
+
+    reset.run();
+
+    assertThat(count("job WHERE id <= " + job)).as("jobs from before it").isZero();
+    assertThat(
+            jdbc.sql("SELECT DISTINCT type || ' ' || status FROM job").query(String.class).list())
+        .as("the jobs it leaves: a check of each seeded current Approved")
+        .containsExactly("RECHECK_APPROVED QUEUED");
+    assertThat(count("job")).isEqualTo(4);
+    assertThat(count("outbox")).as("each with its message").isEqualTo(4);
+    assertThat(count("notification")).isZero();
+    assertThat(count("catalog_export")).isZero();
+    assertThat(exportedFiles()).isEmpty();
+  }
+
+  @Test
+  void withTheWorkerStoppedItLeavesTheSameAndTheWorkerThenOnlyChecksTheSeededCatalogs() {
+    Worker.forgets(context);
+    var seeded = content();
+    aJobANotificationAndAnExport();
+    // The message of the job is on the queue, where it is delayed across the reset.
+    Worker.sends(context);
+
+    reset.run();
+    assertThat(content()).isEqualTo(seeded);
+    assertThat(count("approved_check")).as("until the worker runs").isZero();
+
+    Worker.runs(context);
+
+    assertThat(content())
+        .as("the library and the catalogs, after the worker ran")
+        .isEqualTo(seeded);
+    assertThat(count("notification")).as("the delayed message told no one").isZero();
+    assertThat(count("job WHERE status <> 'SUCCEEDED' OR type <> 'RECHECK_APPROVED'")).isZero();
+    assertThat(
+            count(
+                "approved_check k JOIN lineage l ON l.current_catalog_id = k.catalog_id"
+                    + " WHERE k.status = 'OK'"))
+        .as("every seeded current Approved has its check again, as after a first start")
+        .isEqualTo(4);
+    assertThat(Worker.takesAndStops(context)).as("and nothing is left on the queue").isEmpty();
+  }
+
+  @Test
+  void itWaitsForAJobThatIsRunningWhichThenLeavesNothingBehind() throws Exception {
+    Worker.forgets(context);
+    var seeded = content();
+    var job = aJobANotificationAndAnExport();
+    jdbc.sql("INSERT INTO trim (name, sort_order) VALUES ('A visitor''s trim', 99)").update();
+
+    try (var worker = dataSource.getConnection()) {
+      // The worker in the middle of a job: it holds the job's row, and has work left to save.
+      worker.setAutoCommit(false);
+      worker.createStatement().execute("SELECT id FROM job WHERE id = " + job + " FOR UPDATE");
+      var resetting = CompletableFuture.runAsync(reset::run);
+      Thread.sleep(700);
+
+      assertThat(resetting).as("the reset has not gone ahead").isNotDone();
+      worker
+          .createStatement()
+          .execute(
+              """
+              INSERT INTO notification (user_id, kind, event_key, payload)
+              VALUES (%d, 'CATALOG_APPROVED', 'told-during-a-reset', '{}')
+              """
+                  .formatted(person("author")));
+      worker.createStatement().execute("UPDATE job SET status = 'SUCCEEDED' WHERE id = " + job);
+      worker.commit();
+
+      resetting.get(20, TimeUnit.SECONDS);
+    }
+    assertThat(content()).as("the reset went through").isEqualTo(seeded);
+    assertThat(count("notification")).isZero();
+    assertThat(count("job WHERE id = " + job)).isZero();
+    assertThat(exportedFiles()).isEmpty();
   }
 
   /** How many of the content tables another session holds for itself alone. */

@@ -2,6 +2,7 @@ package dev.rgonz.catalog.catalog;
 
 import dev.rgonz.catalog.catalog.Catalogs.CatalogView;
 import dev.rgonz.catalog.core.ApiException;
+import dev.rgonz.catalog.core.ResetCleanup;
 import dev.rgonz.catalog.job.JobHandler;
 import dev.rgonz.catalog.job.JobType;
 import dev.rgonz.catalog.job.Jobs;
@@ -20,7 +21,7 @@ import tools.jackson.databind.JsonNode;
  * failed.
  */
 @Service
-class Exports implements JobHandler {
+class Exports implements JobHandler, ResetCleanup {
   /** The status of an export whose job is done or failed. Any other export is waiting. */
   private static final Map<String, String> STATUS_OF_JOB =
       Map.of("SUCCEEDED", "READY", "FAILED", "FAILED");
@@ -136,6 +137,12 @@ class Exports implements JobHandler {
                                 fileKey(export),
                                 Spreadsheet.of(catalog.snapshot(), categories()),
                                 asked.fileName())));
+  }
+
+  /** At a demo reset the exports go with their catalogs, and their files with them. */
+  @Override
+  public void clean() {
+    files.deleteAll();
   }
 
   /** What each category is called, by its code and in the order categories are shown in. */

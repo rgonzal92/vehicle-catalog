@@ -262,6 +262,7 @@ Whoever may open a catalog can have it as a spreadsheet. The worker builds the f
 to the bucket `rgonz-vehicle-catalog-exports`, under the export's id. The API then sends whoever
 asked for it to a link that it has signed, which works for five minutes. Nothing in the bucket is
 public, and a file is gone a day after it was written: it is built anew whenever someone asks.
+The demo reset empties the bucket with everything else that visitors left.
 
 ```sh
 aws s3 ls s3://rgonz-vehicle-catalog-exports/
