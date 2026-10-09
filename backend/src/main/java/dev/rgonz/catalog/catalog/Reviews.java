@@ -3,8 +3,11 @@ package dev.rgonz.catalog.catalog;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
 import dev.rgonz.catalog.catalog.Issue.Severity;
 import dev.rgonz.catalog.core.ApiException;
+import dev.rgonz.catalog.job.JobType;
+import dev.rgonz.catalog.job.Jobs;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Pattern;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -27,14 +30,20 @@ class Reviews {
   private final JdbcClient jdbc;
   private final TransactionTemplate transactions;
   private final Catalogs catalogs;
+  private final Jobs jobs;
   private final Counter approvals;
   private final Counter rejections;
 
   Reviews(
-      JdbcClient jdbc, TransactionTemplate transactions, Catalogs catalogs, MeterRegistry metrics) {
+      JdbcClient jdbc,
+      TransactionTemplate transactions,
+      Catalogs catalogs,
+      Jobs jobs,
+      MeterRegistry metrics) {
     this.jdbc = jdbc;
     this.transactions = transactions;
     this.catalogs = catalogs;
+    this.jobs = jobs;
     this.approvals =
         Counter.builder("catalog.approved")
             .description("How many catalogs were approved")
@@ -50,7 +59,8 @@ class Reviews {
    * transaction, with the catalog's lineage locked, so that two approvals in one lineage happen one
    * after the other: the catalog records the labels the library has for its trims, features, and
    * regions; it becomes Approved, with the lineage's next version number; it becomes the lineage's
-   * current Approved; and every other Submitted catalog of the lineage goes back to its owner.
+   * current Approved; every other Submitted catalog of the lineage goes back to its owner; and the
+   * job that follows an approval is written, for the worker to do.
    *
    * <p>A catalog is not approved when it is stale, when its vehicle line is inactive, or when
    * validation, run again at this moment, finds an Error: the global rules may have changed since
@@ -123,6 +133,10 @@ class Reviews {
                   .update();
               returnTheOthers(lineage.id(), catalogId);
               record(catalogId, reviewerId, "APPROVED", said);
+              jobs.queue(
+                  JobType.AFTER_APPROVAL,
+                  "after-approval:" + catalogId,
+                  Map.of(AfterApproval.CATALOG, catalogId));
 
               return revision;
             });
