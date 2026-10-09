@@ -336,6 +336,20 @@ It all goes to Amazon CloudWatch.
   X-Ray. X-Ray keeps every span for thirty days in the log group `aws/spans`, which is of its own
   making, and the CloudWatch console shows them under Application Signals, Transaction Search.
   Every request is traced but the health checks.
+
+  A request and the job it causes are one trace: the job's span has the request's span as its
+  parent, and the line the API writes for the request and the line the worker writes for the job
+  carry the same `traceId`. With a trace's id from either line, this lists its spans, and the
+  second command the lines of the worker that belong to it:
+
+  ```sh
+  aws logs filter-log-events --log-group-name aws/spans \
+    --filter-pattern '{ $.traceId = "<the trace id>" }' \
+    --query 'events[].message' --output text | jq '{name, spanId, parentSpanId}'
+  aws logs filter-log-events --log-group-name /vehicle-catalog/backend \
+    --log-stream-names worker --filter-pattern '{ $.traceId = "<the trace id>" }' \
+    --query 'events[].message' --output text | jq .message
+  ```
 - **Its metrics** go to the same agent, which publishes them under the namespace
   `vehicle-catalog` together with two of the host's own. The dashboard `vehicle-catalog` shows
   them. The API sends the first nine of these, and the worker sends `job.run` and no other.
