@@ -95,7 +95,10 @@ services:
       PUBLIC_URL: https://catalog.rgonz.dev
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?The secret the backend shows the login provider is not set}
       LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
-      # Its traces go to the agent, as the API's do. It sends no metrics.
+      # Its traces go to the agent, as the API's do, and so does its one metric: how long each job
+      # took.
+      MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "true"
+      MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://host.docker.internal:4318/v1/metrics
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://host.docker.internal:4328/v1/traces
     extra_hosts:
       - host.docker.internal:host-gateway

@@ -56,6 +56,27 @@ resource "aws_cloudwatch_metric_alarm" "jobs_failed" {
   treat_missing_data = "notBreaching"
 }
 
+# Goes off when the oldest message on the jobs' queue has waited for more than ten minutes, which
+# is what a worker that is stopped or stuck leads to. A message whose job fails is delivered three
+# times, two minutes apart, and has left the queue well before that. Like the alarm above, it tells
+# no one, and SQS reports what it watches at no charge.
+resource "aws_cloudwatch_metric_alarm" "jobs_waiting" {
+  alarm_name        = "vehicle-catalog-jobs-waiting"
+  alarm_description = "The oldest message on the jobs' queue has waited for more than ten minutes: the worker is stopped or stuck."
+
+  namespace   = "AWS/SQS"
+  metric_name = "ApproximateAgeOfOldestMessage"
+  dimensions  = { QueueName = aws_sqs_queue.jobs.name }
+  statistic   = "Maximum"
+  period      = 60
+
+  evaluation_periods  = 1
+  comparison_operator = "GreaterThanThreshold"
+  threshold           = 10 * 60
+  # A queue that nothing has touched for hours reports nothing, and holds nothing.
+  treat_missing_data = "notBreaching"
+}
+
 # What working the jobs off takes, on these two queues and on no other.
 resource "aws_iam_role_policy" "host_jobs" {
   name = "jobs"

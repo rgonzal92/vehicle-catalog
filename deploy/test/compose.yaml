@@ -69,6 +69,8 @@ services:
 
   worker:
     environment:
+      MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://agent:4318/v1/metrics
+      MANAGEMENT_OTLP_METRICS_EXPORT_STEP: 5s
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://agent:4318/v1/traces
     logging: !reset null
     healthcheck:

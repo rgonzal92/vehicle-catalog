@@ -128,7 +128,8 @@ class Consumer {
    * Runs the job a message names and writes a line for it: which job, how it ended, and how long
    * that took. The job is traced while it runs, as part of the trace its message carries, which is
    * the trace of the request that wrote the job. So one trace shows the request and its job, and
-   * the job's line carries that trace's id. A message that carries no trace starts one.
+   * the job's line carries that trace's id. A message that carries no trace starts one. How long
+   * the job took is also what the worker reports of itself, by the job's type and how it ended.
    *
    * @param said what the message says beside its body: its job's type, and its trace if it has one
    */
@@ -145,8 +146,10 @@ class Consumer {
             .start();
     try (var traced = observation.openScope()) {
       var ended = runOnce(id);
+      observation.lowCardinalityKeyValue("outcome", "SUCCESS");
       log.info("{} in {} ms", ended.formatted(id), (System.nanoTime() - started) / 1_000_000);
     } catch (RuntimeException failure) {
+      observation.lowCardinalityKeyValue("outcome", "FAILURE");
       observation.error(failure);
       throw failure;
     } finally {

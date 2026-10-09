@@ -149,7 +149,7 @@ run "a_backend_that_is_not_ready_or_says_nothing_sets_off_the_alarm" {
 
 run "every_metric_that_is_sent_is_looked_at" {
   assert {
-    # A test in backend/ holds the backend to these nine.
+    # Tests in backend/ hold the API to the first nine and the worker to the last.
     condition = alltrue([
       for metric in [
         "health",
@@ -161,6 +161,7 @@ run "every_metric_that_is_sent_is_looked_at" {
         "catalog.approved",
         "catalog.rejected",
         "catalog.merged",
+        "job.run",
       ] :
       anytrue([
         for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
