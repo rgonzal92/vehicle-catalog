@@ -149,7 +149,7 @@ aws ssm start-session --target "$(aws ec2 describe-instances \
 ```
 
 The stack is in `/opt/vehicle-catalog` there, which only root reads. This shows what Caddy, the
-backend, and the database say:
+backend, the worker, and the database say:
 
 ```sh
 sudo docker compose --project-directory /opt/vehicle-catalog logs
@@ -188,9 +188,9 @@ aws ssm send-command --document-name vehicle-catalog-release \
 ```
 
 `deploy/test/check.sh` runs the same stack on this machine against stand-ins for the certificate
-authority, the registry, Parameter Store, the backups bucket, and the CloudWatch agent. It releases
-images to it, among them two that do not come up healthy, and backs the database up and puts the
-backup back. `verify` runs it too.
+authority, the registry, Parameter Store, the backups bucket, the CloudWatch agent, and the queue
+of the jobs. It releases images to it, among them three that do not come up healthy, has the
+worker do a job, and backs the database up and puts the backup back. `verify` runs it too.
 
 The secret the distribution sends the host is changed with
 `terraform apply -replace=random_password.origin_secret`. The host has the new one within a
@@ -199,6 +199,47 @@ minute and the distribution some minutes later; in between, the API answers 403.
 Terraform refuses to give up the host's address, because whoever is given it next could pass for
 the host while the `origin-catalog` record still names it. To take the host down for good, remove
 that record at Cloudflare first, and then the `prevent_destroy` line in `host.tf`.
+
+## Jobs and the worker
+
+Work that follows a change, such as telling the owner of a catalog that it was approved, is a job.
+The API writes a job into the database with the change that causes it, and never talks to a queue.
+The worker does the jobs. It is the backend's own image, run a second time on the host with the
+profile `worker`: it sends a message for each new job to a queue, receives the messages, and does
+the job each one names. `docs/adr/0011` says why it is built this way.
+
+A release starts the API and the worker from the new image, and has succeeded when both are
+healthy. When either is not, both go back to the image that ran before.
+
+| Queue | What is on it |
+| --- | --- |
+| `vehicle-catalog-jobs` | a message for each job that is waiting or being done |
+| `vehicle-catalog-jobs-failed` | the messages that were received three times and never deleted, kept for fourteen days |
+
+A message that the worker has received is hidden for two minutes. If the worker has not deleted it
+by then, which it does once the job's work is saved, the queue delivers it again.
+
+This says how many messages wait on each queue, and how many are being handled:
+
+```sh
+for queue in vehicle-catalog-jobs vehicle-catalog-jobs-failed; do
+  aws sqs get-queue-attributes --queue-url "$(aws sqs get-queue-url --queue-name "$queue" \
+    --query QueueUrl --output text)" \
+    --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible \
+    --query Attributes
+done
+```
+
+The worker writes a line for every job it does, in the backend's log group under the stream
+`worker`:
+
+```sh
+aws logs tail /vehicle-catalog/backend --log-stream-names worker --since 10m
+```
+
+A job that has not been done is in the database with the status `QUEUED`, and a message that has
+not been sent to the queue yet is in `outbox` without a time in `sent_at`. With the worker stopped,
+both wait there and nothing else is affected.
 
 ## Backups
 

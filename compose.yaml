@@ -168,7 +168,7 @@ services:
     environment:
       <<: *backend-settings
       SPRING_PROFILES_ACTIVE: worker
-      APP_JOBS_QUEUE_URL: http://queue:9324/queue/jobs
+      JOBS_QUEUE_URL: http://queue:9324/queue/jobs
     healthcheck:
       test:
         - CMD

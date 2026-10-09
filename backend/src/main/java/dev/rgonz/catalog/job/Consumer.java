@@ -1,5 +1,7 @@
 package dev.rgonz.catalog.job;
 
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +28,7 @@ class Consumer {
   private final TransactionTemplate transactions;
   private final JobQueue queue;
   private final JsonMapper json;
+  private final ObservationRegistry observations;
   private final Map<JobType, JobHandler> handlers;
 
   Consumer(
@@ -33,11 +36,13 @@ class Consumer {
       TransactionTemplate transactions,
       JobQueue queue,
       JsonMapper json,
+      ObservationRegistry observations,
       List<JobHandler> handlers) {
     this.jdbc = jdbc;
     this.transactions = transactions;
     this.queue = queue;
     this.json = json;
+    this.observations = observations;
     this.handlers =
         handlers.stream().collect(Collectors.toMap(JobHandler::type, Function.identity()));
   }
@@ -61,12 +66,33 @@ class Consumer {
   }
 
   /**
-   * Runs the job a message names, with the job's row held from the first look at it until its work
-   * is saved. Nothing is done for a job that is done already, or that no longer exists.
+   * Runs the job a message names and writes a line for it: which job, how it ended, and how long
+   * that took. The job is traced while it runs, so its line carries a trace id, as a request's line
+   * does.
    */
   private void run(String body) {
     long id = json.readTree(body).required("jobId").asLong();
-    transactions.executeWithoutResult(
+    var started = System.nanoTime();
+    var observation = Observation.start("job.run", observations);
+    try (var traced = observation.openScope()) {
+      var ended = runOnce(id);
+      log.info("{} in {} ms", ended.formatted(id), (System.nanoTime() - started) / 1_000_000);
+    } catch (RuntimeException failure) {
+      observation.error(failure);
+      throw failure;
+    } finally {
+      observation.stop();
+    }
+  }
+
+  /**
+   * Does the job's work with the job's row held from the first look at it until the work is saved.
+   * Nothing is done for a job that is done already, or that no longer exists.
+   *
+   * @return how it ended, as a line that has a place for the job's id
+   */
+  private String runOnce(long id) {
+    return transactions.execute(
         transaction -> {
           var job =
               jdbc.sql(
@@ -79,8 +105,11 @@ class Consumer {
                   .param("id", id)
                   .query(Waiting.class)
                   .optional();
-          if (job.isEmpty() || job.get().status().equals("SUCCEEDED")) {
-            return;
+          if (job.isEmpty()) {
+            return "Job %d is gone, and so is its message";
+          }
+          if (job.get().status().equals("SUCCEEDED")) {
+            return job.get().type() + " job %d was done already";
           }
           handlers
               .get(JobType.valueOf(job.get().type()))
@@ -93,6 +122,7 @@ class Consumer {
                   """)
               .param("id", id)
               .update();
+          return job.get().type() + " job %d done";
         });
   }
 

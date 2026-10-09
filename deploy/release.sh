@@ -4,8 +4,9 @@
 #   release.sh            starts the stack with the image released last
 #   release.sh <image>    releases that image
 #
-# A released image that does not come up healthy is taken back: the image that ran before it is
-# started again, and this fails. The database is left as the new image made it.
+# The API and the worker run the same image. A released image with which either does not come up
+# healthy is taken back: the image that ran before it is started again for both, and this fails.
+# The database is left as the new image made it.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -72,7 +73,7 @@ if [ $# -eq 0 ]; then
 fi
 if [ -z "$replaced" ]; then
   echo "The image did not come up healthy, and none ran before it. The backend is stopped." >&2
-  docker compose rm --stop --force backend
+  docker compose rm --stop --force backend worker
   docker rmi "$current" >/dev/null
   exit 1
 fi
@@ -84,7 +85,7 @@ if [ -n "$dropped" ]; then
 elif [ -n "$(image_named "$previous")" ]; then
   docker rmi "$previous" >/dev/null
 fi
-if ! docker compose up --detach --wait --wait-timeout 300 backend; then
+if ! docker compose up --detach --wait --wait-timeout 300 backend worker; then
   echo "The image that ran before it did not come up healthy either." >&2
 fi
 forget "$refused"
