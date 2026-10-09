@@ -89,19 +89,6 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/admin/users/users-page').then((page) => page.UsersPage),
       },
-      // The looks the app could take, side by side. A production build has neither the route nor
-      // the page.
-      ...(ngDevMode
-        ? [
-            {
-              path: 'dev/looks',
-              title: 'Looks · Vehicle Catalog',
-              canActivate: [holding('author')],
-              loadComponent: () =>
-                import('./features/looks/looks-page').then((page) => page.LooksPage),
-            },
-          ]
-        : []),
     ],
   },
   // The matrix at full size on generated data. A production build has neither the route nor the page.

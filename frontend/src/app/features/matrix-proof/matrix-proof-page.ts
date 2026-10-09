@@ -3,7 +3,7 @@ import { Button } from 'primeng/button';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
 import { Cell, MatrixContents } from '../../shared/availability-matrix/matrix';
 
-export const CATEGORIES = [
+const CATEGORIES = [
   'Powertrain',
   'Chassis',
   'Steering',
@@ -20,7 +20,7 @@ export const CATEGORIES = [
 ].map((name, index) => ({ code: `CATEGORY_${index + 1}`, name }));
 
 /** A generated catalog of the largest size: 500 feature rows by 12 trims sold in 8 regions. */
-export function largestCatalog(): MatrixContents {
+function largestCatalog(): MatrixContents {
   const trims = Array.from({ length: 12 }, (_, index) => ({
     id: index + 1,
     name: `Trim ${index + 1}`,

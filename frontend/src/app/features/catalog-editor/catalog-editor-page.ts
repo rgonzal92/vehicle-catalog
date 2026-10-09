@@ -40,6 +40,7 @@ import { FixedLists } from '../../core/fixed-lists';
 import { FeatureKind, KIND_FILTERS } from '../../core/library';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
 import { Cell, FeatureRow } from '../../shared/availability-matrix/matrix';
+import { Loading, ReadFailed } from '../../shared/read-state';
 import { reasonOf } from '../../shared/reason-of';
 import { AddFeaturesDialog } from './add-features-dialog';
 import { counted, sentence } from './counted';
@@ -84,6 +85,8 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
     Tabs,
     Tag,
     AvailabilityMatrix,
+    Loading,
+    ReadFailed,
     AddFeaturesDialog,
     HistoryTab,
     ManageOfferingsDialog,
@@ -335,6 +338,10 @@ import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
         </p-tabs>
       } @else if (missing()) {
         <p>There is no catalog at this address.</p>
+      } @else if (failed()) {
+        <app-read-failed what="The catalog could not be read." (again)="reload()" />
+      } @else {
+        <app-loading class="surface" />
       }
     </div>
   `,
@@ -350,6 +357,9 @@ export class CatalogEditorPage {
 
   /** Whether the address names no catalog, or one this person may not open. */
   protected readonly missing = signal(false);
+
+  /** Whether the catalog could not be read at all, which the page then says. */
+  protected readonly failed = signal(false);
 
   protected readonly statusNames = STATUS_NAMES;
   protected readonly statusSeverities = STATUS_SEVERITIES;
@@ -719,6 +729,7 @@ export class CatalogEditorPage {
    * whether the catalog was read.
    */
   private async open(): Promise<boolean> {
+    this.failed.set(false);
     try {
       const catalog = await this.catalogs.find(this.id);
       const regions = new Set(catalog.snapshot.regions.map(({ code }) => code));
@@ -739,6 +750,8 @@ export class CatalogEditorPage {
         this.catalog.set(null);
         this.missing.set(true);
       }
+      // A catalog that was never read leaves nothing to show. One that was read stays in view.
+      this.failed.set(!this.missing() && !this.catalog());
       return false;
     }
   }

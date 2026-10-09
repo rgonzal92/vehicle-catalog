@@ -230,4 +230,35 @@ describe('ApprovedPage', () => {
     expect(element.querySelector('[data-shown]')?.textContent).toContain('Approved version 2');
     expect(element.textContent).not.toContain('There is no Approved version at this address.');
   });
+
+  it('stands in for the page until it has been read', async () => {
+    const element = await page(versions);
+    expect(element.querySelector('app-loading')).not.toBeNull();
+
+    (await catalogRequest(12)).flush(catalog(versions[0], [{}, {}, {}]));
+
+    await vi.waitFor(() => expect(element.querySelector('app-loading')).toBeNull());
+    expect(element.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('says so when the page cannot be read, and reads it again when asked', async () => {
+    const element = await page(versions);
+    (await catalogRequest(12)).flush(null, { status: 500, statusText: 'Server Error' });
+
+    const failed = await vi.waitFor(() => {
+      const found = element.querySelector('[role="alert"]');
+      expect(found?.textContent).toContain('The Approved catalog could not be read.');
+      return found!;
+    });
+    Array.from(failed.querySelectorAll('button'))
+      .find((candidate) => candidate.textContent?.trim() === 'Try again')!
+      .click();
+
+    (await vi.waitFor(() => backend.expectOne('/api/lineages/3/versions'))).flush(versions);
+    (await catalogRequest(12)).flush(catalog(versions[0], [{}, {}, {}]));
+    await vi.waitFor(() =>
+      expect(element.querySelector('h2')?.textContent?.trim()).toBe('Compact SUV 2026'),
+    );
+    expect(element.querySelector('[role="alert"]')).toBeNull();
+  });
 });
