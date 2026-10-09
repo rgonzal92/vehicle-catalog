@@ -12,7 +12,9 @@ export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  workers: process.env.CI ? 1 : undefined,
+  // The pipeline's machine has four processors. A test keeps to catalogs of its own, so the
+  // tests run side by side there as they do on a developer's machine.
+  workers: process.env.CI ? 4 : undefined,
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL: 'http://localhost:8092',
