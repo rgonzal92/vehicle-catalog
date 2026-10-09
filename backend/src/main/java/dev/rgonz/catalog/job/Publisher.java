@@ -45,7 +45,7 @@ class Publisher {
                   .query(Unsent.class)
                   .list();
           for (var message : unsent) {
-            queue.send(message.body(), message.type(), message.traceparent());
+            queue.send(message.id(), message.body(), message.type(), message.traceparent());
             jdbc.sql("UPDATE outbox SET sent_at = now() WHERE id = :id")
                 .param("id", message.id())
                 .update();

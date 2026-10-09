@@ -22,7 +22,7 @@ import tools.jackson.databind.json.JsonMapper;
  * stop in the middle leaves the message to be delivered again. A message can arrive twice for that
  * reason and others; a job that is done already is not done again. A job whose work fails is tried
  * again when its message is delivered again, and has failed for good once the queue gives the
- * message up.
+ * message up, whether a try at it said why or not.
  */
 @Component
 @TalksToTheQueue
@@ -64,7 +64,8 @@ class Consumer {
       try {
         run(message.body(), JobQueue.attributesOf(message));
         queue.delete(message);
-      } catch (RuntimeException failure) {
+      } catch (RuntimeException | Error failure) {
+        // An error that is no exception, such as running out of memory, is a failed try too.
         log.warn("A job was not done", failure);
         keepThatItFailed(message, failure);
       }
@@ -77,7 +78,7 @@ class Consumer {
    * this is saved by itself. The queue delivers the message again unless it has delivered it as
    * often as it does: then the job has failed for good, and stays so until an admin has it retried.
    */
-  private void keepThatItFailed(Message message, RuntimeException failure) {
+  private void keepThatItFailed(Message message, Throwable failure) {
     try {
       jdbc.sql(
               """
@@ -96,27 +97,68 @@ class Consumer {
   }
 
   /**
-   * Looks through the dead-letter queue and deletes each message whose job is no longer failed: one
-   * that was retried and has been done since, and one that no longer exists. So the dead-letter
-   * queue holds the jobs that are failed now, and whoever watches its depth is told of nothing
-   * else.
+   * Looks through the dead-letter queue, so that it holds the jobs that are failed now and whoever
+   * watches its depth is told of nothing else.
+   *
+   * <p>A job that still waits though the queue has given its message up is made failed: no try at
+   * it was done, and none was kept as failed, as when the worker was stopped in the middle of each.
+   * A message is deleted when its job is no longer failed: one that was retried and has been done
+   * since, one that was retried and waits for its new message, and one that no longer exists.
    *
    * @return how many messages it deleted
    */
   int sweepTheDeadLetterQueue() {
     int deleted = 0;
     for (var message : queue.receiveFailed()) {
-      boolean failed =
-          jdbc.sql("SELECT EXISTS (SELECT 1 FROM job WHERE id = :id AND status = 'FAILED')")
-              .param("id", jobOf(message.body()))
-              .query(Boolean.class)
-              .single();
-      if (!failed) {
+      long job = jobOf(message.body());
+      var status =
+          jdbc.sql("SELECT status FROM job WHERE id = :id")
+              .param("id", job)
+              .query(String.class)
+              .optional()
+              .orElse("GONE");
+      if (status.equals("QUEUED") && isTheLatestOf(job, message)) {
+        giveUp(job);
+      } else if (!status.equals("FAILED")) {
         queue.deleteFailed(message);
         deleted++;
       }
     }
     return deleted;
+  }
+
+  /**
+   * Whether this is the message the job was last queued with. A job that was retried has a new
+   * message, while the one of the tries before its retry may still be in the dead-letter queue.
+   */
+  private boolean isTheLatestOf(long job, Message message) {
+    var sent = JobQueue.attributesOf(message).get(JobQueue.MESSAGE);
+
+    return sent != null
+        && jdbc.sql("SELECT coalesce(max(id) = :message, false) FROM outbox WHERE job_id = :job")
+            .param("message", Long.parseLong(sent))
+            .param("job", job)
+            .query(Boolean.class)
+            .single();
+  }
+
+  /**
+   * Makes a job failed that the queue has given up. A job that is being worked on just now is left
+   * as it is, for the next look through the dead-letter queue: its try may yet be done.
+   */
+  private void giveUp(long job) {
+    jdbc.sql(
+            """
+            UPDATE job
+            SET status = 'FAILED', updated_at = now(),
+                error = coalesce(
+                    error, 'The queue gave up its message, and no try at the job said why.')
+            WHERE id = (
+                SELECT id FROM job WHERE id = :id AND status = 'QUEUED' FOR UPDATE SKIP LOCKED
+            )
+            """)
+        .param("id", job)
+        .update();
   }
 
   /** The job a message names. */
@@ -148,7 +190,7 @@ class Consumer {
       var ended = runOnce(id);
       observation.lowCardinalityKeyValue("outcome", "SUCCESS");
       log.info("{} in {} ms", ended.formatted(id), (System.nanoTime() - started) / 1_000_000);
-    } catch (RuntimeException failure) {
+    } catch (RuntimeException | Error failure) {
       observation.lowCardinalityKeyValue("outcome", "FAILURE");
       observation.error(failure);
       throw failure;

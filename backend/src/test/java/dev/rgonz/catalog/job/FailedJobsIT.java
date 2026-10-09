@@ -2,6 +2,9 @@ package dev.rgonz.catalog.job;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doCallRealMethod;
+import static org.mockito.Mockito.doThrow;
 
 import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.core.Role;
@@ -16,6 +19,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.ApplicationContext;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
 /**
@@ -27,6 +31,10 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 @ExtendWith(OutputCaptureExtension.class)
 class FailedJobsIT extends ApplicationIT {
   @Autowired ApplicationContext application;
+
+  /** What follows an approval, which a test can have end as it likes. */
+  @MockitoSpyBean(name = "afterApproval")
+  JobHandler afterApproval;
 
   @BeforeEach
   void noJobs() {
@@ -155,6 +163,71 @@ class FailedJobsIT extends ApplicationIT {
                 .single())
         .as("and nothing is queued by either")
         .isZero();
+  }
+
+  @Test
+  void aJobThatEndsInAnErrorThatIsNoExceptionFailsAsAnyOtherAndCanBeRetried() {
+    var job = aJobThatNothingDoes();
+    putRight(job);
+    // An error such as running out of memory is no exception. This one is of the same kind, and
+    // unlike that one it does not stop the tests when it gets as far as them.
+    doThrow(new LinkageError("A class the job needs is not there"))
+        .when(afterApproval)
+        .handle(any());
+
+    workUntil(job, "FAILED after 3");
+
+    assertThat(jdbc.sql("SELECT error FROM job").query(String.class).single())
+        .isEqualTo("java.lang.LinkageError: A class the job needs is not there");
+    untilItsMessageIsGivenUp();
+    doCallRealMethod().when(afterApproval).handle(any());
+    assertThat(retry(Role.ADMIN, job)).hasStatusOk();
+    workUntil(job, "SUCCEEDED after 4");
+  }
+
+  @Test
+  void aJobWhoseTriesAllStopHalfWayIsFailedOnceTheQueueGivesItsMessageUp() {
+    var job = aJobThatNothingDoes();
+    putRight(job);
+    Worker.sends(application);
+
+    // A worker that is stopped in the middle of a job keeps nothing of the try.
+    await()
+        .atMost(Duration.ofSeconds(20))
+        .pollInterval(Duration.ofMillis(250))
+        .untilAsserted(
+            () -> {
+              Worker.takesAndStops(application);
+              assertThat(Worker.inTheDeadLetterQueue(application)).hasSize(1);
+            });
+    assertThat(stands(job)).isEqualTo("QUEUED after 0");
+
+    assertThat(Worker.sweeps(application)).as("its message stays where it is").isZero();
+
+    assertThat(stands(job)).isEqualTo("FAILED after 0");
+    assertThat(jdbc.sql("SELECT error FROM job").query(String.class).single())
+        .isEqualTo("The queue gave up its message, and no try at the job said why.");
+    assertThat(Worker.inTheDeadLetterQueue(application)).hasSize(1);
+    assertThat(retry(Role.ADMIN, job)).as("an admin has it tried again").hasStatusOk();
+    workUntil(job, "SUCCEEDED after 1");
+    assertThat(Worker.sweeps(application)).isOne();
+    assertThat(Worker.inTheDeadLetterQueue(application)).isEmpty();
+  }
+
+  @Test
+  void aRetriedJobIsNotFailedAgainByTheMessageOfTheTriesBeforeItsRetry() {
+    var job = aJobThatNothingDoes();
+    workUntil(job, "FAILED after 3");
+    untilItsMessageIsGivenUp();
+    putRight(job);
+    retry(Role.ADMIN, job);
+
+    // The dead-letter queue is looked through before the job has been tried again.
+    assertThat(Worker.sweeps(application)).as("the message of the tries before").isOne();
+
+    assertThat(stands(job)).isEqualTo("QUEUED after 3");
+    workUntil(job, "SUCCEEDED after 4");
+    assertThat(Worker.inTheDeadLetterQueue(application)).isEmpty();
   }
 
   @Test
