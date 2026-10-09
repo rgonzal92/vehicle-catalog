@@ -4,30 +4,22 @@ import { Pencil } from '@primeicons/angular/pencil';
 import { Plus } from '@primeicons/angular/plus';
 import { Search } from '@primeicons/angular/search';
 import { Trash } from '@primeicons/angular/trash';
-import { usePreset } from '@primeuix/themes';
 import { ButtonDirective, ButtonIcon, ButtonLabel } from 'primeng/button';
 import { Checkbox } from 'primeng/checkbox';
 import { Dialog } from 'primeng/dialog';
 import { InputText } from 'primeng/inputtext';
 import { Message } from 'primeng/message';
 import { Select } from 'primeng/select';
-import { SelectButton } from 'primeng/selectbutton';
 import { TableModule } from 'primeng/table';
 import { Tab, TabList, TabPanel, TabPanels, Tabs } from 'primeng/tabs';
 import { Tag } from 'primeng/tag';
 import { Textarea } from 'primeng/textarea';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
 import { CATEGORIES, largestCatalog } from '../matrix-proof/matrix-proof-page';
-import { LOOKS } from './looks';
-
-/** The fonts of the looks. This page alone asks another site for them. */
-const FONTS =
-  'https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=IBM+Plex+Sans:wght@400;500;600;700&family=Figtree:wght@400..700&display=swap';
 
 /**
- * Shows the app's building blocks in each of the looks it could take, so that one can be chosen.
- * Choosing a look restyles the whole app until the page is reloaded. The page exists only in
- * development builds.
+ * Shows the app's building blocks in its look, as a reference while the pages are restyled. The
+ * page exists only in development builds.
  */
 @Component({
   imports: [
@@ -44,7 +36,6 @@ const FONTS =
     InputText,
     Message,
     Select,
-    SelectButton,
     TableModule,
     Tab,
     TabList,
@@ -58,21 +49,6 @@ const FONTS =
   selector: 'app-looks-page',
   template: `
     <div class="grid gap-6">
-      <section class="grid gap-3" aria-labelledby="look">
-        <h2 id="look" class="text-xl font-semibold">Look</h2>
-        <p-selectbutton
-          optionLabel="name"
-          ariaLabelledBy="look"
-          [options]="looks"
-          [allowEmpty]="false"
-          [ngModel]="look()"
-          (ngModelChange)="use($event)"
-        />
-        <p class="text-muted-color">
-          {{ look().says }} The switch in the top strip changes light and dark.
-        </p>
-      </section>
-
       <section [class]="surface" aria-labelledby="catalogs">
         <div [class]="surfaceHeader">
           <h2 id="catalogs" class="font-semibold">My catalogs</h2>
@@ -256,8 +232,6 @@ const FONTS =
 export class LooksPage {
   private readonly matrix = viewChild.required<AvailabilityMatrix>('matrix');
 
-  protected readonly looks = LOOKS;
-  protected readonly look = signal(LOOKS[0]);
   protected readonly asking = signal(false);
   protected readonly editable = signal(true);
 
@@ -278,18 +252,6 @@ export class LooksPage {
     'overflow-hidden rounded-border border border-surface bg-surface-0 dark:bg-surface-900';
   protected readonly surfaceHeader =
     'flex flex-wrap items-center justify-between gap-4 border-b border-surface px-4 py-3';
-
-  constructor() {
-    const fonts = document.createElement('link');
-    fonts.rel = 'stylesheet';
-    fonts.href = FONTS;
-    document.head.append(fonts);
-  }
-
-  protected use(look: (typeof LOOKS)[number]): void {
-    this.look.set(look);
-    usePreset(look.preset);
-  }
 
   protected markNotSaved(): void {
     const [feature] = this.contents.featureRows;

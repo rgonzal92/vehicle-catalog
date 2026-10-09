@@ -4,6 +4,15 @@
 @import "tailwindcss";
 @import "tailwindcss-primeui";
 
+/* The app's font, in the weights from thin to black, for the letters of Western languages. */
+@font-face {
+  font-family: Inter;
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/inter-latin.woff2") format("woff2");
+}
+
 /* Dark is a class on the root element, which the color scheme sets, and not the system's word. */
 @custom-variant dark (&:where(.app-dark, .app-dark *));
 
