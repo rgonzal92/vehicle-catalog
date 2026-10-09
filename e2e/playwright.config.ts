@@ -12,11 +12,10 @@ export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  // The pipeline's machine has four processors. A test keeps to catalogs of its own, so the
-  // tests run side by side there as they do on a developer's machine.
-  workers: process.env.CI ? 4 : undefined,
-  // Four at a time on that machine, a test takes about 1.7 times as long as it does alone, and
-  // the longest came within a second or two of the thirty a test has unless it is given more.
+  // A test keeps to catalogs of its own, so the tests run side by side: as many at a time as half
+  // the machine's processors, which is Playwright's own choice and comes to two in the pipeline.
+  // Four at a time there left the browsers short of processor time, and tests failed for it.
+  // Side by side a test takes longer than it does alone, so it has sixty seconds, not thirty.
   timeout: 60_000,
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
   use: {
