@@ -13,9 +13,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Makes the largest catalog there can be, 500 feature rows by 96 offerings (12 trims sold in each
- * of 8 regions), for tests and for measuring how the app behaves at that size. It is an Approved
- * version of a vehicle line of its own, "Largest Catalog", made of library entries of its own, so
- * that a working copy of it is created and edited like any other.
+ * of 8 regions) with 500 rules, for tests and for measuring how the app behaves at that size. It is
+ * an Approved version of a vehicle line of its own, "Largest Catalog", made of library entries of
+ * its own, so that a working copy of it is created and edited like any other.
  *
  * <p>It is made only where {@code app.largest-catalog} is true, which it is not unless it is set,
  * and nothing a visitor can reach makes it. There it is made at startup and made anew, with its
@@ -28,6 +28,35 @@ import org.springframework.transaction.annotation.Transactional;
 @Component
 @Order(3)
 class LargestCatalog implements Seed {
+  /**
+   * The catalog's feature rows by their place, as {@code placed}, and the rules to make, each by
+   * the places of its source and its targets, as {@code rules}.
+   */
+  private static final String RULES =
+      """
+      WITH placed AS (
+          SELECT feature_id, row_number() OVER (ORDER BY feature_id) AS place
+          FROM catalog_feature WHERE catalog_id = :catalog
+      ), rules AS (
+          SELECT md5('requires ' || n)::uuid AS rule_key, 'REQUIRES' AS kind, n AS source,
+                 ARRAY[n + 4] AS targets, n % 7 <> 0 AS all_trims, n % 5 <> 0 AS all_regions,
+                 NULL::uuid AS pair_key
+          FROM generate_series(1, 300) AS n
+          UNION ALL
+          SELECT md5('one of ' || n)::uuid, 'REQUIRES_ONE_OF', n, ARRAY[n + 4, n + 8], true,
+                 n % 5 <> 0, NULL
+          FROM generate_series(301, 400) AS n
+          UNION ALL
+          SELECT md5('excludes ' || n)::uuid, 'EXCLUDES', n, ARRAY[n + 2], true, true,
+                 md5('pair ' || n)::uuid
+          FROM generate_series(401, 450) AS n
+          UNION ALL
+          SELECT md5('excluded ' || n)::uuid, 'EXCLUDES', n + 2, ARRAY[n], true, true,
+                 md5('pair ' || n)::uuid
+          FROM generate_series(401, 450) AS n
+      )
+      """;
+
   private final JdbcClient jdbc;
   private final FixedLists fixedLists;
   private final DemoPeople demoPeople;
@@ -186,8 +215,66 @@ class LargestCatalog implements Seed {
             """)
         .param("catalog", catalog)
         .update();
+    addRules(catalog);
 
     return catalog;
+  }
+
+  /**
+   * Gives the catalog as many rules as a catalog can have, 500, a pair counting as two: 300
+   * Requires, which form chains, 100 Requires one of, and 50 exclusions. They follow the pattern of
+   * the cells, so that none is broken: a feature requires the one four places on, which every
+   * offering offers as it offers the feature itself, and excludes the one two places on, which no
+   * offering offers together with it. Some cover half of the trims or half of the regions. A rule's
+   * key follows from its kind and its place, so every catalog made has the same rules.
+   */
+  private void addRules(long catalog) {
+    jdbc.sql(
+            RULES
+                + """
+                INSERT INTO catalog_rule (catalog_id, rule_key, kind, source_feature_id, all_trims,
+                                          all_regions, pair_key)
+                SELECT :catalog, r.rule_key, r.kind, f.feature_id, r.all_trims, r.all_regions,
+                       r.pair_key
+                FROM rules r
+                JOIN placed f ON f.place = r.source
+                """)
+        .param("catalog", catalog)
+        .update();
+    jdbc.sql(
+            RULES
+                + """
+                INSERT INTO catalog_rule_target (catalog_id, rule_key, feature_id)
+                SELECT :catalog, r.rule_key, f.feature_id
+                FROM rules r
+                JOIN placed f ON f.place = ANY (r.targets)
+                """)
+        .param("catalog", catalog)
+        .update();
+    jdbc.sql(
+            RULES
+                + """
+                INSERT INTO catalog_rule_trim (catalog_id, rule_key, trim_id)
+                SELECT :catalog, r.rule_key, t.trim_id
+                FROM rules r
+                JOIN (SELECT trim_id, row_number() OVER (ORDER BY trim_id) AS place
+                      FROM catalog_trim WHERE catalog_id = :catalog) AS t ON t.place <= 6
+                WHERE NOT r.all_trims
+                """)
+        .param("catalog", catalog)
+        .update();
+    jdbc.sql(
+            RULES
+                + """
+                INSERT INTO catalog_rule_region (catalog_id, rule_key, region_code)
+                SELECT :catalog, r.rule_key, g.region_code
+                FROM rules r
+                JOIN (SELECT region_code, row_number() OVER (ORDER BY region_code) AS place
+                      FROM catalog_region WHERE catalog_id = :catalog) AS g ON g.place <= 4
+                WHERE NOT r.all_regions
+                """)
+        .param("catalog", catalog)
+        .update();
   }
 
   private long demoPerson(Role role) {

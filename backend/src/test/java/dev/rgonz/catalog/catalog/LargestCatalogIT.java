@@ -52,6 +52,8 @@ class LargestCatalogIT extends WorkingCopyTests {
   }
 
   @Autowired LargestCatalog largest;
+  @Autowired Catalogs catalogs;
+  @Autowired CatalogRules catalogRules;
   @Autowired TransactionTemplate transactions;
 
   @BeforeEach
@@ -103,6 +105,29 @@ class LargestCatalogIT extends WorkingCopyTests {
             ApplicationIT.<List<String>>read(
                 mvc.get().uri("/api/lineages").with(ana()).exchange(), "$[*].vehicleLine"))
         .contains("Largest Catalog");
+  }
+
+  @Test
+  void itHasAsManyRulesAsACatalogCanHaveAndBreaksNone() {
+    var id = largest.create();
+
+    var opened = open(ana(), id);
+
+    assertThat(ApplicationIT.<List<Object>>read(opened, "$.snapshot.rules")).hasSize(500);
+    assertThat(
+            ApplicationIT.<List<String>>read(
+                opened, "$.snapshot.rules[?(@.kind == 'EXCLUDES')].pairKey"))
+        .as("50 exclusions, each a pair")
+        .hasSize(100)
+        .doesNotContainNull();
+    assertThat(catalogRules.brokenPairs()).isEmpty();
+    assertThat(count("catalog_rule_trim WHERE catalog_id = %d", id))
+        .as("some rules cover half of the trims")
+        .isPositive();
+    assertThat(count("catalog_rule_region WHERE catalog_id = %d", id))
+        .as("some rules cover half of the regions")
+        .isPositive();
+    assertThat(ApplicationIT.<List<Object>>read(opened, "$.issues")).isEmpty();
   }
 
   @Test
@@ -218,6 +243,41 @@ class LargestCatalogIT extends WorkingCopyTests {
         times.stream().filter(time -> time > 50).count());
   }
 
+  /**
+   * Times the validation of a working copy of the largest catalog, on its own and together with the
+   * reading of the catalog that every edit's answer starts with, and writes the times to the log.
+   * Like the others, they are a measurement to be read.
+   */
+  @Test
+  void validationIsTimedAtTheLargestSize() {
+    var copy = workingCopy(ana(), "LARGEST_CATALOG", modelYear(largest.create()));
+    var owner = person("ana");
+    var onItsOwn = new ArrayList<Double>();
+    var withTheRead = new ArrayList<Double>();
+
+    for (var run = -10; run < 30; run++) {
+      var started = System.nanoTime();
+      var read = catalogs.find(copy, owner).orElseThrow();
+      var readAndValidated = (System.nanoTime() - started) / 1_000_000.0;
+      var library = catalogs.library(copy);
+      started = System.nanoTime();
+      var issues = Validation.issues(read.snapshot(), library);
+      var validated = (System.nanoTime() - started) / 1_000_000.0;
+      assertThat(issues).isEqualTo(read.issues()).isEmpty();
+      if (run >= 0) {
+        onItsOwn.add(validated);
+        withTheRead.add(readAndValidated);
+      }
+    }
+
+    log.info(
+        "Validation of the largest catalog, {} runs, in milliseconds. On its own: {}. With the"
+            + " reading of the catalog: {}.",
+        onItsOwn.size(),
+        summary(onItsOwn),
+        summary(withTheRead));
+  }
+
   /** The model year of the catalog's lineage. */
   private int modelYear(long catalog) {
     return jdbc.sql(
@@ -269,7 +329,11 @@ class LargestCatalogIT extends WorkingCopyTests {
         "regions", count("catalog_region WHERE catalog_id = %d", catalog),
         "offerings", count("catalog_trim_region WHERE catalog_id = %d", catalog),
         "feature rows", count("catalog_feature WHERE catalog_id = %d", catalog),
-        "cells", count("catalog_cell WHERE catalog_id = %d", catalog));
+        "cells", count("catalog_cell WHERE catalog_id = %d", catalog),
+        "rules", count("catalog_rule WHERE catalog_id = %d", catalog),
+        "rule targets", count("catalog_rule_target WHERE catalog_id = %d", catalog),
+        "rule trims", count("catalog_rule_trim WHERE catalog_id = %d", catalog),
+        "rule regions", count("catalog_rule_region WHERE catalog_id = %d", catalog));
   }
 
   /** The median, the fastest, and the slowest of the times. */
