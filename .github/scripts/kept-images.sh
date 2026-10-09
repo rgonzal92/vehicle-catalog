@@ -11,6 +11,8 @@
 #   kept-images.sh load    loads what was kept, and pulls what a Dockerfile builds on if it is not there
 #   kept-images.sh keep    says what this run pulled, and gathers up the images to keep
 set -euo pipefail
+# The key is made from sorted lines, which sort alike on every machine this way.
+export LC_ALL=C
 cd "$(dirname "$0")/../.."
 kept="${RUNNER_TEMP:?}/kept-images"
 mkdir -p "$kept"
