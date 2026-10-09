@@ -996,7 +996,7 @@ describe('CatalogEditorPage', () => {
       regionCode: 'NA',
       featureId: 1,
       relatedFeatureIds: [2],
-      rule: null,
+      rule: { origin: 'GLOBAL', key: '12' },
       message:
         'Panoramic Roof requires Tow Package, which is not offered on Base in North America.',
     };
@@ -1025,8 +1025,8 @@ describe('CatalogEditorPage', () => {
 
       await vi.waitFor(() =>
         expect(listed(element)).toEqual([
-          ['Error', emptyOffering.message, 'Base in North America', ''],
-          ['Warning', neverOffered.message, 'Tow Package', ''],
+          ['Error', emptyOffering.message, 'Base in North America', '', ''],
+          ['Warning', neverOffered.message, 'Tow Package', '', ''],
         ]),
       );
     });
@@ -1063,7 +1063,10 @@ describe('CatalogEditorPage', () => {
         expect(found).not.toBeNull();
         return found!;
       });
-      expect(listed(element)[0][2]).toBe('Panoramic Roof, Base in North America');
+      expect(listed(element)[0].slice(2, 4)).toEqual([
+        'Panoramic Roof, Base in North America',
+        'Global rule',
+      ]);
 
       show.click();
 

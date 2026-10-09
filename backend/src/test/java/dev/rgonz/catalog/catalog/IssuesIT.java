@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.rgonz.catalog.ApplicationIT;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
@@ -131,5 +132,101 @@ class IssuesIT extends WorkingCopyTests {
     var later = workingCopy(ben(), "COMPACT_SUV", 2026);
 
     assertThat(errors(open(ben(), later))).containsExactly("FEATURE_RETIRED");
+  }
+
+  /** An offering of the working copy in which the Tow Package is offered: its trim and region. */
+  private Map<String, Object> whereTowIsOffered() {
+    return jdbc.sql(
+            """
+            SELECT t.name AS trim, c.region_code AS region
+            FROM catalog_cell c
+            JOIN trim t ON t.id = c.trim_id
+            WHERE c.catalog_id = :copy AND c.feature_id = :tow
+            ORDER BY t.sort_order, c.region_code
+            LIMIT 1
+            """)
+        .param("copy", copy)
+        .param("tow", feature("PACKAGE_TOW"))
+        .query()
+        .singleRow();
+  }
+
+  @Test
+  void aCellEditThatBreaksAGlobalRuleAnswersWithTheIssueAndPuttingItRightClearsIt() {
+    var offering = whereTowIsOffered();
+    var trim = (String) offering.get("trim");
+    var region = (String) offering.get("region");
+
+    var broken = setCells(ana(), copy, "\"0\"", cell("COOLING_HEAVY_DUTY", trim, region, "N"));
+
+    assertThat(broken).hasStatusOk();
+    assertThat(errors(broken)).containsExactly("REQUIRED_NOT_OFFERED");
+    assertThat(
+            ApplicationIT.<List<String>>read(
+                broken, "$.issues[?(@.code == 'REQUIRED_NOT_OFFERED')].rule.origin"))
+        .containsExactly("GLOBAL");
+    assertThat(
+            ApplicationIT.<List<Integer>>read(
+                broken, "$.issues[?(@.code == 'REQUIRED_NOT_OFFERED')].featureId"))
+        .as("the issue is about the cell of the feature that requires")
+        .containsExactly((int) feature("PACKAGE_TOW"));
+    assertThat(
+            ApplicationIT.<List<String>>read(
+                broken, "$.issues[?(@.code == 'REQUIRED_NOT_OFFERED')].message"))
+        .first()
+        .asString()
+        .startsWith("Tow Package requires Heavy-Duty Cooling, which is not offered on " + trim);
+
+    var restored = setCells(ana(), copy, "\"1\"", cell("COOLING_HEAVY_DUTY", trim, region, "S"));
+
+    assertThat(errors(restored)).isEmpty();
+  }
+
+  @Test
+  void removingTheRowOfARequiredFeatureRaisesTheRulesErrorAndNothingTurnsTheRuleOff() {
+    var removed =
+        edit(
+            ana(),
+            mvc.delete()
+                .uri("/api/catalogs/{id}/features/{feature}", copy, feature("COOLING_HEAVY_DUTY")),
+            "\"0\"",
+            null);
+
+    assertThat(removed).hasStatusOk();
+    assertThat(errors(removed)).isNotEmpty().containsOnly("REQUIRED_NOT_OFFERED");
+  }
+
+  @Test
+  void aGlobalRuleLimitedToARegionIsCheckedInThatRegionAlone() {
+    long rule =
+        jdbc.sql(
+                """
+                INSERT INTO global_rule (kind, source_feature_id, all_regions)
+                VALUES ('REQUIRES', :source, false)
+                RETURNING id
+                """)
+            .param("source", feature("TRANS_MANUAL"))
+            .query(Long.class)
+            .single();
+    jdbc.sql("INSERT INTO global_rule_target VALUES (:rule, :target)")
+        .param("rule", rule)
+        .param("target", feature("ROOF_REMOVABLE"))
+        .update();
+    jdbc.sql("INSERT INTO global_rule_region VALUES (:rule, 'EU')").param("rule", rule).update();
+
+    var saved =
+        setCells(
+            ana(),
+            copy,
+            "\"0\"",
+            cell("TRANS_MANUAL", "Base", "NA", "A"),
+            cell("TRANS_MANUAL", "Base", "EU", "A"));
+
+    assertThat(saved).hasStatusOk();
+    assertThat(
+            ApplicationIT.<List<String>>read(
+                saved, "$.issues[?(@.code == 'REQUIRED_NOT_OFFERED')].regionCode"))
+        .as("the same cells in the two regions of the same trim")
+        .containsExactly("EU");
   }
 }
