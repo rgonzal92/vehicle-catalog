@@ -25,6 +25,7 @@ describe('DashboardPage', () => {
     roles: Role[],
     lineages: object[] = [],
     mine: object[] = [],
+    toReview: object[] = [],
   ): Promise<HTMLElement> {
     TestBed.configureTestingModule({
       providers: [
@@ -42,6 +43,11 @@ describe('DashboardPage', () => {
     const fixture = TestBed.createComponent(DashboardPage);
     backend.expectOne('/api/catalogs?scope=mine').flush(mine);
     backend.expectOne('/api/lineages').flush(lineages);
+    if (roles.includes('manager')) {
+      backend.expectOne('/api/catalogs?scope=review').flush(toReview);
+    } else {
+      backend.expectNone('/api/catalogs?scope=review');
+    }
     await fixture.whenStable();
     return fixture.nativeElement as HTMLElement;
   }
@@ -346,6 +352,58 @@ describe('DashboardPage', () => {
       'Approved catalogs',
       'Review queue',
     ]);
+  });
+
+  it("lists the catalogs waiting for review, and offers to open all but the manager's own", async () => {
+    const page = await dashboardFor(
+      ['manager', 'author'],
+      [],
+      [],
+      [
+        {
+          id: 51,
+          name: 'Winter update',
+          vehicleLine: 'Compact SUV',
+          modelYear: 2027,
+          owner: 'Ana Author',
+          submittedAt: '2026-01-09T10:00:00Z',
+          note: 'Ready for review.',
+          own: false,
+        },
+        {
+          id: 52,
+          name: 'My own',
+          vehicleLine: 'Sedan',
+          modelYear: 2027,
+          owner: 'Maya',
+          submittedAt: '2026-01-10T10:00:00Z',
+          note: null,
+          own: true,
+        },
+      ],
+    );
+
+    const rows = await vi.waitFor(() => {
+      const found = page.querySelectorAll('section[aria-labelledby="review-queue"] tbody tr');
+      expect(found).toHaveLength(2);
+      return Array.from(found);
+    });
+    const cells = Array.from(rows[0].querySelectorAll('td'), (cell) => cell.textContent?.trim());
+    expect(cells.slice(0, 4)).toEqual(['Winter update', 'Compact SUV', '2027', 'Ana Author']);
+    expect(cells[5]).toBe('Ready for review.');
+    const link = rows[0].querySelector('a');
+    expect(link?.getAttribute('href')).toBe('/catalogs/51');
+    expect(link?.getAttribute('aria-label')).toBe('Open Winter update by Ana Author');
+    expect(rows[1].querySelector('a')).toBeNull();
+    expect(rows[1].textContent).toContain('Yours');
+  });
+
+  it('says so when nothing is waiting for review', async () => {
+    const page = await dashboardFor(['manager', 'author']);
+
+    expect(page.querySelector('section[aria-labelledby="review-queue"]')?.textContent).toContain(
+      'Nothing is waiting for review.',
+    );
   });
 
   /** The dashboard of an author, with neither of its lists read yet. */

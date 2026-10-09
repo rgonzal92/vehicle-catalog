@@ -117,6 +117,27 @@ class WorkingCopies {
   }
 
   /**
+   * Every catalog that is waiting for review, the one submitted first at the top, with whether it
+   * is the viewer's own.
+   */
+  List<Submitted> submitted(long viewerId) {
+    return jdbc.sql(
+            """
+            SELECT c.id, c.name, v.name AS vehicle_line, l.model_year, o.display_name AS owner,
+                   c.submitted_at, c.submit_note AS note, c.owner_id = :viewer AS own
+            FROM catalog c
+            JOIN lineage l ON l.id = c.lineage_id
+            JOIN vehicle_line v ON v.id = l.vehicle_line_id
+            JOIN app_user o ON o.id = c.owner_id
+            WHERE c.status = 'SUBMITTED'
+            ORDER BY c.submitted_at, c.id
+            """)
+        .param("viewer", viewerId)
+        .query(Submitted.class)
+        .list();
+  }
+
+  /**
    * The refusal of a name another working copy of the owner's has. The database keeps an owner's
    * working copy names apart whatever their case, and says so when a name is written.
    */
@@ -232,6 +253,22 @@ class WorkingCopies {
       name = name == null ? null : name.strip();
     }
   }
+
+  /**
+   * A Submitted catalog as the review queue lists it.
+   *
+   * @param note what its owner said when they submitted it, if anything
+   * @param own whether the viewer owns it, who then cannot review it
+   */
+  record Submitted(
+      long id,
+      String name,
+      String vehicleLine,
+      int modelYear,
+      String owner,
+      Instant submittedAt,
+      String note,
+      boolean own) {}
 
   /**
    * A working copy as its owner's list shows it.

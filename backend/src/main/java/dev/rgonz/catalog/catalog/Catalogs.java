@@ -22,8 +22,12 @@ import org.springframework.transaction.annotation.Transactional;
 /** Reads lineages, their Approved versions, and whole catalogs. */
 @Repository
 class Catalogs {
-  /** The condition on a catalog {@code c} under which the person {@code :viewer} may open it. */
-  private static final String OPENS_FOR_VIEWER = "(c.status = 'APPROVED' OR c.owner_id = :viewer)";
+  /**
+   * The condition on a catalog {@code c} under which the person {@code :viewer} may open it.
+   * Whether that person reviews catalogs, as a manager and an admin do, is {@code :reviews}.
+   */
+  private static final String OPENS_FOR_VIEWER =
+      "(c.status = 'APPROVED' OR c.owner_id = :viewer OR (c.status = 'SUBMITTED' AND :reviews))";
 
   private final JdbcClient jdbc;
 
@@ -72,14 +76,18 @@ class Catalogs {
 
   /**
    * Whether the viewer may open the catalog. Everyone opens an Approved version. A working copy is
-   * its owner's alone, and to anyone else it is as if it did not exist.
+   * its owner's, and once it is Submitted a reviewer's too; to anyone else it is as if it did not
+   * exist.
+   *
+   * @param reviews whether the viewer reviews catalogs, as a manager and an admin do
    */
-  boolean opensFor(long id, long viewerId) {
+  boolean opensFor(long id, long viewerId, boolean reviews) {
     return jdbc.sql(
             "SELECT EXISTS (SELECT 1 FROM catalog c WHERE c.id = :id AND %s)"
                 .formatted(OPENS_FOR_VIEWER))
         .param("id", id)
         .param("viewer", viewerId)
+        .param("reviews", reviews)
         .query(Boolean.class)
         .single();
   }
@@ -90,9 +98,15 @@ class Catalogs {
    * the contents always belong to the revision.
    */
   @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-  Optional<CatalogView> find(long id, long viewerId) {
-    return read(id, viewerId)
+  Optional<CatalogView> find(long id, long viewerId, boolean reviews) {
+    return read(id, viewerId, reviews)
         .map(catalog -> catalog.withIssues(Validation.issues(catalog.snapshot(), library(id))));
+  }
+
+  /** A catalog with its contents, for its owner or, when it is an Approved version, for anyone. */
+  @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+  Optional<CatalogView> find(long id, long viewerId) {
+    return find(id, viewerId, false);
   }
 
   /**
@@ -100,22 +114,24 @@ class Catalogs {
    * use for their issues.
    */
   @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-  Optional<CatalogSnapshot> contents(long id, long viewerId) {
-    return read(id, viewerId).map(CatalogView::snapshot);
+  Optional<CatalogSnapshot> contents(long id, long viewerId, boolean reviews) {
+    return read(id, viewerId, reviews).map(CatalogView::snapshot);
   }
 
-  private Optional<CatalogView> read(long id, long viewerId) {
+  private Optional<CatalogView> read(long id, long viewerId, boolean reviews) {
     return jdbc.sql(
             """
             SELECT c.id, c.lineage_id, c.status, c.revision, c.name, c.version_number,
                    v.id AS vehicle_line_id, v.name AS vehicle_line, l.model_year,
                    a.display_name AS approved_by, c.approved_at, c.owner_id = :viewer AS owned,
+                   o.display_name AS owner,
                    v.active AS vehicle_line_active, c.submit_note, c.submitted_at,
                    b.id AS base_catalog_id,
                    bl.model_year AS base_model_year, b.version_number AS base_version_number
             FROM catalog c
             JOIN lineage l ON l.id = c.lineage_id
             JOIN vehicle_line v ON v.id = l.vehicle_line_id
+            JOIN app_user o ON o.id = c.owner_id
             LEFT JOIN app_user a ON a.id = c.approved_by
             LEFT JOIN catalog b ON b.id = c.base_catalog_id
             LEFT JOIN lineage bl ON bl.id = b.lineage_id
@@ -124,6 +140,7 @@ class Catalogs {
                 .formatted(OPENS_FOR_VIEWER))
         .param("id", id)
         .param("viewer", viewerId)
+        .param("reviews", reviews)
         .query(Header.class)
         .optional()
         .map(
@@ -137,6 +154,7 @@ class Catalogs {
                     header.approvedBy(),
                     header.approvedAt(),
                     header.owned(),
+                    header.owner(),
                     header.vehicleLineActive(),
                     header.submitNote(),
                     header.submittedAt(),
@@ -367,6 +385,7 @@ class Catalogs {
    * A catalog as the API shows it: what describes it, its contents, and its issues.
    *
    * @param owned whether the viewer owns it, which lets them edit it while it is in status Draft
+   * @param owner the name of the person who owns it
    * @param vehicleLineActive whether its vehicle line is active; a catalog of an inactive line
    *     cannot be submitted or approved
    * @param submitNote what its owner said when they last submitted it, if anything
@@ -384,6 +403,7 @@ class Catalogs {
       String approvedBy,
       Instant approvedAt,
       boolean owned,
+      String owner,
       boolean vehicleLineActive,
       String submitNote,
       Instant submittedAt,
@@ -401,6 +421,7 @@ class Catalogs {
           approvedBy,
           approvedAt,
           owned,
+          owner,
           vehicleLineActive,
           submitNote,
           submittedAt,
@@ -427,6 +448,7 @@ class Catalogs {
       String approvedBy,
       Instant approvedAt,
       boolean owned,
+      String owner,
       boolean vehicleLineActive,
       String submitNote,
       Instant submittedAt,

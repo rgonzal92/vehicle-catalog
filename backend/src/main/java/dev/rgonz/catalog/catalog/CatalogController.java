@@ -11,8 +11,10 @@ import dev.rgonz.catalog.catalog.Diff.Changes;
 import dev.rgonz.catalog.catalog.Issue.Severity;
 import dev.rgonz.catalog.catalog.WorkingCopies.NewWorkingCopy;
 import dev.rgonz.catalog.catalog.WorkingCopies.StartPoint;
+import dev.rgonz.catalog.catalog.WorkingCopies.Submitted;
 import dev.rgonz.catalog.catalog.WorkingCopies.WorkingCopy;
 import dev.rgonz.catalog.core.ApiException;
+import dev.rgonz.catalog.core.Role;
 import dev.rgonz.catalog.user.AppUsers;
 import jakarta.validation.Valid;
 import java.time.Instant;
@@ -21,6 +23,7 @@ import java.util.UUID;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.hierarchicalroles.RoleHierarchy;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -35,9 +38,10 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Shows everyone with a role the lineages, their Approved versions, and a catalog's contents, and
- * lets each of them create, edit, rename, and delete working copies of their own, keep their rules,
- * submit them for review and withdraw them, and read a catalog's change history.
+ * Shows everyone with a role the lineages, their Approved versions, and a catalog's contents, shows
+ * managers and admins the catalogs that are waiting for review, and lets each of them create, edit,
+ * rename, and delete working copies of their own, keep their rules, submit them for review and
+ * withdraw them, and read a catalog's change history.
  */
 @RestController
 class CatalogController {
@@ -47,6 +51,7 @@ class CatalogController {
   private final Submissions submissions;
   private final ChangeHistory history;
   private final AppUsers people;
+  private final RoleHierarchy roles;
 
   CatalogController(
       Catalogs catalogs,
@@ -54,7 +59,9 @@ class CatalogController {
       CatalogEdits edits,
       Submissions submissions,
       ChangeHistory history,
-      AppUsers people) {
+      AppUsers people,
+      RoleHierarchy roles) {
+    this.roles = roles;
     this.catalogs = catalogs;
     this.workingCopies = workingCopies;
     this.edits = edits;
@@ -123,6 +130,24 @@ class CatalogController {
       Instant updatedAt,
       long errors,
       long warnings) {}
+
+  /**
+   * The catalogs that are waiting for review, for a manager or an admin. The caller's own are among
+   * them, marked as theirs.
+   */
+  @GetMapping(value = "/api/catalogs", params = "scope=review")
+  List<Submitted> toReview(Authentication caller) {
+    // The owner's list has the same address, so the role is asked for here and not by the address.
+    if (!reviews(caller)) {
+      throw ApiException.forbidden("FORBIDDEN", "Only a manager or an admin reviews catalogs.");
+    }
+    return workingCopies.submitted(people.idOf(caller));
+  }
+
+  /** Whether the caller reviews catalogs, as a manager and an admin do. */
+  private boolean reviews(Authentication caller) {
+    return Role.heldBy(caller.getAuthorities(), roles).contains(Role.MANAGER);
+  }
 
   /** What a new working copy for the vehicle line and model year would start from. */
   @GetMapping("/api/catalogs/start-point")
@@ -359,7 +384,7 @@ class CatalogController {
       @RequestParam(defaultValue = "0") int page,
       @RequestParam(defaultValue = "25") int size,
       Authentication caller) {
-    if (!catalogs.opensFor(id, people.idOf(caller))) {
+    if (!catalogs.opensFor(id, people.idOf(caller), reviews(caller))) {
       throw ApiException.notFound();
     }
     return history.page(id, page, size);
@@ -373,7 +398,7 @@ class CatalogController {
   @GetMapping("/api/catalogs/{id}/diff")
   Changes diff(@PathVariable long id, @RequestParam String against, Authentication caller) {
     var viewer = people.idOf(caller);
-    var catalog = catalogs.find(id, viewer).orElseThrow(ApiException::notFound);
+    var catalog = catalogs.find(id, viewer, reviews(caller)).orElseThrow(ApiException::notFound);
     Long other;
     if (against.equals("base")) {
       other = catalog.base() == null ? null : catalog.base().catalogId();
@@ -385,7 +410,7 @@ class CatalogController {
     var before =
         other == null
             ? CatalogSnapshot.empty()
-            : catalogs.contents(other, viewer).orElseThrow(ApiException::notFound);
+            : catalogs.contents(other, viewer, reviews(caller)).orElseThrow(ApiException::notFound);
 
     return Diff.between(before, catalog.snapshot());
   }
@@ -401,7 +426,8 @@ class CatalogController {
   /** A catalog with its contents. Its revision is the entity tag, which later writes name. */
   @GetMapping("/api/catalogs/{id}")
   ResponseEntity<CatalogView> catalog(@PathVariable long id, Authentication caller) {
-    var catalog = catalogs.find(id, people.idOf(caller)).orElseThrow(ApiException::notFound);
+    var catalog =
+        catalogs.find(id, people.idOf(caller), reviews(caller)).orElseThrow(ApiException::notFound);
 
     return ResponseEntity.ok().eTag(String.valueOf(catalog.snapshot().revision())).body(catalog);
   }
