@@ -6,8 +6,14 @@ import { TableModule } from 'primeng/table';
 import { Catalogs, Change, ChangePage } from '../../core/catalogs';
 import { Availability, AVAILABILITY_NAMES } from '../../shared/availability-matrix/matrix';
 
+/** The kinds whose words are not their names: a catalog is returned, and "stale" says why. */
+const KIND_NAMES: Record<string, string> = { RETURNED_STALE: 'Returned' };
+
 /** A change's kind in words: `CELL_SET` reads "Cell set". It works for a kind of any name. */
 export function kindInWords(kind: string): string {
+  if (KIND_NAMES[kind]) {
+    return KIND_NAMES[kind];
+  }
   const words = kind.toLowerCase().replaceAll('_', ' ');
 
   return words.charAt(0).toUpperCase() + words.slice(1);
@@ -38,8 +44,8 @@ export function changeInWords(change: Change): string {
 const availabilityName = (value: string) => AVAILABILITY_NAMES[value as Availability] ?? value;
 
 /**
- * A catalog's change history, newest first and a page at a time: when each change was made, by
- * whom, what kind of change it was, and what it touched. There is no undo; this is where the value
+ * A catalog's history, newest first and a page at a time: when each change was made, by whom, what
+ * kind of change it was, and what it touched, and among the changes each decision a review made. There is no undo; this is where the value
  * a cell had before is found. It is read afresh each time it is shown.
  */
 @Component({

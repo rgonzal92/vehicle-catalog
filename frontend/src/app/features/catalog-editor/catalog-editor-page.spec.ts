@@ -591,6 +591,49 @@ describe('CatalogEditorPage', () => {
     });
   });
 
+  describe('a catalog that came back to its owner', () => {
+    const notice = (element: HTMLElement) =>
+      element.querySelector('[data-notice="decision"]')?.textContent?.replace(/\s+/g, ' ').trim();
+
+    it('says who rejected it and why', async () => {
+      const element = await page({
+        ...workingCopy,
+        decision: {
+          decision: 'REJECTED',
+          reviewer: 'Mia Manager',
+          comment: 'The hybrid needs its battery cooling.',
+          at: '2026-10-09T10:00:00Z',
+        },
+      });
+
+      expect(notice(element)).toMatch(
+        /^Rejected by Mia Manager on .*2026.*: The hybrid needs its battery cooling\.$/,
+      );
+    });
+
+    it('says that it was returned because another catalog was approved first', async () => {
+      const element = await page({
+        ...workingCopy,
+        decision: {
+          decision: 'RETURNED_STALE',
+          reviewer: null,
+          comment: null,
+          at: '2026-10-09T10:00:00Z',
+        },
+      });
+
+      expect(notice(element)).toMatch(
+        /^Returned on .*2026.*: another catalog of its lineage was approved first\.$/,
+      );
+    });
+
+    it('says nothing of a decision when none stands', async () => {
+      const element = await page({ ...workingCopy, decision: null });
+
+      expect(notice(element)).toBeUndefined();
+    });
+  });
+
   describe('submitting the catalog for review', () => {
     const dialog = () => document.querySelector<HTMLElement>('.p-dialog');
     const submitted = {

@@ -100,6 +100,16 @@ export interface Catalog {
    */
   stale: boolean;
   /**
+   * The decision that sent it back to its owner, while it stands, which is until it is submitted
+   * again: a reviewer's rejection with its reason, or a return, which is nobody's and has none.
+   */
+  decision: {
+    decision: 'REJECTED' | 'RETURNED_STALE';
+    reviewer: string | null;
+    comment: string | null;
+    at: string;
+  } | null;
+  /**
    * The Approved version it was copied from, or null when it started empty. After a carryover its
    * model year is an earlier one than the catalog's.
    */
@@ -210,15 +220,22 @@ export interface SubmittedCatalog {
 }
 
 /**
- * One change to a catalog, as its change history lists it: who made it, when, its kind, and what it
- * touched. A change names only what its kind is about, and the rest is null.
+ * One entry of a catalog's history: a change, with who made it, when, its kind, and what it
+ * touched, or a decision of a review. An entry names only what its kind is about, and the rest is
+ * null.
  */
 export interface Change {
   id: number;
   at: string;
-  /** The name of the person who made the change. */
-  actor: string;
-  /** Such as `CELL_SET`. New kinds appear without the frontend knowing them. */
+  /**
+   * The name of the person who made the change or the decision. Nobody returns a catalog: that
+   * follows from another one's approval.
+   */
+  actor: string | null;
+  /**
+   * Such as `CELL_SET`, or a review's decision: `APPROVED`, `REJECTED`, or `RETURNED_STALE`. New
+   * kinds appear without the frontend knowing them.
+   */
   kind: string;
   featureCode: string | null;
   featureName: string | null;
@@ -227,7 +244,8 @@ export interface Change {
   /**
    * What the change replaced, and what it was replaced with: a cell's availability (S, A, or N), a
    * catalog's name, or a rule in words. A rule that was added has no old value, and one that was
-   * removed no new one.
+   * removed no new one. A decision has its comment, or why the catalog was returned, as the new
+   * value alone.
    */
   oldValue: string | null;
   newValue: string | null;
