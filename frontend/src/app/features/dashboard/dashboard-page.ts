@@ -7,7 +7,6 @@ import { Button } from 'primeng/button';
 import { Dialog } from 'primeng/dialog';
 import { Message } from 'primeng/message';
 import { TableModule } from 'primeng/table';
-import { Tag } from 'primeng/tag';
 import { Catalogs, LineageSummary, STATUS_NAMES, WorkingCopy } from '../../core/catalogs';
 import { Session } from '../../core/session';
 import { NewCatalogDialog } from '../../shared/new-catalog-dialog/new-catalog-dialog';
@@ -15,20 +14,11 @@ import { reasonOf } from '../../shared/reason-of';
 
 /** The first page a signed-in person sees, with a section for each thing their role can do. */
 @Component({
-  imports: [DatePipe, RouterLink, Button, Dialog, Message, TableModule, Tag, NewCatalogDialog],
+  imports: [DatePipe, RouterLink, Button, Dialog, Message, TableModule, NewCatalogDialog],
   selector: 'app-dashboard-page',
   template: `
-    <main class="mx-auto max-w-5xl px-6 py-10">
-      <header class="flex items-center justify-between gap-4">
-        <h1 class="text-2xl font-semibold">Dashboard</h1>
-        <div class="flex items-center gap-4">
-          <span>{{ session.person()?.name }}</span>
-          <p-tag data-role severity="secondary" [value]="session.role() ?? undefined" />
-          <p-button label="Sign out" severity="secondary" (onClick)="session.signOut()" />
-        </div>
-      </header>
-
-      <section class="mt-10" aria-labelledby="my-catalogs">
+    <div class="max-w-5xl">
+      <section aria-labelledby="my-catalogs">
         <div class="flex items-center justify-between gap-4">
           <h2 id="my-catalogs" class="text-xl font-semibold" tabindex="-1">My catalogs</h2>
           <p-button label="New catalog" (onClick)="newCatalog.open()" />
@@ -156,30 +146,7 @@ import { reasonOf } from '../../shared/reason-of';
           <p class="mt-2 text-muted-color">Nothing is waiting for review.</p>
         </section>
       }
-
-      @if (session.holds('admin')) {
-        <section class="mt-10" aria-labelledby="admin-links">
-          <h2 id="admin-links" class="text-xl font-semibold">Admin links</h2>
-          <ul class="mt-2">
-            <li>
-              <a class="text-primary underline" routerLink="/admin/vehicle-lines">Vehicle lines</a>
-            </li>
-            <li>
-              <a class="text-primary underline" routerLink="/admin/trims">Trims</a>
-            </li>
-            <li>
-              <a class="text-primary underline" routerLink="/admin/regions">Regions</a>
-            </li>
-            <li>
-              <a class="text-primary underline" routerLink="/admin/features">Feature library</a>
-            </li>
-            <li>
-              <a class="text-primary underline" routerLink="/admin/users">Users</a>
-            </li>
-          </ul>
-        </section>
-      }
-    </main>
+    </div>
   `,
 })
 export class DashboardPage {

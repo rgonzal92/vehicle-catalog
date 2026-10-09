@@ -20,6 +20,7 @@ describe('ColorScheme', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     document.documentElement.classList.remove('app-dark');
+    localStorage.clear();
   });
 
   it('shows the app dark on a system that prefers dark', () => {
@@ -51,6 +52,41 @@ describe('ColorScheme', () => {
 
   it('shows the app light where nothing says what the system prefers', () => {
     TestBed.inject(ColorScheme);
+
+    expect(shownDark()).toBe(false);
+  });
+
+  it('switches to the other scheme at once, and says which one is shown', () => {
+    system(false);
+    const scheme = TestBed.inject(ColorScheme);
+    expect(scheme.dark()).toBe(false);
+
+    scheme.toggle();
+    expect(shownDark()).toBe(true);
+    expect(scheme.dark()).toBe(true);
+
+    scheme.toggle();
+    expect(shownDark()).toBe(false);
+    expect(scheme.dark()).toBe(false);
+  });
+
+  it('remembers the scheme a person chose, whatever the system prefers', () => {
+    system(false);
+    TestBed.inject(ColorScheme).toggle();
+    TestBed.resetTestingModule();
+    document.documentElement.classList.remove('app-dark');
+
+    TestBed.inject(ColorScheme);
+
+    expect(shownDark()).toBe(true);
+  });
+
+  it('keeps to the scheme a person chose when the system changes its mind', () => {
+    const preference = system(true);
+    const scheme = TestBed.inject(ColorScheme);
+    scheme.toggle();
+
+    preference.prefers(true);
 
     expect(shownDark()).toBe(false);
   });

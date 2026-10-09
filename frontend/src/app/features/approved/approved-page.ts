@@ -1,7 +1,7 @@
 import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, inject, signal } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute } from '@angular/router';
 import { Button } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { Catalog, Catalogs, VersionSummary } from '../../core/catalogs';
@@ -15,14 +15,13 @@ import { NewCatalogDialog } from '../../shared/new-catalog-dialog/new-catalog-di
  * with.
  */
 @Component({
-  imports: [DatePipe, RouterLink, Button, TableModule, AvailabilityMatrix, NewCatalogDialog],
+  imports: [DatePipe, Button, TableModule, AvailabilityMatrix, NewCatalogDialog],
   selector: 'app-approved-page',
   template: `
-    <main class="px-6 py-10">
-      <a class="text-primary underline" routerLink="/dashboard">Dashboard</a>
+    <div>
       @if (catalog(); as catalog) {
-        <header class="mt-4">
-          <h1 class="text-2xl font-semibold">{{ catalog.vehicleLine }} {{ catalog.modelYear }}</h1>
+        <header>
+          <h2 class="text-2xl font-semibold">{{ catalog.vehicleLine }} {{ catalog.modelYear }}</h2>
           <p class="mt-2" aria-live="polite" data-shown>
             Approved version {{ catalog.versionNumber }}, "{{ catalog.name }}", approved by
             {{ catalog.approvedBy }} on {{ catalog.approvedAt | date: 'mediumDate' }}.
@@ -80,10 +79,9 @@ import { NewCatalogDialog } from '../../shared/new-catalog-dialog/new-catalog-di
           />
         </section>
       } @else if (missing()) {
-        <h1 class="mt-4 text-2xl font-semibold">Approved catalog</h1>
-        <p class="mt-2">There is no Approved version at this address.</p>
+        <p>There is no Approved version at this address.</p>
       }
-    </main>
+    </div>
   `,
 })
 export class ApprovedPage {

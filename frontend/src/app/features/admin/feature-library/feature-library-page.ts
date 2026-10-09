@@ -1,7 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { RouterLink } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { Button } from 'primeng/button';
 import { Dialog } from 'primeng/dialog';
@@ -25,7 +24,6 @@ const STATUS_NAMES: Record<FeatureStatus, string> = { ACTIVE: 'Active', RETIRED:
 @Component({
   imports: [
     ReactiveFormsModule,
-    RouterLink,
     Button,
     Dialog,
     InputText,
@@ -37,10 +35,8 @@ const STATUS_NAMES: Record<FeatureStatus, string> = { ACTIVE: 'Active', RETIRED:
   ],
   selector: 'app-feature-library-page',
   template: `
-    <main class="mx-auto max-w-6xl px-6 py-10">
-      <a class="text-primary underline" routerLink="/dashboard">Dashboard</a>
-      <header class="mt-4 flex items-center justify-between gap-4">
-        <h1 class="text-2xl font-semibold">Feature library</h1>
+    <div class="max-w-6xl">
+      <header class="flex justify-end">
         <p-button label="Add feature" (onClick)="startAdding()" />
       </header>
 
@@ -219,7 +215,7 @@ const STATUS_NAMES: Record<FeatureStatus, string> = { ACTIVE: 'Active', RETIRED:
           </div>
         </form>
       </p-dialog>
-    </main>
+    </div>
   `,
 })
 export class FeatureLibraryPage {

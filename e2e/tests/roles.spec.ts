@@ -1,37 +1,43 @@
 import { expect, test } from '@playwright/test';
 import { expectAccessible, signIn } from './support';
 
-/** The login server's demo accounts and the dashboard sections each one's role can use. */
+/** The login server's demo accounts, and the dashboard sections and pages each one's role can use. */
 const demoAccounts = [
   {
     username: 'author',
     role: 'author',
     name: 'Demo Author',
     sections: ['My catalogs', 'Approved catalogs'],
+    pages: ['Dashboard'],
   },
   {
     username: 'manager',
     role: 'manager',
     name: 'Demo Manager',
     sections: ['My catalogs', 'Approved catalogs', 'Review queue'],
+    pages: ['Dashboard'],
   },
   {
     username: 'admin',
     role: 'admin',
     name: 'Demo Admin',
-    sections: ['My catalogs', 'Approved catalogs', 'Review queue', 'Admin links'],
+    sections: ['My catalogs', 'Approved catalogs', 'Review queue'],
+    pages: ['Dashboard', 'Vehicle lines', 'Trims', 'Regions', 'Feature library', 'Users'],
   },
 ];
 
-for (const { username, role, name, sections } of demoAccounts) {
+for (const { username, role, name, sections, pages } of demoAccounts) {
   test(`the ${role} demo account signs in and sees a dashboard for that role`, async ({ page }) => {
     await signIn(page, username);
 
     await expect(page).toHaveURL('/dashboard');
     // The name also appears in the list of Approved catalogs, as the approver.
-    await expect(page.locator('main > header').getByText(name)).toBeVisible();
+    await expect(page.getByRole('banner').getByText(name)).toBeVisible();
     await expect(page.locator('[data-role]')).toHaveText(role);
     await expect(page.getByRole('heading', { level: 2 })).toHaveText(sections);
+    await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link')).toHaveText(
+      pages,
+    );
     await expectAccessible(page);
   });
 }

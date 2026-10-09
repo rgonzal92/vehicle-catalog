@@ -1,6 +1,5 @@
 import { Component, inject, signal } from '@angular/core';
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { RouterLink } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { Button } from 'primeng/button';
 import { Dialog } from 'primeng/dialog';
@@ -15,23 +14,11 @@ import { VehicleLine, VehicleLines } from '../../../core/vehicle-lines';
 
 /** Where an admin adds, renames, retypes, activates, and deactivates vehicle lines. */
 @Component({
-  imports: [
-    ReactiveFormsModule,
-    RouterLink,
-    Button,
-    Dialog,
-    InputText,
-    Message,
-    Select,
-    TableModule,
-    Tag,
-  ],
+  imports: [ReactiveFormsModule, Button, Dialog, InputText, Message, Select, TableModule, Tag],
   selector: 'app-vehicle-lines-page',
   template: `
-    <main class="mx-auto max-w-5xl px-6 py-10">
-      <a class="text-primary underline" routerLink="/dashboard">Dashboard</a>
-      <header class="mt-4 flex items-center justify-between gap-4">
-        <h1 class="text-2xl font-semibold">Vehicle lines</h1>
+    <div class="max-w-5xl">
+      <header class="flex justify-end">
         <p-button label="Add vehicle line" (onClick)="startAdding()" />
       </header>
 
@@ -120,7 +107,7 @@ import { VehicleLine, VehicleLines } from '../../../core/vehicle-lines';
           </div>
         </form>
       </p-dialog>
-    </main>
+    </div>
   `,
 })
 export class VehicleLinesPage {

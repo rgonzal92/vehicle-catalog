@@ -47,7 +47,6 @@ describe('LibraryListPage', () => {
   it('lists trims in the order the backend gives, with whether each is active', async () => {
     const element = await page(TRIMS, trims);
 
-    expect(element.querySelector('h1')?.textContent).toContain('Trims');
     expect(rows(element)[0]).toContain('Base');
     expect(rows(element)[0]).toContain('Active');
     expect(rows(element)[1]).toContain('Sport');
@@ -57,7 +56,6 @@ describe('LibraryListPage', () => {
   it('shows each region with its code', async () => {
     const element = await page(REGIONS, regions);
 
-    expect(element.querySelector('h1')?.textContent).toContain('Regions');
     expect(rows(element)[0]).toContain('EU');
     expect(rows(element)[0]).toContain('Europe');
   });
