@@ -138,7 +138,7 @@ class Catalogs {
    * retired, which of its trims and regions are inactive, and the global rules with the names of
    * the features they name. It is read with three queries, however many rules there are.
    */
-  private Validation.Library library(long catalogId) {
+  Validation.Library library(long catalogId) {
     var out =
         jdbc.sql(
                 """

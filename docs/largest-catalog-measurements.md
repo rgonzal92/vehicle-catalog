@@ -1,11 +1,11 @@
 # Measurements at the largest catalog size
 
-How the app behaves with the largest catalog there can be: 500 feature rows by 96 offerings (12 trims, each sold in 8 regions). These are measurements under synthetic load, on one machine and on generated data. They say how the app is built, and nothing certain about a deployed one.
+How the app behaves with the largest catalog there can be: 500 feature rows by 96 offerings (12 trims, each sold in 8 regions), with the 500 rules a catalog can have. These are measurements under synthetic load, on one machine and on generated data. They say how the app is built, and nothing certain about a deployed one: the deployed host has not been measured.
 
 Three things limit what they say:
 
 - **Half of the cells are stored.** The catalog measured has a Standard or an Available cell for 24,000 of its 48,000 cells; the rest are Not offered, which is no stored cell. Reading and copying a catalog grow with its stored cells, so a catalog with every cell stored has twice as many to read and to copy.
-- **A save does not validate yet.** Saving a cell stores it and records the change. Nothing validates a catalog yet, and validating the whole catalog on every edit, as decided, will add to every save. The save times here are of the write alone.
+- **The first measurements are of saves that did not validate.** The tables under "In the catalog editor", "Scrolling", and "Copying a catalog" are from 2026-10-06, when saving a cell stored it and recorded the change, and nothing validated a catalog. Since then every edit answers with the catalog's issues, worked out afresh. What that costs is under "Validating after every edit", measured on 2026-10-09.
 - **The working copies measured are new.** None had more than 200 entries in its change history.
 
 ## Results
@@ -28,6 +28,36 @@ Times are in milliseconds. A range is the range over the runs made; the method s
 A cell shows its new value before its save is answered, so a slow answer does not hold up typing.
 
 Between 5 and 15 of every 40 saves the page sent took more than 50 ms, and the longest 136 ms. A save sent 40 times by a plain HTTP client with the same session was answered in under 14 ms every time, whether it went through the web server or straight to the backend. So the slow answers were seen only when the page sent the save. What delays them there was not traced.
+
+### Validating after every edit
+
+Every edit answers with every issue the catalog then has. To work them out, the backend reads the whole catalog again and validates it. The catalog measured has 500 rules of its own, 300 of them in chains, and is checked against the seeded global rules too; none of them is broken, so validation runs every check and finds nothing.
+
+| | Without validation, 2026-10-06 | With validation, 2026-10-09 |
+|---|---|---|
+| Setting a cell, until the answer to its save has arrived | median 11 to 22, 95th percentile 87 to 128, longest 88 to 136 | median 537 to 552, 95th percentile 605 to 626, longest 629 to 635 |
+| The save request on its own, as the page sends it | median 9 to 20, 95th percentile 85 to 126, longest 86 to 134 | median 534 to 549, 95th percentile 602 to 621, longest 622 to 627 |
+| The same save sent without the page, through the web server | median 9, longest 14 | median 512, 95th percentile 521, longest 533 |
+| Reading the catalog on its own, by a plain client | 480 to 584, from the page | median 505, longest 528 |
+| Opening the editor, until the first rows are there | 861 to 947 | 860 to 886 |
+
+Inside the test's own process, with no server between:
+
+| | Median | Fastest | Slowest |
+|---|---|---|---|
+| Validation on its own, of a catalog already read | 24.5 | 21.6 | 27.0 |
+| Reading the catalog and validating it | 412 | 407 | 420 |
+| A save of one cell, with its answer | 746 | 720 | 772 |
+
+**Validating the whole catalog after every edit is not fast enough at this size.** A save that was answered in about 10 ms is answered in about half a second. A cell still shows its new value at once, since the page does not wait for the answer. What a person editing notices is what follows the answer: the marks and the counts of issues come half a second after the edit that causes them, and the editor sends one save at a time, so someone setting cells faster than two a second leaves a queue of saves behind them that the page works off afterwards.
+
+**Validation itself is not what takes the time.** It takes about 25 ms of the half second, chains included. Nearly all of the rest is reading the catalog's 24,000 stored cells back from the database to validate them: about 390 ms.
+
+**The way out is to validate only the offerings an edit touches**, of which a cell edit touches one. These figures add a condition to it: the answer has to read only those offerings too. Validating one offering of a catalog that was read whole would save 25 ms of 510. One offering has 500 cells at most, a ninety-sixth of the catalog. Taking that way is a decision of its own, to be recorded as an ADR.
+
+At the size of the seeded catalogs the cost is smaller and still there: a save of one cell of a working copy of the seeded sedan, 172 feature rows by 10 offerings, sent 40 times by a plain client on the same stack, was answered in a median of 70 ms, and in 186 ms at the longest. That was measured once, on a stack that also held the largest catalog.
+
+The save inside the test takes longer than the same save through the running application, 746 ms against 512. What makes the difference was not traced.
 
 ### Scrolling
 
@@ -59,13 +89,15 @@ A working copy is created by copying the contents of an Approved version. The ap
 
 Each range is over five runs of nine copies. The two ways take the same time. The function saves four trips to the database, and here, with the database on the same machine as the application, four trips cost too little to be seen beside the copy itself. The comparison says nothing about a database further away, where each trip costs more.
 
-The same test times 60 saves of one cell inside the test's own process, with no server, no session, and no connection: a median of 1.5 to 3.1 ms, and never more than 4.2 ms.
+The same test times 60 saves of one cell inside the test's own process, with no server, no session, and no connection: a median of 1.5 to 3.1 ms, and never more than 4.2 ms. That was the write alone; with the answer that validates, it is in the table under "Validating after every edit".
 
 ## How they were measured
 
 ### The catalog
 
 The largest catalog is made on request and is the same every time: a vehicle line of its own, "Largest Catalog", with 12 trims, 8 regions, and 500 features made for it, and one Approved version in which every trim is sold in every region. In each offering a quarter of the features are Standard and a quarter Available.
+
+It has as many rules as a catalog can have, 500, a pair counting as two: 300 Requires, each from a feature to the one four places on, which makes chains up to 75 rules long; 100 Requires one of; and 50 exclusions. Some cover half of the trims or half of the regions. They follow the pattern of the cells, so none is broken. The catalog measured on 2026-10-06 had no rules.
 
 - For the stack that was measured, run `LARGEST_CATALOG=true npm run stack:up` in `e2e/`. It serves the production build at `http://localhost:8092`, and `npm run stack:down` removes it with its data.
 - For development, run `LARGEST_CATALOG=true docker compose up --build -d` and `npm start` in `frontend/`.
@@ -90,6 +122,22 @@ Last, in the second run, the script saved one cell 40 times, to Standard and to 
 
 The scrolling is done the same way as on the page at `/dev/matrix`, whose figures for the matrix alone are in [Matrix measurements at the largest catalog size](matrix-measurements.md).
 
+### Validating after every edit
+
+The stack ran as for the catalog editor, started with `LARGEST_CATALOG=true npm run stack:up` in `e2e/`. Two browser automation scripts, not kept in the repository, signed in as the demo author. The first worked through its own HTTP client with the session's cookies:
+
+1. created a working copy of the largest catalog;
+2. read the catalog six times, timing the last five from sending to the end of the answer;
+3. saved one cell 43 times, to Standard and to Available in turn, at the web server's address, timing the last 40.
+
+The second opened the editor on that working copy three times, timing each from the address until the first cells of the matrix were there to edit, which is a little before the fourth row that the earlier script waited for. After each opening it set 43 cells of the rows in view by sending each the key a person would type, and timed the last 40 from the key press until the browser reported the end of the answer to the save. "The save request on its own" is the same answer timed from the moment the browser reports having sent the request. The ranges are over the three passes.
+
+When a cell shows its new value was not timed again. The earlier figure, within one frame, is of code that has not changed.
+
+`LargestCatalogIT` writes two more lines to the log: 30 validations of a working copy of the largest catalog that has already been read, after 10 that are not timed, and beside each the time to read the catalog and validate it, which is what an edit's answer does; and the 60 saves of one cell described below, which now answer with the issues.
+
+The seeded sedan was measured by a third script of the same kind: a working copy of Sedan 2027, and one of its cells saved 43 times to Not offered and to Available in turn, the last 40 timed.
+
 ### Copying a catalog, and a save inside the test
 
 `LargestCatalogIT` makes the largest catalog in the test's database and writes two sets of times to the log:
@@ -101,7 +149,7 @@ To repeat it, run `./mvnw verify -Dit.test=LargestCatalogIT` in `backend/` and r
 
 ## Environment
 
-- Measured on 2026-10-06.
+- Measured on 2026-10-06. "Validating after every edit" was measured on 2026-10-09, on the same machine, with the application as the repository built it that day and one run of each script on one start of the stack, where the earlier figures are over two starts.
 - AMD Ryzen 9 5900X, 32 GB of memory, Linux 7.2. Docker keeps its volumes on btrfs.
 - Chromium 153.0.8010.12, headless, in a 1600 by 900 window, driven by Playwright 1.63.
 - Angular 22.2.1 and PrimeNG 22.1.2 in a production build, served by Caddy 2.11.6.
