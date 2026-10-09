@@ -80,14 +80,12 @@ describe('Catalogs', () => {
   it('sends each edit of trims, regions, and offerings as one made from a revision', async () => {
     const edits: [Promise<number>, string, string, unknown][] = [
       [catalogs.addTrims(41, 4, [1, 2]), 'POST', '/api/catalogs/41/trims', { trimIds: [1, 2] }],
-      [catalogs.removeTrim(41, 4, 2), 'DELETE', '/api/catalogs/41/trims/2', null],
       [
         catalogs.addRegions(41, 4, ['EU']),
         'POST',
         '/api/catalogs/41/regions',
         { regionCodes: ['EU'] },
       ],
-      [catalogs.removeRegion(41, 4, 'EU'), 'DELETE', '/api/catalogs/41/regions/EU', null],
       [
         catalogs.sellIn(41, 4, 2, ['NA', 'EU']),
         'PUT',
@@ -103,6 +101,32 @@ describe('Catalogs', () => {
       request.flush({ revision: 5 });
       await expect(saved).resolves.toBe(5);
     }
+  });
+
+  it('sends each removal as an edit, and answers with the rules that went with it', async () => {
+    const removals: [Promise<unknown>, string][] = [
+      [catalogs.removeTrim(41, 4, 2), '/api/catalogs/41/trims/2'],
+      [catalogs.removeRegion(41, 4, 'EU'), '/api/catalogs/41/regions/EU'],
+      [catalogs.removeFeature(41, 4, 7), '/api/catalogs/41/features/7'],
+      [catalogs.removeFeature(41, 4, 7, true), '/api/catalogs/41/features/7?removeRules=true'],
+    ];
+
+    for (const [removed, url] of removals) {
+      const request = backend.expectOne({ method: 'DELETE', url });
+      expect(request.request.headers.get('If-Match')).toBe('"4"');
+      request.flush({ revision: 5, issues: [], rulesDeleted: ['Tow Package requires Cooling'] });
+      await expect(removed).resolves.toEqual({
+        revision: 5,
+        rulesDeleted: ['Tow Package requires Cooling'],
+      });
+    }
+
+    // A backend that is one release behind names no rules.
+    const removed = catalogs.removeTrim(41, 4, 2);
+    backend
+      .expectOne({ method: 'DELETE', url: '/api/catalogs/41/trims/2' })
+      .flush({ revision: 5, issues: [] });
+    await expect(removed).resolves.toEqual({ revision: 5, rulesDeleted: [] });
   });
 
   it('gives up a save that has gone unanswered for too long, and takes it back', async () => {

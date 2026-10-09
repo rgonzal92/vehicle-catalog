@@ -196,14 +196,20 @@ class CatalogController {
         id, caller, edits.addFeatures(id, people.idOf(caller), ifMatch, given.featureIds()));
   }
 
-  /** Removes a feature row from the caller's working copy, with its cells. */
+  /**
+   * Removes a feature row from the caller's working copy, with its cells. A row that a rule of the
+   * catalog names is removed only together with those rules, which the caller asks for.
+   */
   @DeleteMapping("/api/catalogs/{id}/features/{featureId}")
   ResponseEntity<Edited> removeFeature(
       @PathVariable long id,
       @PathVariable long featureId,
+      @RequestParam(defaultValue = "false") boolean removeRules,
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       Authentication caller) {
-    return saved(id, caller, edits.removeFeature(id, people.idOf(caller), ifMatch, featureId));
+    var removed = edits.removeFeature(id, people.idOf(caller), ifMatch, featureId, removeRules);
+
+    return saved(id, caller, removed.revision(), removed.rulesDeleted());
   }
 
   /**
@@ -290,7 +296,8 @@ class CatalogController {
   /**
    * What a saved edit answers with.
    *
-   * @param rulesDeleted the rules that went with a trim or a region the edit removed, in words
+   * @param rulesDeleted the rules that went with a feature row, a trim, or a region the edit
+   *     removed, in words
    */
   record Edited(long revision, List<Issue> issues, List<String> rulesDeleted) {}
 

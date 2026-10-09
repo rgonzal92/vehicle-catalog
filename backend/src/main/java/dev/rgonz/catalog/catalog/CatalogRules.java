@@ -130,8 +130,30 @@ class CatalogRules {
    * pair once. A feature row that any of them names cannot be removed.
    */
   List<String> naming(long catalogId, long featureId) {
-    return jdbc
-        .sql(
+    return keysOfThoseNaming(catalogId, featureId).stream()
+        .map(key -> inWords(catalogId, key))
+        .sorted()
+        .toList();
+  }
+
+  /**
+   * Deletes the rules that name the feature, a pair as one, which is what lets its feature row be
+   * removed. It records each as a change, a pair once, and answers with the deleted rules in words.
+   */
+  List<String> deleteThoseNaming(long catalogId, long actorId, long featureId) {
+    var deleted = new ArrayList<String>();
+    for (var key : keysOfThoseNaming(catalogId, featureId)) {
+      deleted.add(inWords(catalogId, key));
+      delete(catalogId, actorId, key);
+    }
+    deleted.sort(null);
+
+    return deleted;
+  }
+
+  /** The rules that name the feature. Of a pair, it is the rule that starts from the feature. */
+  private List<UUID> keysOfThoseNaming(long catalogId, long featureId) {
+    return jdbc.sql(
             """
             SELECT r.rule_key
             FROM catalog_rule r
@@ -146,11 +168,7 @@ class CatalogRules {
         .param("catalog", catalogId)
         .param("feature", featureId)
         .query(UUID.class)
-        .list()
-        .stream()
-        .map(key -> inWords(catalogId, key))
-        .sorted()
-        .toList();
+        .list();
   }
 
   /**

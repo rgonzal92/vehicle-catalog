@@ -31,6 +31,7 @@ import {
 } from '../../core/global-rules';
 import { ReadFailed } from '../../shared/read-state';
 import { reasonOf } from '../../shared/reason-of';
+import { ruleSentence } from './rule-words';
 
 /**
  * A rule as the tab lists it: a rule of the catalog, or a global rule that names one of its feature
@@ -63,11 +64,6 @@ function rowOf(
   regions: string[] | null,
   pairKey: string | null,
 ): RuleRow {
-  const said = `${source} ${RULE_KIND_NAMES[kind].toLowerCase()} ${targets.join(', ')}`;
-  const scopes = [trims && `on ${trims.join(', ')}`, regions && `in ${regions.join(', ')}`]
-    .filter(Boolean)
-    .join('; ');
-
   return {
     id,
     origin: rule ? 'CATALOG' : 'GLOBAL',
@@ -78,7 +74,7 @@ function rowOf(
     regions: regions?.join(', ') ?? 'Every region',
     pairKey,
     rule,
-    words: scopes ? `${said} (${scopes})` : said,
+    words: ruleSentence(kind, source, targets, trims, regions),
   };
 }
 

@@ -658,6 +658,58 @@ describe('CatalogEditorPage', () => {
       await vi.waitFor(() => expect(focused).toEqual(['ROOF_PANORAMIC']));
     });
 
+    it('lists the rules that name the row, and removes them with it', async () => {
+      const towNeedsRoof = {
+        key: 'tow-needs-roof',
+        kind: 'REQUIRES',
+        sourceFeatureId: 2,
+        targetFeatureIds: [1],
+        allTrims: true,
+        trimIds: [],
+        allRegions: true,
+        regionCodes: [],
+        pairKey: null,
+      };
+      const element = await page({
+        ...workingCopy,
+        snapshot: { ...workingCopy.snapshot, rules: [towNeedsRoof] },
+      });
+      matrixOf(element).dispatchEvent(new MouseEvent('dblclick'));
+
+      const going = () => dialog()?.querySelector('[data-rules-going]');
+      await vi.waitFor(() =>
+        expect(going()?.querySelector('p')?.textContent?.trim()).toBe(
+          '1 rule of this catalog names it. Removing the row deletes the rule too:',
+        ),
+      );
+      expect(Array.from(going()!.querySelectorAll('li'), (item) => item.textContent)).toEqual([
+        'Tow Package requires Panoramic Roof',
+      ]);
+      expect(dialogButton('Remove')).toBe(undefined);
+      dialogButton('Remove with its rules').click();
+
+      const removal = await vi.waitFor(() =>
+        backend.expectOne({
+          method: 'DELETE',
+          url: '/api/catalogs/41/features/1?removeRules=true',
+        }),
+      );
+      removal.flush({
+        revision: 5,
+        issues: [],
+        rulesDeleted: ['Tow Package requires Panoramic Roof'],
+      });
+      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush({
+        ...workingCopy,
+        snapshot: {
+          ...workingCopy.snapshot,
+          revision: 5,
+          featureRows: [workingCopy.snapshot.featureRows[1]],
+        },
+      });
+      await vi.waitFor(() => expect(dialog()).toBeNull());
+    });
+
     it('removes the row as an edit of the revision read, and reads the catalog again', async () => {
       const element = await ask();
 

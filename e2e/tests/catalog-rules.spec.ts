@@ -164,6 +164,56 @@ test('a broken rule of a working copy is an issue, which shows the rule', async 
   await expect(counts).not.toContainText('Error');
 });
 
+test('removing a feature row that a rule names lists the rule and takes it along', async ({
+  page,
+}) => {
+  await signIn(page, 'author');
+  await createWorkingCopy(page, 'SUV', 'Compact SUV', '2026');
+  const matrix = page.locator('app-availability-matrix');
+
+  // The copy started with a rule by which the hybrid powertrain requires regenerative braking.
+  await page
+    .getByRole('search', { name: 'Feature rows shown' })
+    .getByLabel('Code or name')
+    .fill('POWERTRAIN_HYBRID');
+  await matrix
+    .getByRole('row', { name: /POWERTRAIN_HYBRID/ })
+    .getByRole('cell')
+    .nth(1)
+    .focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.getByRole('button', { name: 'Remove Hybrid Powertrain' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  const question = page.getByRole('dialog', { name: 'Remove feature row' });
+  await expect(question).toContainText(
+    '1 rule of this catalog names it. Removing the row deletes the rule too:',
+  );
+  await expect(question.getByRole('listitem')).toHaveText([
+    'Hybrid Powertrain requires Regenerative Braking',
+  ]);
+  await expectAccessible(page);
+
+  await question.getByRole('button', { name: 'Remove with its rules' }).click();
+  await expect(question).toBeHidden();
+  await expect(matrix.getByRole('row', { name: /POWERTRAIN_HYBRID/ })).toHaveCount(0);
+
+  await page.getByRole('tab', { name: 'Rules' }).click();
+  const rules = page.getByRole('tabpanel', { name: 'Rules' });
+  await expect(rules.getByRole('row', { name: /Catalog/ }).first()).toBeVisible();
+  await expect(
+    rules.getByRole('row', { name: /^Hybrid Powertrain Requires Regenerative Braking/ }),
+  ).toHaveCount(0);
+
+  await page.getByRole('tab', { name: 'History' }).click();
+  const history = page.getByRole('tabpanel', { name: 'History' });
+  await expect(
+    history.getByRole('row', {
+      name: /Rule removed Hybrid Powertrain requires Regenerative Braking$/,
+    }),
+  ).toBeVisible();
+  await expect(history.getByRole('row', { name: /Feature removed/ })).toBeVisible();
+});
+
 test('an Approved version shows its rules, and nobody changes them', async ({ page }) => {
   await signIn(page, 'author');
   const lineages = (await (await page.request.get('/api/lineages')).json()) as {

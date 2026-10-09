@@ -2,13 +2,54 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Component, signal, viewChild } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { MessageService } from 'primeng/api';
 import { Catalog, CatalogEdit } from '../../core/catalogs';
 import { ManageOfferingsDialog } from './manage-offerings-dialog';
 
-/** Base and Sport in North America and Europe; Sport is not sold in Europe. Three cells in all. */
+const rule = {
+  kind: 'REQUIRES',
+  sourceFeatureId: 7,
+  targetFeatureIds: [8],
+  allTrims: true,
+  trimIds: [],
+  allRegions: true,
+  regionCodes: [],
+  pairKey: null,
+};
+
+/**
+ * Base and Sport in North America and Europe; Sport is not sold in Europe. Three cells in all. Of
+ * its rules, one covers Sport alone, one covers both trims, and a pair covers Europe alone.
+ */
 const catalog = {
   snapshot: {
     catalogId: 41,
+    featureRows: [
+      { id: 7, name: 'Panoramic Roof' },
+      { id: 8, name: 'Leather Seats' },
+    ],
+    rules: [
+      { ...rule, key: 'on-sport', allTrims: false, trimIds: [2] },
+      { ...rule, key: 'on-both', kind: 'INCLUDES', allTrims: false, trimIds: [1, 2] },
+      {
+        ...rule,
+        key: 'forward',
+        kind: 'EXCLUDES',
+        allRegions: false,
+        regionCodes: ['EU'],
+        pairKey: 'a-pair',
+      },
+      {
+        ...rule,
+        key: 'mirrored',
+        kind: 'EXCLUDES',
+        sourceFeatureId: 8,
+        targetFeatureIds: [7],
+        allRegions: false,
+        regionCodes: ['EU'],
+        pairKey: 'a-pair',
+      },
+    ],
     trims: [
       { id: 1, name: 'Base', sortOrder: 1 },
       { id: 2, name: 'Sport', sortOrder: 2 },
@@ -100,7 +141,7 @@ describe('ManageOfferingsDialog', () => {
     // A dropdown asks how wide the screen is before it opens, which the test page cannot say.
     vi.stubGlobal('matchMedia', () => ({ matches: false }));
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(), provideHttpClientTesting(), MessageService],
     });
     backend = TestBed.inject(HttpTestingController);
     fixture = TestBed.createComponent(Host);
@@ -149,7 +190,7 @@ describe('ManageOfferingsDialog', () => {
 
     await vi.waitFor(() =>
       expect(question()).toBe(
-        'Base will no longer be sold in Europe. 2 cells go with this offering.',
+        'Base will no longer be sold in Europe. 2 cells go with this offering, and no rule changes.',
       ),
     );
     backend.expectNone((request) => request.method !== 'GET');
@@ -207,6 +248,55 @@ describe('ManageOfferingsDialog', () => {
         backend.expectOne({ method: 'DELETE', url: '/api/catalogs/41/regions/EU' }),
       )
     ).flush({ revision: 6 });
+  });
+
+  it('names the rules that go with a trim or a region, and says which were deleted', async () => {
+    const said = vi.spyOn(TestBed.inject(MessageService), 'add');
+    const going = () =>
+      dialog().querySelector('[data-rules-going]')?.textContent?.replace(/\s+/g, ' ').trim();
+
+    button('Remove Base').click();
+    await vi.waitFor(() => expect(question()).toContain('Remove Base'));
+    expect(going(), 'no rule covers Base alone').toBeUndefined();
+    button('Keep').click();
+    await vi.waitFor(() => expect(question()).toBeUndefined());
+
+    button('Remove Europe').click();
+    await vi.waitFor(() =>
+      expect(going()).toBe(
+        'This rule covers nothing else and is deleted with it:' +
+          ' Panoramic Roof excludes Leather Seats (in Europe)',
+      ),
+    );
+    button('Keep').click();
+    await vi.waitFor(() => expect(question()).toBeUndefined());
+
+    button('Remove Sport').click();
+    await vi.waitFor(() =>
+      expect(going()).toBe(
+        'This rule covers nothing else and is deleted with it:' +
+          ' Panoramic Roof requires Leather Seats (on Sport)',
+      ),
+    );
+    button('Remove').click();
+    (
+      await vi.waitFor(() =>
+        backend.expectOne({ method: 'DELETE', url: '/api/catalogs/41/trims/2' }),
+      )
+    ).flush({
+      revision: 5,
+      issues: [],
+      rulesDeleted: ['Panoramic Roof requires Leather Seats (on Sport)'],
+    });
+
+    await vi.waitFor(() =>
+      expect(said).toHaveBeenCalledWith({
+        severity: 'info',
+        summary: '1 rule deleted with Sport',
+        detail: 'Panoramic Roof requires Leather Seats (on Sport).',
+      }),
+    );
+    expect(await fixture.componentInstance.sent[0]).toBe(5);
   });
 
   it('offers only active library entries the catalog does not have, and adds the one chosen', async () => {
