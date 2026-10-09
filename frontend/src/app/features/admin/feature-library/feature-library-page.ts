@@ -2,7 +2,8 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MessageService } from 'primeng/api';
-import { Button } from 'primeng/button';
+import { Plus } from '@primeicons/angular/plus';
+import { Button, ButtonDirective, ButtonIcon, ButtonLabel } from 'primeng/button';
 import { Dialog } from 'primeng/dialog';
 import { InputText } from 'primeng/inputtext';
 import { Message } from 'primeng/message';
@@ -25,6 +26,10 @@ const STATUS_NAMES: Record<FeatureStatus, string> = { ACTIVE: 'Active', RETIRED:
   imports: [
     ReactiveFormsModule,
     Button,
+    ButtonDirective,
+    ButtonIcon,
+    ButtonLabel,
+    Plus,
     Dialog,
     InputText,
     Message,
@@ -36,120 +41,127 @@ const STATUS_NAMES: Record<FeatureStatus, string> = { ACTIVE: 'Active', RETIRED:
   selector: 'app-feature-library-page',
   template: `
     <div class="max-w-6xl">
-      <header class="flex justify-end">
-        <p-button label="Add feature" (onClick)="startAdding()" />
-      </header>
+      <div class="surface">
+        <div class="surface-header">
+          <form
+            class="flex flex-wrap items-end gap-4"
+            role="search"
+            [formGroup]="filters"
+            (ngSubmit)="search()"
+          >
+            <div class="grid gap-1">
+              <label for="feature-query">Code or name</label>
+              <input pInputText id="feature-query" type="search" formControlName="query" />
+            </div>
+            <div class="grid gap-1">
+              <label id="feature-category-filter-label" for="feature-category-filter"
+                >Category</label
+              >
+              <p-select
+                inputId="feature-category-filter"
+                ariaLabelledBy="feature-category-filter-label"
+                formControlName="category"
+                optionLabel="name"
+                optionValue="code"
+                [options]="categoryFilters()"
+                (onChange)="search()"
+              />
+            </div>
+            <div class="grid gap-1">
+              <label id="feature-kind-filter-label" for="feature-kind-filter">Kind</label>
+              <p-select
+                inputId="feature-kind-filter"
+                ariaLabelledBy="feature-kind-filter-label"
+                formControlName="kind"
+                optionLabel="name"
+                optionValue="code"
+                [options]="kindFilters"
+                (onChange)="search()"
+              />
+            </div>
+            <div class="grid gap-1">
+              <label id="feature-status-filter-label" for="feature-status-filter">Status</label>
+              <p-select
+                inputId="feature-status-filter"
+                ariaLabelledBy="feature-status-filter-label"
+                formControlName="status"
+                optionLabel="name"
+                optionValue="code"
+                [options]="statusFilters"
+                (onChange)="search()"
+              />
+            </div>
+            <p-button type="submit" label="Search" severity="secondary" />
+          </form>
+          <button pButton type="button" class="self-end" (click)="startAdding()">
+            <svg data-p-icon="plus" pButtonIcon />
+            <span pButtonLabel>Add feature</span>
+          </button>
+        </div>
 
-      <form
-        class="mt-6 flex flex-wrap items-end gap-4"
-        role="search"
-        [formGroup]="filters"
-        (ngSubmit)="search()"
-      >
-        <div class="grid gap-1">
-          <label for="feature-query">Code or name</label>
-          <input pInputText id="feature-query" type="search" formControlName="query" />
-        </div>
-        <div class="grid gap-1">
-          <label id="feature-category-filter-label" for="feature-category-filter">Category</label>
-          <p-select
-            inputId="feature-category-filter"
-            ariaLabelledBy="feature-category-filter-label"
-            formControlName="category"
-            optionLabel="name"
-            optionValue="code"
-            [options]="categoryFilters()"
-            (onChange)="search()"
-          />
-        </div>
-        <div class="grid gap-1">
-          <label id="feature-kind-filter-label" for="feature-kind-filter">Kind</label>
-          <p-select
-            inputId="feature-kind-filter"
-            ariaLabelledBy="feature-kind-filter-label"
-            formControlName="kind"
-            optionLabel="name"
-            optionValue="code"
-            [options]="kindFilters"
-            (onChange)="search()"
-          />
-        </div>
-        <div class="grid gap-1">
-          <label id="feature-status-filter-label" for="feature-status-filter">Status</label>
-          <p-select
-            inputId="feature-status-filter"
-            ariaLabelledBy="feature-status-filter-label"
-            formControlName="status"
-            optionLabel="name"
-            optionValue="code"
-            [options]="statusFilters"
-            (onChange)="search()"
-          />
-        </div>
-        <p-button type="submit" label="Search" severity="secondary" />
-      </form>
-
-      <p-table
-        class="mt-6 block"
-        [value]="library.features()"
-        [lazy]="true"
-        [paginator]="true"
-        [rows]="pageSize"
-        [totalRecords]="library.total()"
-        [(first)]="first"
-        (onLazyLoad)="find()"
-      >
-        <ng-template #header>
-          <tr>
-            <th scope="col">Code</th>
-            <th scope="col">Name</th>
-            <th scope="col">Category</th>
-            <th scope="col">Kind</th>
-            <th scope="col">Status</th>
-            <th scope="col"><span class="sr-only">Actions</span></th>
-          </tr>
-        </ng-template>
-        <ng-template #body let-feature>
-          <tr>
-            <td>{{ feature.code }}</td>
-            <td>
-              {{ feature.name }}
-              @if (feature.description) {
-                <p class="text-sm text-muted-color">{{ feature.description }}</p>
-              }
-            </td>
-            <td>{{ fixedLists.categoryName(feature.categoryCode) }}</td>
-            <td>{{ kindName(feature) }}</td>
-            <td>
-              <p-tag
-                [value]="statusName(feature)"
-                [severity]="feature.status === 'ACTIVE' ? 'success' : 'secondary'"
-              />
-            </td>
-            <td class="text-right whitespace-nowrap">
-              <p-button
-                label="Edit"
-                severity="secondary"
-                [text]="true"
-                [ariaLabel]="'Edit ' + feature.name"
-                (onClick)="startEditing(feature)"
-              />
-              <p-button
-                severity="secondary"
-                [text]="true"
-                [label]="statusAction(feature)"
-                [ariaLabel]="statusAction(feature) + ' ' + feature.name"
-                (onClick)="changeStatus(feature)"
-              />
-            </td>
-          </tr>
-        </ng-template>
-        <ng-template #emptymessage>
-          <tr>
-            <td colspan="6">No features match.</td>
-          </tr>
-        </ng-template>
-      </p-table>
+        <p-table
+          [value]="library.features()"
+          [lazy]="true"
+          [paginator]="true"
+          [rows]="pageSize"
+          [totalRecords]="library.total()"
+          [(first)]="first"
+          (onLazyLoad)="find()"
+        >
+          <ng-template #header>
+            <tr>
+              <th scope="col">Code</th>
+              <th scope="col">Name</th>
+              <th scope="col">Category</th>
+              <th scope="col">Kind</th>
+              <th scope="col">Status</th>
+              <th scope="col"><span class="sr-only">Actions</span></th>
+            </tr>
+          </ng-template>
+          <ng-template #body let-feature>
+            <tr>
+              <td>{{ feature.code }}</td>
+              <td>
+                {{ feature.name }}
+                @if (feature.description) {
+                  <p class="text-sm text-muted-color">{{ feature.description }}</p>
+                }
+              </td>
+              <td>{{ fixedLists.categoryName(feature.categoryCode) }}</td>
+              <td>{{ kindName(feature) }}</td>
+              <td>
+                <p-tag
+                  [value]="statusName(feature)"
+                  [severity]="feature.status === 'ACTIVE' ? 'success' : 'secondary'"
+                />
+              </td>
+              <td class="text-right whitespace-nowrap">
+                <p-button
+                  label="Edit"
+                  severity="secondary"
+                  size="small"
+                  [text]="true"
+                  [ariaLabel]="'Edit ' + feature.name"
+                  (onClick)="startEditing(feature)"
+                />
+                <p-button
+                  severity="secondary"
+                  size="small"
+                  [text]="true"
+                  [label]="statusAction(feature)"
+                  [ariaLabel]="statusAction(feature) + ' ' + feature.name"
+                  (onClick)="changeStatus(feature)"
+                />
+              </td>
+            </tr>
+          </ng-template>
+          <ng-template #emptymessage>
+            <tr>
+              <td class="surface-empty" colspan="6">No features match.</td>
+            </tr>
+          </ng-template>
+        </p-table>
+      </div>
 
       <p-dialog
         [header]="editing() ? 'Edit feature' : 'Add feature'"

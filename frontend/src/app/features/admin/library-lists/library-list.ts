@@ -11,6 +11,8 @@ export interface LibraryEntry {
 export interface LibraryList {
   title: string;
   singular: string;
+  /** What the list is for, in a sentence its screen shows. */
+  purpose: string;
   path: string;
   /** Whether an entry is identified by a code the admin enters once, when adding it. */
   hasCode: boolean;
@@ -21,6 +23,7 @@ export interface LibraryList {
 export const TRIMS: LibraryList = {
   title: 'Trims',
   singular: 'trim',
+  purpose: 'Every catalog takes its trims from this list, in this order.',
   path: '/api/trims',
   hasCode: false,
   keyOf: (trim) => trim.id,
@@ -29,6 +32,7 @@ export const TRIMS: LibraryList = {
 export const REGIONS: LibraryList = {
   title: 'Regions',
   singular: 'region',
+  purpose: 'Every catalog takes its regions from this list, in this order.',
   path: '/api/regions',
   hasCode: true,
   keyOf: (region) => region.code,
