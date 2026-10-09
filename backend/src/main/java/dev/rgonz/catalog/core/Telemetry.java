@@ -18,8 +18,9 @@ import org.springframework.http.server.observation.ServerRequestObservationConte
 
 /**
  * What the backend reports of itself. Each metric that is kept is one that is paid for, so the list
- * is short: whether the backend is ready, its requests by outcome, the memory its heap uses, and
- * how long an edit and a copy of a catalog take. Every other metric is turned down here, the many
+ * is short: whether the backend is ready, its requests by outcome, the memory its heap uses, how
+ * long an edit and a copy of a catalog take, and how many catalogs were refused at their submit,
+ * approved, rejected, and updated from Approved. Every other metric is turned down here, the many
  * that the libraries offer among them, so a new one is added to this list and to the dashboard that
  * shows it.
  */
@@ -46,7 +47,15 @@ class Telemetry {
       @Override
       public MeterFilterReply accept(Meter.Id id) {
         return switch (id.getName()) {
-          case "health", "http.server.requests", "jvm.heap.used", "catalog.edit", "catalog.copy" ->
+          case "health",
+              "http.server.requests",
+              "jvm.heap.used",
+              "catalog.edit",
+              "catalog.copy",
+              "catalog.submit.refused",
+              "catalog.approved",
+              "catalog.rejected",
+              "catalog.merged" ->
               MeterFilterReply.ACCEPT;
           default -> MeterFilterReply.DENY;
         };

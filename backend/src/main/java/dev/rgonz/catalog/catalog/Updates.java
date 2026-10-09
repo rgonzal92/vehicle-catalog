@@ -12,6 +12,8 @@ import dev.rgonz.catalog.catalog.Diff.Changes;
 import dev.rgonz.catalog.catalog.Merge.Conflict;
 import dev.rgonz.catalog.catalog.Merge.Side;
 import dev.rgonz.catalog.core.ApiException;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -35,13 +37,22 @@ class Updates {
   private final TransactionTemplate transactions;
   private final CatalogEdits edits;
   private final Catalogs catalogs;
+  private final Counter updates;
 
   Updates(
-      JdbcClient jdbc, TransactionTemplate transactions, CatalogEdits edits, Catalogs catalogs) {
+      JdbcClient jdbc,
+      TransactionTemplate transactions,
+      CatalogEdits edits,
+      Catalogs catalogs,
+      MeterRegistry metrics) {
     this.jdbc = jdbc;
     this.transactions = transactions;
     this.edits = edits;
     this.catalogs = catalogs;
+    this.updates =
+        Counter.builder("catalog.merged")
+            .description("How many working copies were updated from Approved")
+            .register(metrics);
   }
 
   /**
@@ -89,51 +100,56 @@ class Updates {
       String ifMatch,
       Long approvedCatalogId,
       Map<String, Side> resolutions) {
-    return transactions.execute(
-        transaction -> {
-          edits.lockToEdit(catalogId, ownerId, ifMatch);
-          var catalog = catalogs.find(catalogId, ownerId).orElseThrow(ApiException::notFound);
-          if (!catalog.stale()) {
-            throw notStale();
-          }
-          var approved = catalog.current();
-          if (!Long.valueOf(approved.catalogId()).equals(approvedCatalogId)) {
-            throw ApiException.conflict(
-                "APPROVED_MOVED",
-                "Approved v%d is the current version of this catalog's lineage by now. Work the"
-                        .formatted(approved.versionNumber())
-                    + " update out again from it.");
-          }
-          var merge = merge(catalog, resolutions == null ? Map.of() : resolutions);
-          if (!merge.unsettled().isEmpty()) {
-            throw ApiException.unresolvedConflicts(
-                "Choose a side for every conflict, then update the catalog.", merge.unsettled());
-          }
+    long updated =
+        transactions.execute(
+            transaction -> {
+              edits.lockToEdit(catalogId, ownerId, ifMatch);
+              var catalog = catalogs.find(catalogId, ownerId).orElseThrow(ApiException::notFound);
+              if (!catalog.stale()) {
+                throw notStale();
+              }
+              var approved = catalog.current();
+              if (!Long.valueOf(approved.catalogId()).equals(approvedCatalogId)) {
+                throw ApiException.conflict(
+                    "APPROVED_MOVED",
+                    "Approved v%d is the current version of this catalog's lineage by now. Work the"
+                            .formatted(approved.versionNumber())
+                        + " update out again from it.");
+              }
+              var merge = merge(catalog, resolutions == null ? Map.of() : resolutions);
+              if (!merge.unsettled().isEmpty()) {
+                throw ApiException.unresolvedConflicts(
+                    "Choose a side for every conflict, then update the catalog.",
+                    merge.unsettled());
+              }
 
-          requireWithinLimits(merge.merged());
+              requireWithinLimits(merge.merged());
 
-          write(catalogId, merge.merged());
-          jdbc.sql(
-                  """
+              write(catalogId, merge.merged());
+              jdbc.sql(
+                      """
                   INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
                   VALUES (:catalog, :actor, 'MERGED', jsonb_build_object('new', :approved::text))
                   """)
-              .param("catalog", catalogId)
-              .param("actor", ownerId)
-              .param("approved", "Approved v" + approved.versionNumber())
-              .update();
-          return jdbc.sql(
-                  """
+                  .param("catalog", catalogId)
+                  .param("actor", ownerId)
+                  .param("approved", "Approved v" + approved.versionNumber())
+                  .update();
+              return jdbc.sql(
+                      """
                   UPDATE catalog
                   SET base_catalog_id = :approved, revision = revision + 1, updated_at = now()
                   WHERE id = :id
                   RETURNING revision
                   """)
-              .param("approved", approved.catalogId())
-              .param("id", catalogId)
-              .query(Long.class)
-              .single();
-        });
+                  .param("approved", approved.catalogId())
+                  .param("id", catalogId)
+                  .query(Long.class)
+                  .single();
+            });
+    updates.increment();
+
+    return updated;
   }
 
   /**

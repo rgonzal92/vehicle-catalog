@@ -149,9 +149,19 @@ run "a_backend_that_is_not_ready_or_says_nothing_sets_off_the_alarm" {
 
 run "every_metric_that_is_sent_is_looked_at" {
   assert {
-    # A test in backend/ holds the backend to these five.
+    # A test in backend/ holds the backend to these nine.
     condition = alltrue([
-      for metric in ["health", "http.server.requests", "jvm.heap.used", "catalog.edit", "catalog.copy"] :
+      for metric in [
+        "health",
+        "http.server.requests",
+        "jvm.heap.used",
+        "catalog.edit",
+        "catalog.copy",
+        "catalog.submit.refused",
+        "catalog.approved",
+        "catalog.rejected",
+        "catalog.merged",
+      ] :
       anytrue([
         for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
         strcontains(jsonencode(widget.properties.metrics), "Namespace=\\\"vehicle-catalog\\\" MetricName=\\\"${metric}\\\"")

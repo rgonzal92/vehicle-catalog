@@ -3,6 +3,11 @@ package dev.rgonz.catalog.catalog;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
 import dev.rgonz.catalog.catalog.Issue.Severity;
 import dev.rgonz.catalog.core.ApiException;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -21,12 +26,39 @@ class Submissions {
   private final CatalogEdits edits;
   private final Catalogs catalogs;
 
+  /** How many submits were refused for the state the catalog was in, by the refusal's code. */
+  private final Map<String, Counter> refusals;
+
   Submissions(
-      JdbcClient jdbc, TransactionTemplate transactions, CatalogEdits edits, Catalogs catalogs) {
+      JdbcClient jdbc,
+      TransactionTemplate transactions,
+      CatalogEdits edits,
+      Catalogs catalogs,
+      MeterRegistry metrics) {
     this.jdbc = jdbc;
     this.transactions = transactions;
     this.edits = edits;
     this.catalogs = catalogs;
+    // Each reason is a metric of its own from the start, so the list of them never grows unseen.
+    this.refusals =
+        Stream.of("STALE", "VEHICLE_LINE_INACTIVE", "HAS_ERRORS")
+            .collect(
+                Collectors.toMap(
+                    reason -> reason,
+                    reason ->
+                        Counter.builder("catalog.submit.refused")
+                            .description(
+                                "How many submits were refused for the state the catalog was in")
+                            .tag("reason", reason)
+                            .register(metrics)));
+  }
+
+  /**
+   * Counts a submit that is refused for the state the catalog is in, and gives the refusal back.
+   */
+  private ApiException refused(String reason, ApiException refusal) {
+    refusals.get(reason).increment();
+    return refusal;
   }
 
   /**
@@ -50,21 +82,27 @@ class Submissions {
           }
           var catalog = catalogs.find(catalogId, ownerId).orElseThrow(ApiException::notFound);
           if (catalog.stale()) {
-            throw ApiException.conflict(
+            throw refused(
                 "STALE",
-                "Approved v%d is now the current version of this catalog's lineage. Update the"
-                        .formatted(catalog.current().versionNumber())
-                    + " catalog from it, then submit it.");
+                ApiException.conflict(
+                    "STALE",
+                    "Approved v%d is now the current version of this catalog's lineage. Update the"
+                            .formatted(catalog.current().versionNumber())
+                        + " catalog from it, then submit it."));
           }
           if (!catalog.vehicleLineActive()) {
-            throw ApiException.conflict(
+            throw refused(
                 "VEHICLE_LINE_INACTIVE",
-                "The vehicle line %s is deactivated, so its catalogs cannot be submitted."
-                    .formatted(catalog.vehicleLine()));
+                ApiException.conflict(
+                    "VEHICLE_LINE_INACTIVE",
+                    "The vehicle line %s is deactivated, so its catalogs cannot be submitted."
+                        .formatted(catalog.vehicleLine())));
           }
           if (catalog.issues().stream().anyMatch(issue -> issue.severity() == Severity.ERROR)) {
-            throw ApiException.hasErrors(
-                "This catalog has Errors. Put them right, then submit it.", catalog.issues());
+            throw refused(
+                "HAS_ERRORS",
+                ApiException.hasErrors(
+                    "This catalog has Errors. Put them right, then submit it.", catalog.issues()));
           }
 
           jdbc.sql(

@@ -126,6 +126,25 @@ class SubmissionsIT extends WorkingCopyTests {
   }
 
   @Test
+  void aSubmitRefusedForTheStateOfTheCatalogIsCountedByItsReasonAndNoOtherSubmitIs() {
+    var errors = counted("catalog.submit.refused", "reason", "HAS_ERRORS");
+    var inactive = counted("catalog.submit.refused", "reason", "VEHICLE_LINE_INACTIVE");
+
+    assertThat(submit(ana(), copy, "\"7\"", null)).as("from another revision").hasStatus(412);
+    jdbc.sql("UPDATE vehicle_line SET active = false WHERE code = 'COMPACT_SUV'").update();
+    assertThat(submit(ana(), copy, "\"0\"", null)).as("of an inactive line").hasStatus(409);
+    jdbc.sql("UPDATE vehicle_line SET active = true WHERE code = 'COMPACT_SUV'").update();
+    jdbc.sql("UPDATE feature SET status = 'RETIRED' WHERE code = 'ROOF_PANORAMIC'").update();
+    assertThat(submit(ana(), copy, "\"0\"", null)).as("with an Error").hasStatus(422);
+    jdbc.sql("UPDATE feature SET status = 'ACTIVE' WHERE code = 'ROOF_PANORAMIC'").update();
+    assertThat(submit(ana(), copy, "\"0\"", null)).as("as it should be").hasStatusOk();
+
+    assertThat(counted("catalog.submit.refused", "reason", "HAS_ERRORS")).isEqualTo(errors + 1);
+    assertThat(counted("catalog.submit.refused", "reason", "VEHICLE_LINE_INACTIVE"))
+        .isEqualTo(inactive + 1);
+  }
+
+  @Test
   void theOwnerWithdrawsASubmittedCatalogAndEditsItAgain() {
     submit(ana(), copy, "\"0\"", "Ready.");
 
