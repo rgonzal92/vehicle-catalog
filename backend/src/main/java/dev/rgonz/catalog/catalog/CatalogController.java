@@ -98,8 +98,8 @@ class CatalogController {
     return workingCopies.ownedBy(owner).stream()
         .map(
             copy -> {
-              var issues =
-                  catalogs.find(copy.id(), owner).map(CatalogView::issues).orElseGet(List::of);
+              var read = catalogs.find(copy.id(), owner);
+              var issues = read.map(CatalogView::issues).orElseGet(List::of);
               var errors =
                   issues.stream().filter(issue -> issue.severity() == Severity.ERROR).count();
 
@@ -112,7 +112,8 @@ class CatalogController {
                   copy.revision(),
                   copy.updatedAt(),
                   errors,
-                  issues.size() - errors);
+                  issues.size() - errors,
+                  read.map(CatalogView::stale).orElse(false));
             })
         .toList();
   }
@@ -123,6 +124,7 @@ class CatalogController {
    * @param revision what an edit made from the list, such as deleting it, names
    * @param errors how many Errors validation finds in it against the library as it is today
    * @param warnings how many Warnings
+   * @param stale whether its base is no longer its lineage's current Approved
    */
   record ListedWorkingCopy(
       long id,
@@ -133,7 +135,8 @@ class CatalogController {
       long revision,
       Instant updatedAt,
       long errors,
-      long warnings) {}
+      long warnings,
+      boolean stale) {}
 
   /**
    * The catalogs that are waiting for review, for a manager or an admin. The caller's own are among
@@ -388,17 +391,22 @@ class CatalogController {
 
   /**
    * An edit answers with the revision the catalog is at afterwards, which is also the entity tag,
-   * with every issue the catalog then has, and with the rules it deleted along the way. The
-   * revision is the one the edit was made from when the edit changed nothing.
+   * with every issue the catalog then has, with the rules it deleted along the way, and with
+   * whether the catalog is stale. The revision is the one the edit was made from when the edit
+   * changed nothing.
    */
   private ResponseEntity<Edited> saved(
       long id, Authentication caller, long revision, List<String> rulesDeleted) {
-    var issues =
-        catalogs.find(id, people.idOf(caller)).map(CatalogView::issues).orElseGet(List::of);
+    var catalog = catalogs.find(id, people.idOf(caller));
 
     return ResponseEntity.ok()
         .eTag(String.valueOf(revision))
-        .body(new Edited(revision, issues, rulesDeleted));
+        .body(
+            new Edited(
+                revision,
+                catalog.map(CatalogView::issues).orElseGet(List::of),
+                rulesDeleted,
+                catalog.map(CatalogView::stale).orElse(false)));
   }
 
   /** The name a working copy is to have. */
@@ -459,8 +467,10 @@ class CatalogController {
    *
    * @param rulesDeleted the rules that went with a feature row, a trim, or a region the edit
    *     removed, in words
+   * @param stale whether the catalog is stale by now: another catalog of its lineage may have been
+   *     approved while its owner was editing
    */
-  record Edited(long revision, List<Issue> issues, List<String> rulesDeleted) {}
+  record Edited(long revision, List<Issue> issues, List<String> rulesDeleted, boolean stale) {}
 
   /** A catalog with its contents. Its revision is the entity tag, which later writes name. */
   @GetMapping("/api/catalogs/{id}")

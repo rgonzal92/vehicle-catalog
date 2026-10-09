@@ -32,8 +32,9 @@ class Submissions {
   /**
    * Submits the owner's Draft for review and answers with the revision it is at afterwards. It
    * follows the rules of an edit first: only the owner, only a Draft, and only as they last saw it.
-   * A catalog of an inactive vehicle line is not submitted, which is a state it is in and no issue
-   * of its own; and neither is one that validation, run at this moment, finds an Error in.
+   * A stale catalog is not submitted, nor one of an inactive vehicle line: both are states it is in
+   * and no issues of its own. Neither is one that validation, run at this moment, finds an Error
+   * in.
    *
    * @param ifMatch the revision the submit was made from, as its {@code If-Match} header gave it
    * @param note what the owner says to the reviewer, if anything
@@ -48,6 +49,13 @@ class Submissions {
                 "A note has at most %,d characters.".formatted(LONGEST_NOTE));
           }
           var catalog = catalogs.find(catalogId, ownerId).orElseThrow(ApiException::notFound);
+          if (catalog.stale()) {
+            throw ApiException.conflict(
+                "STALE",
+                "Approved v%d is now the current version of this catalog's lineage. Update the"
+                        .formatted(catalog.current().versionNumber())
+                    + " catalog from it, then submit it.");
+          }
           if (!catalog.vehicleLineActive()) {
             throw ApiException.conflict(
                 "VEHICLE_LINE_INACTIVE",

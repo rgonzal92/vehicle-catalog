@@ -93,13 +93,20 @@ describe('DashboardPage', () => {
           updatedAt: '2026-01-09T10:00:00Z',
           errors: 2,
           warnings: 1,
+          stale: true,
         },
       ],
     );
 
     const row = await firstRow(page, 'my-catalogs');
     const cells = Array.from(row.querySelectorAll('td')).map((cell) => cell.textContent?.trim());
-    expect(cells.slice(0, 4)).toEqual(['Winter update', 'Compact SUV', '2027', 'Draft']);
+    expect(cells.slice(0, 3)).toEqual(['Winter update', 'Compact SUV', '2027']);
+    expect(
+      Array.from(row.querySelectorAll('td')[3].querySelectorAll('p-tag'), (tag) =>
+        tag.textContent?.trim(),
+      ),
+      'a stale working copy is marked beside its status',
+    ).toEqual(['Draft', 'Stale']);
     expect(
       Array.from(row.querySelectorAll('app-issue-counts p-tag'), (tag) => tag.textContent?.trim()),
     ).toEqual(['2 Errors', '1 Warning']);

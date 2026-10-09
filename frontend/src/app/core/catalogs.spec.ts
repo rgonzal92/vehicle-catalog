@@ -69,6 +69,18 @@ describe('Catalogs', () => {
     expect(catalogs.issuesOf(41)).toEqual([]);
   });
 
+  it('knows whether a catalog is stale from the latest answer about it', async () => {
+    expect(catalogs.staleOf(41)).toBe(false);
+
+    const saved = catalogs.setCells(41, 4, [manualAvailable]);
+    backend
+      .expectOne({ method: 'PUT', url: '/api/catalogs/41/cells' })
+      .flush({ revision: 5, issues: [], stale: true });
+    await saved;
+
+    expect(catalogs.staleOf(41)).toBe(true);
+  });
+
   it('takes a catalog to have no issues when the backend names none', async () => {
     const saved = catalogs.setCells(41, 4, [manualAvailable]);
     backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/cells' }).flush({ revision: 5 });

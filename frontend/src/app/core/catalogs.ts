@@ -99,6 +99,8 @@ export interface Catalog {
    * catalog cannot be submitted or approved until it has been updated from that version.
    */
   stale: boolean;
+  /** Its lineage's current Approved, or null while the lineage has none. */
+  current: { catalogId: number; versionNumber: number } | null;
   /**
    * The decision that sent it back to its owner, while it stands, which is until it is submitted
    * again: a reviewer's rejection with its reason, or a return, which is nobody's and has none.
@@ -176,6 +178,8 @@ interface Edited {
   issues: Issue[];
   /** The rules that went with a feature row, a trim, or a region the edit removed, in words. */
   rulesDeleted?: string[];
+  /** Whether the catalog is stale by now. */
+  stale?: boolean;
 }
 
 /**
@@ -202,6 +206,8 @@ export interface WorkingCopy {
   /** How many Errors and Warnings validation finds in it against the library as it is today. */
   errors: number;
   warnings: number;
+  /** Whether its base is no longer its lineage's current Approved. */
+  stale: boolean;
 }
 
 /** A Submitted catalog as the review queue lists it. */
@@ -313,7 +319,10 @@ export function startPointInWords(start: StartPoint): string {
 export class Catalogs {
   private readonly http = inject(HttpClient);
 
-  /** The issues of each catalog, as of the highest revision an answer about it has carried. */
+  /**
+   * The issues of each catalog, and whether it is stale, as of the highest revision an answer
+   * about it has carried.
+   */
   private readonly issues = signal<ReadonlyMap<number, Edited>>(new Map());
 
   /**
@@ -322,6 +331,14 @@ export class Catalogs {
    */
   issuesOf(catalogId: number): Issue[] {
     return this.issues().get(catalogId)?.issues ?? NO_ISSUES;
+  }
+
+  /**
+   * Whether the catalog is stale, as the latest answer about it said. Another catalog of its
+   * lineage can be approved while its owner is editing, and the answer to their next edit says so.
+   */
+  staleOf(catalogId: number): boolean {
+    return this.issues().get(catalogId)?.stale ?? false;
   }
 
   /** Every lineage that has an Approved version, with its current one. */
@@ -336,7 +353,7 @@ export class Catalogs {
 
   async find(catalogId: number): Promise<Catalog> {
     const catalog = await firstValueFrom(this.http.get<Catalog>(`/api/catalogs/${catalogId}`));
-    this.keep(catalogId, catalog.snapshot.revision, catalog.issues);
+    this.keep(catalogId, catalog.snapshot.revision, catalog.issues, catalog.stale);
 
     return catalog;
   }
@@ -552,7 +569,7 @@ export class Catalogs {
       revision,
       body,
     );
-    this.keep(catalogId, saved.revision, saved.issues);
+    this.keep(catalogId, saved.revision, saved.issues, saved.stale);
 
     return saved;
   }
@@ -561,12 +578,18 @@ export class Catalogs {
    * Takes a catalog's issues from an answer, unless a later answer has been heard already: one that
    * was slow to arrive says what the issues were, not what they are.
    */
-  private keep(catalogId: number, revision: number, issues: Issue[] | undefined): void {
+  private keep(
+    catalogId: number,
+    revision: number,
+    issues: Issue[] | undefined,
+    stale: boolean | undefined,
+  ): void {
     const known = this.issues().get(catalogId);
     if (!known || revision >= known.revision) {
-      // A backend that is one release behind answers without issues.
+      // A backend that is one release behind answers without issues, and without whether the
+      // catalog is stale.
       this.issues.update((all) =>
-        new Map(all).set(catalogId, { revision, issues: issues ?? NO_ISSUES }),
+        new Map(all).set(catalogId, { revision, issues: issues ?? NO_ISSUES, stale: !!stale }),
       );
     }
   }
