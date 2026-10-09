@@ -17,9 +17,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 class Trims {
   private final TrimRepository repository;
+  private final LibraryRevision revision;
 
-  Trims(TrimRepository repository) {
+  Trims(TrimRepository repository, LibraryRevision revision) {
     this.repository = repository;
+    this.revision = revision;
   }
 
   @Transactional(readOnly = true)
@@ -45,10 +47,15 @@ class Trims {
             .filter(candidate -> candidate.getId() == id)
             .findFirst()
             .orElseThrow(ApiException::notFound);
+    var wasActive = trim.isActive();
     trim.change(given.name(), given.active());
     SortOrders.move(trims, trim, given.sortOrder());
+    var saved = save(trim);
+    if (wasActive != saved.isActive()) {
+      revision.increase();
+    }
 
-    return save(trim);
+    return saved;
   }
 
   /** The database keeps names unique whatever their case, which also settles two admins racing. */

@@ -48,11 +48,13 @@ class CatalogSeed implements Seed {
   private final JdbcClient jdbc;
   private final JsonMapper json;
   private final DemoPeople demoPeople;
+  private final ApprovedChecks checks;
 
-  CatalogSeed(JdbcClient jdbc, JsonMapper json, DemoPeople demoPeople) {
+  CatalogSeed(JdbcClient jdbc, JsonMapper json, DemoPeople demoPeople, ApprovedChecks checks) {
     this.jdbc = jdbc;
     this.json = json;
     this.demoPeople = demoPeople;
+    this.checks = checks;
   }
 
   /**
@@ -89,6 +91,8 @@ class CatalogSeed implements Seed {
             "seed/catalogs.json: %s could not be loaded".formatted(catalog.title()), refused);
       }
     }
+    // What is seeded as Approved has not been validated by an approval, so the worker does it.
+    checks.queueForEveryCurrentApproved();
   }
 
   private List<SeededCatalog> read() {

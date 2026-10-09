@@ -31,6 +31,7 @@ class Reviews {
   private final TransactionTemplate transactions;
   private final Catalogs catalogs;
   private final Jobs jobs;
+  private final ApprovedChecks checks;
   private final Counter approvals;
   private final Counter rejections;
 
@@ -39,11 +40,13 @@ class Reviews {
       TransactionTemplate transactions,
       Catalogs catalogs,
       Jobs jobs,
+      ApprovedChecks checks,
       MeterRegistry metrics) {
     this.jdbc = jdbc;
     this.transactions = transactions;
     this.catalogs = catalogs;
     this.jobs = jobs;
+    this.checks = checks;
     this.approvals =
         Counter.builder("catalog.approved")
             .description("How many catalogs were approved")
@@ -59,8 +62,9 @@ class Reviews {
    * transaction, with the catalog's lineage locked, so that two approvals in one lineage happen one
    * after the other: the catalog records the labels the library has for its trims, features, and
    * regions; it becomes Approved, with the lineage's next version number; it becomes the lineage's
-   * current Approved; every other Submitted catalog of the lineage goes back to its owner; and the
-   * job that follows an approval is written, for the worker to do.
+   * current Approved; every other Submitted catalog of the lineage goes back to its owner; it is
+   * kept that the catalog was found without an Error; and the job that follows an approval is
+   * written, for the worker to do.
    *
    * <p>A catalog is not approved when it is stale, when its vehicle line is inactive, or when
    * validation, run again at this moment, finds an Error: the global rules may have changed since
@@ -133,6 +137,7 @@ class Reviews {
                   .update();
               returnTheOthers(lineage.id(), catalogId);
               record(catalogId, reviewerId, "APPROVED", said);
+              checks.passedAtItsApproval(catalogId);
               jobs.queue(
                   JobType.AFTER_APPROVAL,
                   "after-approval:" + catalogId,

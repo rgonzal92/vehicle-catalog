@@ -35,16 +35,22 @@ class Catalogs {
     this.jdbc = jdbc;
   }
 
-  /** Every lineage that has an Approved version, with its current one. */
+  /**
+   * Every lineage that has an Approved version, with its current one and what validation last found
+   * in it. A catalog that has not been checked yet counts as one without an Error.
+   */
   List<LineageSummary> lineages() {
     return jdbc.sql(
             """
             SELECT l.id, v.name AS vehicle_line, l.model_year, c.id AS catalog_id,
-                   c.version_number, a.display_name AS approved_by, c.approved_at
+                   c.version_number, a.display_name AS approved_by, c.approved_at,
+                   COALESCE(k.status = 'NEEDS_REVISION', false) AS needs_revision,
+                   COALESCE(k.error_count, 0) AS error_count
             FROM lineage l
             JOIN vehicle_line v ON v.id = l.vehicle_line_id
             JOIN catalog c ON c.id = l.current_catalog_id AND c.status = 'APPROVED'
             JOIN app_user a ON a.id = c.approved_by
+            LEFT JOIN approved_check k ON k.catalog_id = c.id
             ORDER BY v.name, l.model_year
             """)
         .query(LineageSummary.class)
@@ -420,7 +426,13 @@ class Catalogs {
     return jdbc.sql(sql).param("id", id).param("frozen", frozen).query(type).list();
   }
 
-  /** A lineage and its current Approved version, as the dashboard lists them. */
+  /**
+   * A lineage and its current Approved version, as the dashboard lists them.
+   *
+   * @param needsRevision whether validation last found an Error in it: a change of the library has
+   *     broken it since it was approved
+   * @param errorCount how many Errors that was
+   */
   record LineageSummary(
       long id,
       String vehicleLine,
@@ -428,7 +440,9 @@ class Catalogs {
       long catalogId,
       int versionNumber,
       String approvedBy,
-      Instant approvedAt) {}
+      Instant approvedAt,
+      boolean needsRevision,
+      int errorCount) {}
 
   /** One Approved version in a lineage's list of versions. */
   record VersionSummary(

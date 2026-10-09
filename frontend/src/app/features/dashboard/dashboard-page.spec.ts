@@ -320,6 +320,45 @@ describe('DashboardPage', () => {
     );
   });
 
+  it('marks a lineage whose current Approved needs revision, with how many Errors it has', async () => {
+    const lineage = {
+      id: 3,
+      vehicleLine: 'Compact SUV',
+      modelYear: 2026,
+      catalogId: 12,
+      versionNumber: 2,
+      approvedBy: 'Mia Manager',
+      approvedAt: '2026-10-01T10:00:00Z',
+    };
+    const page = await dashboardFor(
+      ['author'],
+      [
+        { ...lineage, needsRevision: true, errorCount: 2 },
+        {
+          ...lineage,
+          id: 4,
+          modelYear: 2027,
+          versionNumber: 1,
+          needsRevision: false,
+          errorCount: 0,
+        },
+        // A backend that is one release behind says nothing of it.
+        { ...lineage, id: 5, modelYear: 2028, versionNumber: 1 },
+      ],
+    );
+
+    const versions = Array.from(
+      page.querySelectorAll('section[aria-labelledby="approved-catalogs"] tbody tr'),
+    ).map((row) => {
+      const version = row.querySelectorAll('td')[2];
+      return [
+        version.querySelector('span')?.textContent?.trim(),
+        ...Array.from(version.querySelectorAll('p-tag')).map((tag) => tag.textContent?.trim()),
+      ];
+    });
+    expect(versions).toEqual([['2', 'Needs revision', '2 Errors'], ['1'], ['1']]);
+  });
+
   it('says so when no lineage has an Approved version', async () => {
     const page = await dashboardFor(['author']);
 

@@ -35,11 +35,17 @@ class Features {
   private final FeatureRepository repository;
   private final FixedLists fixedLists;
   private final GlobalRules globalRules;
+  private final LibraryRevision revision;
 
-  Features(FeatureRepository repository, FixedLists fixedLists, GlobalRules globalRules) {
+  Features(
+      FeatureRepository repository,
+      FixedLists fixedLists,
+      GlobalRules globalRules,
+      LibraryRevision revision) {
     this.repository = repository;
     this.fixedLists = fixedLists;
     this.globalRules = globalRules;
+    this.revision = revision;
   }
 
   /**
@@ -101,9 +107,14 @@ class Features {
             naming);
       }
     }
+    var changes = feature.getStatus() != status;
     feature.setStatus(status);
+    var saved = repository.saveAndFlush(feature);
+    if (changes) {
+      revision.increase();
+    }
 
-    return repository.saveAndFlush(feature);
+    return saved;
   }
 
   private void requireCategory(Kind kind, String categoryCode) {
