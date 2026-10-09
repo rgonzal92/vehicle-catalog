@@ -37,18 +37,27 @@ resource "aws_s3_bucket_lifecycle_configuration" "exports" {
 }
 
 # The host writes the files, reads them, which is what a link to one does in its name, and deletes
-# them. It does nothing else with the bucket, and nothing with a file anywhere else.
+# them. It lists what the bucket holds, which the demo reset needs in order to empty it. It does
+# nothing else with the bucket, and nothing with a file anywhere else.
 resource "aws_iam_role_policy" "host_exports" {
   name = "exports"
   role = aws_iam_role.host.id
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Sid      = "KeepExportedSpreadsheets"
-      Effect   = "Allow"
-      Action   = ["s3:DeleteObject", "s3:GetObject", "s3:PutObject"]
-      Resource = "${aws_s3_bucket.exports.arn}/*"
-    }]
+    Statement = [
+      {
+        Sid      = "KeepExportedSpreadsheets"
+        Effect   = "Allow"
+        Action   = ["s3:DeleteObject", "s3:GetObject", "s3:PutObject"]
+        Resource = "${aws_s3_bucket.exports.arn}/*"
+      },
+      {
+        Sid      = "ListThemToEmptyTheBucket"
+        Effect   = "Allow"
+        Action   = "s3:ListBucket"
+        Resource = aws_s3_bucket.exports.arn
+      },
+    ]
   })
 }

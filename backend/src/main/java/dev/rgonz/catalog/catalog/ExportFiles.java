@@ -78,8 +78,13 @@ class ExportFiles {
             .toString());
   }
 
-  void delete(String key) {
-    s3().deleteObject(request -> request.bucket(bucket).key(key));
+  /** Removes every file. Without a bucket there is none to remove. */
+  void deleteAll() {
+    if (bucket.isBlank()) {
+      return;
+    }
+    s3().listObjectsV2Paginator(request -> request.bucket(bucket)).contents().stream()
+        .forEach(file -> s3().deleteObject(request -> request.bucket(bucket).key(file.key())));
   }
 
   private synchronized S3Client s3() {

@@ -30,6 +30,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.S3Object;
@@ -217,6 +218,12 @@ public abstract class ApplicationIT {
     return STORED.listObjectsV2(bucket -> bucket.bucket(EXPORTS)).contents().stream()
         .map(S3Object::key)
         .toList();
+  }
+
+  /** Puts a file into the bucket of exported spreadsheets, as an export would have. */
+  protected static void exportedFile(String key) {
+    STORED.putObject(
+        file -> file.bucket(EXPORTS).key(key), RequestBody.fromString("a spreadsheet"));
   }
 
   /** Takes every file out of the bucket of exported spreadsheets. */

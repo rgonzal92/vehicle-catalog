@@ -31,13 +31,21 @@ run "an_exported_spreadsheet_is_private_and_gone_after_a_day" {
 
 run "the_host_keeps_the_spreadsheets_and_does_nothing_else_with_the_bucket" {
   assert {
-    condition = jsondecode(aws_iam_role_policy.host_exports.policy).Statement == [{
-      Sid      = "KeepExportedSpreadsheets"
-      Effect   = "Allow"
-      Action   = ["s3:DeleteObject", "s3:GetObject", "s3:PutObject"]
-      Resource = "${aws_s3_bucket.exports.arn}/*"
-    }]
-    error_message = "The host writes, reads, and deletes the files in the bucket, and does nothing else with it or with any other."
+    condition = jsondecode(aws_iam_role_policy.host_exports.policy).Statement == [
+      {
+        Sid      = "KeepExportedSpreadsheets"
+        Effect   = "Allow"
+        Action   = ["s3:DeleteObject", "s3:GetObject", "s3:PutObject"]
+        Resource = "${aws_s3_bucket.exports.arn}/*"
+      },
+      {
+        Sid      = "ListThemToEmptyTheBucket"
+        Effect   = "Allow"
+        Action   = "s3:ListBucket"
+        Resource = aws_s3_bucket.exports.arn
+      },
+    ]
+    error_message = "The host writes, reads, deletes, and lists the files in the bucket, and does nothing else with it or with any other."
   }
 
   assert {

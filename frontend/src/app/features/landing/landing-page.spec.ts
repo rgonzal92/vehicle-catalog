@@ -56,7 +56,9 @@ describe('LandingPage', () => {
     const notice = (fixture.nativeElement as HTMLElement).querySelector('[data-reset-notice]');
 
     expect(notice?.textContent).toContain('deleted every day at 03:00 UTC');
-    expect(notice?.textContent).toContain('including what the demo accounts own');
+    expect(notice?.textContent?.replace(/\s+/g, ' ')).toContain(
+      'including what the demo accounts own, their notifications, and the spreadsheets they exported.',
+    );
     expect(notice?.textContent).toContain(
       'The accounts themselves stay, so you can sign in again.',
     );
