@@ -1,7 +1,8 @@
 import { Component, inject, signal } from '@angular/core';
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MessageService } from 'primeng/api';
-import { Button } from 'primeng/button';
+import { Plus } from '@primeicons/angular/plus';
+import { Button, ButtonDirective, ButtonIcon, ButtonLabel } from 'primeng/button';
 import { Dialog } from 'primeng/dialog';
 import { InputText } from 'primeng/inputtext';
 import { Message } from 'primeng/message';
@@ -14,59 +15,79 @@ import { VehicleLine, VehicleLines } from '../../../core/vehicle-lines';
 
 /** Where an admin adds, renames, retypes, activates, and deactivates vehicle lines. */
 @Component({
-  imports: [ReactiveFormsModule, Button, Dialog, InputText, Message, Select, TableModule, Tag],
+  imports: [
+    ReactiveFormsModule,
+    Button,
+    ButtonDirective,
+    ButtonIcon,
+    ButtonLabel,
+    Plus,
+    Dialog,
+    InputText,
+    Message,
+    Select,
+    TableModule,
+    Tag,
+  ],
   selector: 'app-vehicle-lines-page',
   template: `
     <div class="max-w-5xl">
-      <header class="flex justify-end">
-        <p-button label="Add vehicle line" (onClick)="startAdding()" />
-      </header>
-
-      <p-table class="mt-6 block" [value]="vehicleLines.lines()">
-        <ng-template #header>
-          <tr>
-            <th scope="col">Code</th>
-            <th scope="col">Name</th>
-            <th scope="col">Vehicle type</th>
-            <th scope="col">State</th>
-            <th scope="col"><span class="sr-only">Actions</span></th>
-          </tr>
-        </ng-template>
-        <ng-template #body let-line>
-          <tr>
-            <td>{{ line.code }}</td>
-            <td>{{ line.name }}</td>
-            <td>{{ fixedLists.vehicleTypeName(line.vehicleTypeCode) }}</td>
-            <td>
-              <p-tag
-                [value]="line.active ? 'Active' : 'Inactive'"
-                [severity]="line.active ? 'success' : 'secondary'"
-              />
-            </td>
-            <td class="text-right">
-              <p-button
-                label="Edit"
-                severity="secondary"
-                [text]="true"
-                [ariaLabel]="'Edit ' + line.name"
-                (onClick)="startEditing(line)"
-              />
-              <p-button
-                severity="secondary"
-                [text]="true"
-                [label]="line.active ? 'Deactivate' : 'Activate'"
-                [ariaLabel]="(line.active ? 'Deactivate ' : 'Activate ') + line.name"
-                (onClick)="setActive(line, !line.active)"
-              />
-            </td>
-          </tr>
-        </ng-template>
-        <ng-template #emptymessage>
-          <tr>
-            <td colspan="5">There are no vehicle lines.</td>
-          </tr>
-        </ng-template>
-      </p-table>
+      <div class="surface">
+        <div class="surface-header">
+          <p class="text-muted-color">A catalog is made for one of these vehicle lines.</p>
+          <button pButton type="button" (click)="startAdding()">
+            <svg data-p-icon="plus" pButtonIcon />
+            <span pButtonLabel>Add vehicle line</span>
+          </button>
+        </div>
+        <p-table [value]="vehicleLines.lines()">
+          <ng-template #header>
+            <tr>
+              <th scope="col">Code</th>
+              <th scope="col">Name</th>
+              <th scope="col">Vehicle type</th>
+              <th scope="col">State</th>
+              <th scope="col"><span class="sr-only">Actions</span></th>
+            </tr>
+          </ng-template>
+          <ng-template #body let-line>
+            <tr>
+              <td>{{ line.code }}</td>
+              <td>{{ line.name }}</td>
+              <td>{{ fixedLists.vehicleTypeName(line.vehicleTypeCode) }}</td>
+              <td>
+                <p-tag
+                  [value]="line.active ? 'Active' : 'Inactive'"
+                  [severity]="line.active ? 'success' : 'secondary'"
+                />
+              </td>
+              <td class="text-right whitespace-nowrap">
+                <p-button
+                  label="Edit"
+                  severity="secondary"
+                  size="small"
+                  [text]="true"
+                  [ariaLabel]="'Edit ' + line.name"
+                  (onClick)="startEditing(line)"
+                />
+                <p-button
+                  severity="secondary"
+                  size="small"
+                  [text]="true"
+                  [label]="line.active ? 'Deactivate' : 'Activate'"
+                  [ariaLabel]="(line.active ? 'Deactivate ' : 'Activate ') + line.name"
+                  (onClick)="setActive(line, !line.active)"
+                />
+              </td>
+            </tr>
+          </ng-template>
+          <ng-template #emptymessage>
+            <tr>
+              <td class="surface-empty" colspan="5">There are no vehicle lines.</td>
+            </tr>
+          </ng-template>
+        </p-table>
+      </div>
 
       <p-dialog
         [header]="editing() ? 'Edit vehicle line' : 'Add vehicle line'"

@@ -6,51 +6,55 @@ import { Dialog } from 'primeng/dialog';
 import { Message } from 'primeng/message';
 import { Select } from 'primeng/select';
 import { TableModule } from 'primeng/table';
+import { Tag } from 'primeng/tag';
 import { Role } from '../../../core/session';
 import { reasonOf } from '../../../shared/reason-of';
 import { ListedUser, ROLE_NAMES, Users } from './users';
 
 /** Where an admin sees the people who use the app and changes their roles. */
 @Component({
-  imports: [DatePipe, ReactiveFormsModule, Button, Dialog, Message, Select, TableModule],
+  imports: [DatePipe, ReactiveFormsModule, Button, Dialog, Message, Select, TableModule, Tag],
   selector: 'app-users-page',
   template: `
     <div class="max-w-5xl">
-      <p-table class="block" [value]="users.users()">
-        <ng-template #header>
-          <tr>
-            <th scope="col">Username</th>
-            <th scope="col">Email</th>
-            <th scope="col">Role</th>
-            <th scope="col">Last login</th>
-            <th scope="col"><span class="sr-only">Actions</span></th>
-          </tr>
-        </ng-template>
-        <ng-template #body let-user>
-          <tr>
-            <td>{{ user.username }}</td>
-            <td>{{ user.email }}</td>
-            <td>{{ roleName(user.role) }}</td>
-            <td>{{ user.lastLogin ? (user.lastLogin | date: 'medium') : 'Never' }}</td>
-            <td class="text-right">
-              @if (user.changeable) {
-                <p-button
-                  label="Change role"
-                  severity="secondary"
-                  [text]="true"
-                  [ariaLabel]="'Change role of ' + user.username"
-                  (onClick)="startChanging(user)"
-                />
-              }
-            </td>
-          </tr>
-        </ng-template>
-        <ng-template #emptymessage>
-          <tr>
-            <td colspan="5">There are no users.</td>
-          </tr>
-        </ng-template>
-      </p-table>
+      <div class="surface">
+        <p-table [value]="users.users()">
+          <ng-template #header>
+            <tr>
+              <th scope="col">Username</th>
+              <th scope="col">Email</th>
+              <th scope="col">Role</th>
+              <th scope="col">Last login</th>
+              <th scope="col"><span class="sr-only">Actions</span></th>
+            </tr>
+          </ng-template>
+          <ng-template #body let-user>
+            <tr>
+              <td>{{ user.username }}</td>
+              <td>{{ user.email }}</td>
+              <td><p-tag severity="secondary" [value]="roleName(user.role)" /></td>
+              <td>{{ user.lastLogin ? (user.lastLogin | date: 'medium') : 'Never' }}</td>
+              <td class="text-right whitespace-nowrap">
+                @if (user.changeable) {
+                  <p-button
+                    label="Change role"
+                    severity="secondary"
+                    size="small"
+                    [text]="true"
+                    [ariaLabel]="'Change role of ' + user.username"
+                    (onClick)="startChanging(user)"
+                  />
+                }
+              </td>
+            </tr>
+          </ng-template>
+          <ng-template #emptymessage>
+            <tr>
+              <td class="surface-empty" colspan="5">There are no users.</td>
+            </tr>
+          </ng-template>
+        </p-table>
+      </div>
 
       <p-dialog
         header="Change role"

@@ -2,7 +2,10 @@ import { Component, inject, signal } from '@angular/core';
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { MessageService } from 'primeng/api';
-import { Button } from 'primeng/button';
+import { ArrowDown } from '@primeicons/angular/arrow-down';
+import { ArrowUp } from '@primeicons/angular/arrow-up';
+import { Plus } from '@primeicons/angular/plus';
+import { Button, ButtonDirective, ButtonIcon, ButtonLabel } from 'primeng/button';
 import { Dialog } from 'primeng/dialog';
 import { InputText } from 'primeng/inputtext';
 import { Message } from 'primeng/message';
@@ -17,80 +20,113 @@ import { LibraryEntry, LibraryList } from './library-list';
  * library's ordered lists. The route says which list: trims or regions.
  */
 @Component({
-  imports: [ReactiveFormsModule, Button, Dialog, InputText, Message, TableModule, Tag],
+  imports: [
+    ReactiveFormsModule,
+    ArrowDown,
+    ArrowUp,
+    Plus,
+    Button,
+    ButtonDirective,
+    ButtonIcon,
+    ButtonLabel,
+    Dialog,
+    InputText,
+    Message,
+    TableModule,
+    Tag,
+  ],
   providers: [LibraryEntries],
   selector: 'app-library-list-page',
   template: `
     <div class="max-w-5xl">
-      <header class="flex justify-end">
-        <p-button [label]="'Add ' + list.singular" (onClick)="startAdding()" />
-      </header>
-
-      <p-table class="mt-6 block" [value]="library.entries()">
-        <ng-template #header>
-          <tr>
-            @if (list.hasCode) {
-              <th scope="col">Code</th>
-            }
-            <th scope="col">Name</th>
-            <th scope="col">State</th>
-            <th scope="col"><span class="sr-only">Actions</span></th>
-          </tr>
-        </ng-template>
-        <ng-template #body let-entry let-index="rowIndex">
-          <tr>
-            @if (list.hasCode) {
-              <td>{{ entry.code }}</td>
-            }
-            <td>{{ entry.name }}</td>
-            <td>
-              <p-tag
-                [value]="entry.active ? 'Active' : 'Inactive'"
-                [severity]="entry.active ? 'success' : 'secondary'"
-              />
-            </td>
-            <td class="text-right">
-              <p-button
-                label="Up"
-                severity="secondary"
-                [text]="true"
-                [disabled]="index === 0"
-                [ariaLabel]="'Move ' + entry.name + ' up'"
-                (onClick)="change(entry, { sortOrder: entry.sortOrder - 1 })"
-              />
-              <p-button
-                label="Down"
-                severity="secondary"
-                [text]="true"
-                [disabled]="index === library.entries().length - 1"
-                [ariaLabel]="'Move ' + entry.name + ' down'"
-                (onClick)="change(entry, { sortOrder: entry.sortOrder + 1 })"
-              />
-              <p-button
-                label="Edit"
-                severity="secondary"
-                [text]="true"
-                [ariaLabel]="'Edit ' + entry.name"
-                (onClick)="startEditing(entry)"
-              />
-              <p-button
-                severity="secondary"
-                [text]="true"
-                [label]="entry.active ? 'Deactivate' : 'Activate'"
-                [ariaLabel]="(entry.active ? 'Deactivate ' : 'Activate ') + entry.name"
-                (onClick)="change(entry, { active: !entry.active })"
-              />
-            </td>
-          </tr>
-        </ng-template>
-        <ng-template #emptymessage>
-          <tr>
-            <td [attr.colspan]="list.hasCode ? 4 : 3">
-              There are no {{ list.title.toLowerCase() }}.
-            </td>
-          </tr>
-        </ng-template>
-      </p-table>
+      <div class="surface">
+        <div class="surface-header">
+          <p class="text-muted-color">{{ list.purpose }}</p>
+          <button pButton type="button" (click)="startAdding()">
+            <svg data-p-icon="plus" pButtonIcon />
+            <span pButtonLabel>Add {{ list.singular }}</span>
+          </button>
+        </div>
+        <p-table [value]="library.entries()">
+          <ng-template #header>
+            <tr>
+              @if (list.hasCode) {
+                <th scope="col">Code</th>
+              }
+              <th scope="col">Name</th>
+              <th scope="col">State</th>
+              <th scope="col"><span class="sr-only">Actions</span></th>
+            </tr>
+          </ng-template>
+          <ng-template #body let-entry let-index="rowIndex">
+            <tr>
+              @if (list.hasCode) {
+                <td>{{ entry.code }}</td>
+              }
+              <td>{{ entry.name }}</td>
+              <td>
+                <p-tag
+                  [value]="entry.active ? 'Active' : 'Inactive'"
+                  [severity]="entry.active ? 'success' : 'secondary'"
+                />
+              </td>
+              <td>
+                <div class="flex items-center justify-end gap-1">
+                  <button
+                    pButton
+                    type="button"
+                    severity="secondary"
+                    size="small"
+                    [text]="true"
+                    [iconOnly]="true"
+                    [disabled]="index === 0"
+                    [attr.aria-label]="'Move ' + entry.name + ' up'"
+                    (click)="change(entry, { sortOrder: entry.sortOrder - 1 })"
+                  >
+                    <svg data-p-icon="arrow-up" pButtonIcon />
+                  </button>
+                  <button
+                    pButton
+                    type="button"
+                    severity="secondary"
+                    size="small"
+                    [text]="true"
+                    [iconOnly]="true"
+                    [disabled]="index === library.entries().length - 1"
+                    [attr.aria-label]="'Move ' + entry.name + ' down'"
+                    (click)="change(entry, { sortOrder: entry.sortOrder + 1 })"
+                  >
+                    <svg data-p-icon="arrow-down" pButtonIcon />
+                  </button>
+                  <p-button
+                    label="Edit"
+                    severity="secondary"
+                    size="small"
+                    [text]="true"
+                    [ariaLabel]="'Edit ' + entry.name"
+                    (onClick)="startEditing(entry)"
+                  />
+                  <p-button
+                    severity="secondary"
+                    size="small"
+                    [text]="true"
+                    [label]="entry.active ? 'Deactivate' : 'Activate'"
+                    [ariaLabel]="(entry.active ? 'Deactivate ' : 'Activate ') + entry.name"
+                    (onClick)="change(entry, { active: !entry.active })"
+                  />
+                </div>
+              </td>
+            </tr>
+          </ng-template>
+          <ng-template #emptymessage>
+            <tr>
+              <td class="surface-empty" [attr.colspan]="list.hasCode ? 4 : 3">
+                There are no {{ list.title.toLowerCase() }}.
+              </td>
+            </tr>
+          </ng-template>
+        </p-table>
+      </div>
 
       <p-dialog
         closeAriaLabel="Close"
