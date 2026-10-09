@@ -85,6 +85,8 @@ describe('DashboardPage', () => {
           modelYear: 2027,
           status: 'DRAFT',
           updatedAt: '2026-01-09T10:00:00Z',
+          errors: 2,
+          warnings: 1,
         },
       ],
     );
@@ -92,7 +94,10 @@ describe('DashboardPage', () => {
     const row = await firstRow(page, 'my-catalogs');
     const cells = Array.from(row.querySelectorAll('td')).map((cell) => cell.textContent?.trim());
     expect(cells.slice(0, 4)).toEqual(['Winter update', 'Compact SUV', '2027', 'Draft']);
-    expect(cells[4]).toContain('2026');
+    expect(
+      Array.from(row.querySelectorAll('app-issue-counts p-tag'), (tag) => tag.textContent?.trim()),
+    ).toEqual(['2 Errors', '1 Warning']);
+    expect(cells[5]).toContain('2026');
     const link = row.querySelector('a');
     expect(link?.getAttribute('href')).toBe('/catalogs/41');
     expect(link?.getAttribute('aria-label')).toBe('Open Winter update');

@@ -53,6 +53,11 @@ test('an author opens an Approved catalog from the dashboard and reads its versi
   // The matrix is read-only: a click opens no dropdown.
   await turbo.getByRole('cell').nth(2).click();
   await expect(matrix.getByRole('combobox')).toHaveCount(0);
+
+  // The version is checked against the library as it is today, and its issues are listed.
+  const issues = page.getByRole('region', { name: 'Issues' });
+  await expect(issues.locator('[data-issue-counts]')).toContainText(/\d+ Warnings?/);
+  await expect(issues.locator('[data-issue-counts]')).not.toContainText('Error');
   await expectAccessible(page);
 
   const versions = page.getByRole('region', { name: 'Versions' });
@@ -67,6 +72,14 @@ test('an author opens an Approved catalog from the dashboard and reads its versi
   await expect(versions.getByRole('row', { name: /Launch content/ })).toContainText('Shown below');
   await expect(matrix.getByRole('row', { name: /ENGINE_20T_I4/ })).toBeVisible();
   await expect(matrix.getByRole('row', { name: /POWERTRAIN_HYBRID/ })).toHaveCount(0);
+
+  // The cell of each issue is marked in the matrix, and an issue shows its cell. A read-only
+  // matrix brings the cell into view and leaves the focus where it is.
+  await issues
+    .getByRole('button', { name: /^Show the cell of this issue/ })
+    .first()
+    .click();
+  await expect(matrix.locator('td[title^="Warning: "]').first()).toBeInViewport();
 });
 
 for (const account of ['manager', 'admin']) {

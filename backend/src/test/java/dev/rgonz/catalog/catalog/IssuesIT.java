@@ -341,4 +341,68 @@ class IssuesIT extends WorkingCopyTests {
         .startsWith("Ventilated Front Seats can never be ordered on Touring in North America.")
         .contains("Ventilated Front Seats brings Heated Rear Seats, which brings");
   }
+
+  @Test
+  void anApprovedVersionShowsWhatItBreaksOfAGlobalRuleAddedSinceAndDoesNotChange() {
+    var approved = approved("COMPACT_SUV", 2026, 2);
+    assertThat(errors(open(ana(), approved))).isEmpty();
+    long rule =
+        jdbc.sql(
+                """
+                INSERT INTO global_rule (kind, source_feature_id, all_regions)
+                VALUES ('REQUIRES', :source, true)
+                RETURNING id
+                """)
+            .param("source", feature("TRANS_MANUAL"))
+            .query(Long.class)
+            .single();
+    jdbc.sql("INSERT INTO global_rule_target VALUES (:rule, :target)")
+        .param("rule", rule)
+        .param("target", feature("ROOF_REMOVABLE"))
+        .update();
+
+    var opened = open(ana(), approved);
+
+    assertThat(errors(opened)).containsExactly("REQUIRED_NOT_OFFERED");
+    assertThat(
+            ApplicationIT.<List<Integer>>read(
+                opened, "$.issues[?(@.code == 'REQUIRED_NOT_OFFERED')].featureId"))
+        .as("the cell to mark")
+        .containsExactly((int) feature("TRANS_MANUAL"));
+    assertThat(opened).bodyJson().extractingPath("$.snapshot.status").isEqualTo("APPROVED");
+    assertThat(revision(approved)).isZero();
+  }
+
+  @Test
+  void myCatalogsCountsTheErrorsAndWarningsOfEachWorkingCopyAsTheyStand() {
+    var warnings = codes(open(ana(), copy)).size();
+    assertThat(warnings).as("the copy starts with Warnings and no Error").isPositive();
+    assertThat(errors(open(ana(), copy))).isEmpty();
+
+    assertThat(counts()).containsExactly(copy + ": 0, " + warnings, empty + ": 3, 0");
+
+    var offering = whereTowIsOffered();
+    var trim = (String) offering.get("trim");
+    var region = (String) offering.get("region");
+    setCells(ana(), copy, "\"0\"", cell("COOLING_HEAVY_DUTY", trim, region, "N"));
+
+    assertThat(counts()).as("after an edit that breaks a rule").contains(copy + ": 1, " + warnings);
+
+    setCells(ana(), copy, "\"1\"", cell("COOLING_HEAVY_DUTY", trim, region, "S"));
+
+    assertThat(counts()).as("after the edit that clears it").contains(copy + ": 0, " + warnings);
+  }
+
+  /** Ana's working copies as her list counts their issues: "id: errors, warnings", by id. */
+  private List<String> counts() {
+    var mine = mvc.get().uri("/api/catalogs?scope=mine").with(ana()).exchange();
+
+    return ApplicationIT.<List<Map<String, Object>>>read(mine, "$").stream()
+        .map(
+            listed ->
+                "%s: %s, %s"
+                    .formatted(listed.get("id"), listed.get("errors"), listed.get("warnings")))
+        .sorted()
+        .toList();
+  }
 }

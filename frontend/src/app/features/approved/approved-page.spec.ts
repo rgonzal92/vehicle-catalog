@@ -5,19 +5,28 @@ import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { Named } from '../../core/fixed-lists';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
-import { MatrixContents } from '../../shared/availability-matrix/matrix';
+import { Issue, MatrixContents } from '../../shared/availability-matrix/matrix';
 import { ApprovedPage } from './approved-page';
 
 /** Stands in for the matrix, which has tests of its own, and shows what it was given. */
 @Component({
   selector: 'app-availability-matrix',
-  template: `{{ contents().featureRows.length }} feature rows, editable: {{ editable() }}`,
+  template: `{{ contents().featureRows.length }} feature rows, editable: {{ editable() }},
+    {{ issues().length }} issues marked`,
 })
 class MatrixStandIn {
   readonly contents = input.required<MatrixContents>();
   readonly categories = input.required<Named[]>();
   readonly editable = input(false);
+  readonly issues = input<Issue[]>([]);
+
+  show(cell: object): void {
+    shown.push(cell);
+  }
 }
+
+/** The cells the page asked the matrix to show. */
+const shown: object[] = [];
 
 describe('ApprovedPage', () => {
   let backend: HttpTestingController;
@@ -107,13 +116,91 @@ describe('ApprovedPage', () => {
     expect(shown).toContain('Autumn update');
     expect(shown).toContain('Demo Manager');
     expect(shown).toContain('2025');
-    expect(element.querySelector('app-availability-matrix')?.textContent).toBe(
+    expect(element.querySelector('app-availability-matrix')?.textContent).toContain(
       '3 feature rows, editable: false',
     );
     expect(rows(element)[0]).toContain('Autumn update');
     expect(rows(element)[0]).toContain('Shown below');
     expect(rows(element)[1]).toContain('Launch content');
     expect(rows(element)[1]).toContain('Demo Manager');
+  });
+
+  it('lists the issues the version has today, marks their cells, and shows a cell', async () => {
+    const roofOnBase: Issue = {
+      code: 'REQUIRED_NOT_OFFERED',
+      severity: 'ERROR',
+      trimId: 1,
+      regionCode: 'NA',
+      featureId: 7,
+      relatedFeatureIds: [8],
+      rule: { origin: 'GLOBAL', key: '12' },
+      message:
+        'Panoramic Roof requires Tow Package, which is not offered on Base in North America.',
+    };
+    const neverOffered: Issue = {
+      code: 'FEATURE_NEVER_OFFERED',
+      severity: 'WARNING',
+      trimId: null,
+      regionCode: null,
+      featureId: 7,
+      relatedFeatureIds: [],
+      rule: null,
+      message: 'Panoramic Roof is not offered in any offering.',
+    };
+    const element = await page(versions);
+    const version = catalog(versions[0], [{ id: 7, name: 'Panoramic Roof' }]);
+    shown.length = 0;
+    (await catalogRequest(12)).flush({
+      ...version,
+      snapshot: {
+        ...version.snapshot,
+        trims: [{ id: 1, name: 'Base', sortOrder: 1 }],
+        regions: [{ code: 'NA', name: 'North America' }],
+      },
+      issues: [roofOnBase, neverOffered],
+    });
+
+    await vi.waitFor(() =>
+      expect(
+        Array.from(element.querySelectorAll('[data-issue-counts] p-tag'), (tag) =>
+          tag.textContent?.trim(),
+        ),
+      ).toEqual(['1 Error', '1 Warning']),
+    );
+    const listed = Array.from(element.querySelectorAll('app-issue-list tbody tr'), (row) =>
+      Array.from(row.querySelectorAll('td'), (cell) => cell.textContent?.trim()),
+    );
+    expect(listed).toEqual([
+      [
+        'Error',
+        roofOnBase.message,
+        'Panoramic Roof, Base in North America',
+        'Global rule',
+        'Show cell',
+      ],
+      ['Warning', neverOffered.message, 'Panoramic Roof', '', ''],
+    ]);
+    expect(element.querySelector('app-availability-matrix')?.textContent).toContain(
+      '2 issues marked',
+    );
+
+    element
+      .querySelector<HTMLElement>('button[aria-label^="Show the cell of this issue"]')!
+      .click();
+
+    expect(shown).toEqual([{ featureId: 7, trimId: 1, regionCode: 'NA' }]);
+  });
+
+  it('says so when the version has no issues', async () => {
+    const element = await page(versions);
+    (await catalogRequest(12)).flush({ ...catalog(versions[0], []), issues: [] });
+
+    await vi.waitFor(() =>
+      expect(element.querySelector('app-issue-list')?.textContent).toContain(
+        'This version has no issues, as the library is today.',
+      ),
+    );
+    expect(element.querySelector('[data-issue-counts]')?.textContent?.trim()).toBe('No issues');
   });
 
   it('opens the new catalog dialog for the lineage', async () => {

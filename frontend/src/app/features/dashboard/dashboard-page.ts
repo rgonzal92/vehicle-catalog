@@ -18,6 +18,7 @@ import {
 } from '../../core/catalogs';
 import { Session } from '../../core/session';
 import { NewCatalogDialog } from '../../shared/new-catalog-dialog/new-catalog-dialog';
+import { IssueCounts } from '../../shared/issues';
 import { Loading, ReadFailed } from '../../shared/read-state';
 import { reasonOf } from '../../shared/reason-of';
 
@@ -36,6 +37,7 @@ import { reasonOf } from '../../shared/reason-of';
     TableModule,
     Tag,
     NewCatalogDialog,
+    IssueCounts,
     Loading,
     ReadFailed,
   ],
@@ -58,6 +60,7 @@ import { reasonOf } from '../../shared/reason-of';
                 <th scope="col">Vehicle line</th>
                 <th scope="col">Model year</th>
                 <th scope="col">Status</th>
+                <th scope="col">Issues</th>
                 <th scope="col">Last updated</th>
                 <th scope="col"><span class="sr-only">Actions</span></th>
               </tr>
@@ -72,6 +75,12 @@ import { reasonOf } from '../../shared/reason-of';
                     [severity]="statusSeverities[catalog.status]"
                     [value]="statusNames[catalog.status]"
                   />
+                </td>
+                <td>
+                  <!-- A backend that is one release behind counts no issues. -->
+                  @if (catalog.errors !== undefined) {
+                    <app-issue-counts [errors]="catalog.errors" [warnings]="catalog.warnings" />
+                  }
                 </td>
                 <td>{{ catalog.updatedAt | date: 'medium' }}</td>
                 <td class="text-right whitespace-nowrap">
