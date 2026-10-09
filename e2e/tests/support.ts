@@ -25,11 +25,13 @@ export async function choose(scope: Locator, label: string, option: string): Pro
   await expect(page.getByRole('listbox')).toBeHidden();
 }
 
-/** Fails when axe finds an accessibility violation on the settled page, naming each one. */
-export async function expectAccessible(page: Page): Promise<void> {
-  // A control that is still fading in or out would be judged on a color it only has for a moment.
-  // One that never ends, such as a spinner, is not waited for.
-  await page.evaluate(() =>
+/**
+ * Waits for the controls that are fading in, fading out, or changing color, which would otherwise
+ * be judged on a color they only have for a moment. One that never ends, such as a spinner, is
+ * not waited for.
+ */
+const settled = (page: Page) =>
+  page.evaluate(() =>
     Promise.allSettled(
       document
         .getAnimations()
@@ -37,13 +39,28 @@ export async function expectAccessible(page: Page): Promise<void> {
         .map((animation) => animation.finished),
     ),
   );
-  const { violations } = await new AxeBuilder({ page }).analyze();
 
-  expect(
+/**
+ * Fails when axe finds an accessibility violation on the settled page, naming each one. The page
+ * is checked in light, and then for contrast in dark, which differs from light in its colors alone.
+ */
+export async function expectAccessible(page: Page): Promise<void> {
+  await settled(page);
+  const light = await new AxeBuilder({ page }).analyze();
+
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('html')).toHaveClass(/app-dark/);
+  await settled(page);
+  const dark = await new AxeBuilder({ page }).withRules(['color-contrast']).analyze();
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(page.locator('html')).not.toHaveClass(/app-dark/);
+
+  const named = (scheme: string, { violations }: typeof light) =>
     violations.map(
-      (violation) => `${violation.id}: ${violation.nodes.map((node) => node.target).join(', ')}`,
-    ),
-  ).toEqual([]);
+      (violation) =>
+        `${scheme}, ${violation.id}: ${violation.nodes.map((node) => node.target).join(', ')}`,
+    );
+  expect([...named('light', light), ...named('dark', dark)]).toEqual([]);
 }
 
 /** A name no other test and no earlier run uses, since an owner's working copy names are unique. */

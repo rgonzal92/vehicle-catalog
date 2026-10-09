@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "ng": "ng",
-    "start": "ng serve",
+    "start": "ng serve --define \"PRIMEUI_LICENSE_KEY='${PRIMEUI_LICENSE_KEY:-}'\"",
     "build": "ng build --define \"PRIMEUI_LICENSE_KEY='${PRIMEUI_LICENSE_KEY:-}'\"",
     "watch": "ng build --watch --configuration development",
     "test": "ng test --watch=false",

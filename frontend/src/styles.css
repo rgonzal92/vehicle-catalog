@@ -3,3 +3,13 @@
 
 @import "tailwindcss";
 @import "tailwindcss-primeui";
+
+/* Dark is a class on the root element, which the color scheme sets, and not the system's word. */
+@custom-variant dark (&:where(.app-dark, .app-dark *));
+
+@layer base {
+  body {
+    background: light-dark(var(--p-surface-0), var(--p-surface-950));
+    color: var(--p-text-color);
+  }
+}

@@ -103,11 +103,11 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
       <ng-template #body let-row>
         @if (row.category; as category) {
           <tr [style.height.px]="rowHeight">
-            <td pFrozenColumn colspan="2" class="bg-surface-100 py-0 font-semibold">
+            <td pFrozenColumn colspan="2" class="bg-emphasis py-0 font-semibold">
               {{ category.name }}
             </td>
             @if (offerings().length > 0) {
-              <td class="bg-surface-100 py-0" [attr.colspan]="offerings().length"></td>
+              <td class="bg-emphasis py-0" [attr.colspan]="offerings().length"></td>
             }
           </tr>
         } @else {
@@ -126,7 +126,7 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
                   <button
                     type="button"
                     tabindex="-1"
-                    class="ml-auto size-6 shrink-0 cursor-pointer rounded text-muted-color hover:text-red-700"
+                    class="ml-auto size-6 shrink-0 cursor-pointer rounded text-muted-color hover:text-red-700 dark:hover:text-red-400"
                     [attr.data-remove]="row.feature.id"
                     [attr.aria-label]="'Remove ' + row.feature.name"
                     [title]="'Remove ' + row.feature.name"
@@ -152,7 +152,7 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
               >
                 @if (editable() && editing() === cell) {
                   <select
-                    class="w-full rounded border border-surface-400 bg-surface-0 text-center"
+                    class="w-full rounded border border-(--p-form-field-border-color) bg-(--p-form-field-background) text-center"
                     [attr.aria-label]="
                       row.feature.name + ', ' + offering.trim.name + ' in ' + offering.region.name
                     "
@@ -238,7 +238,7 @@ export class AvailabilityMatrix {
   protected readonly regionName = 'sticky left-[30rem]';
 
   /** The line that divides one region's offerings from the region before. */
-  protected readonly regionStart = 'border-l border-surface-300';
+  protected readonly regionStart = 'border-l border-surface';
 
   /**
    * A cell that takes the focus is scrolled into view clear of the header and the frozen cells,
@@ -251,7 +251,8 @@ export class AvailabilityMatrix {
    * How a cell looks while it is marked: red, and with an exclamation mark after its value, so the
    * mark does not rest on colour alone.
    */
-  protected readonly notSavedCell = ' bg-red-100 font-semibold text-red-900';
+  protected readonly notSavedCell =
+    ' bg-red-100 font-semibold text-red-900 dark:bg-red-950 dark:text-red-200';
 
   protected readonly symbols = SYMBOLS;
   protected readonly availabilities = Object.keys(SYMBOLS) as Availability[];

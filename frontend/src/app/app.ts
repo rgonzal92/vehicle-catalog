@@ -1,6 +1,7 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { Toast } from 'primeng/toast';
+import { ColorScheme } from './core/color-scheme';
 
 /** The application shell: each page renders in its outlet, and messages appear as toasts. */
 @Component({
@@ -8,4 +9,8 @@ import { Toast } from 'primeng/toast';
   selector: 'app-root',
   template: '<router-outlet /><p-toast />',
 })
-export class App {}
+export class App {
+  constructor() {
+    inject(ColorScheme);
+  }
+}

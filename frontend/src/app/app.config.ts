@@ -19,6 +19,8 @@ export const appConfig: ApplicationConfig = {
       theme: {
         preset: AppPreset,
         options: {
+          // The class the color scheme puts on the root element while the app is dark.
+          darkModeSelector: '.app-dark',
           cssLayer: { name: 'primeng', order: 'theme, base, primeng, components, utilities' },
         },
       },
