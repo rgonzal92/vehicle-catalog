@@ -54,3 +54,21 @@ run "the_host_keeps_the_spreadsheets_and_does_nothing_else_with_the_bucket" {
     error_message = "The host is told which bucket keeps the spreadsheets and in which region, and the backend reads it."
   }
 }
+
+run "the_pipeline_plans_with_the_bucket_in_place" {
+  assert {
+    condition = contains(one([
+      for statement in jsondecode(aws_iam_role_policy.plan.policy).Statement : statement
+      if statement.Sid == "ReadTheBuckets"
+    ]).Resource, aws_s3_bucket.exports.arn)
+    error_message = "The plan role reads how the bucket is set up, which a plan compares it with."
+  }
+
+  assert {
+    condition = alltrue([
+      for statement in jsondecode(aws_iam_role_policy.plan.policy).Statement :
+      !contains(statement.Action, "s3:GetObject") || !strcontains(jsonencode(statement.Resource), aws_s3_bucket.exports.bucket)
+    ])
+    error_message = "The plan role reads no spreadsheet."
+  }
+}
