@@ -500,3 +500,12 @@ records what was downloaded for them; both are kept in Git. The workflows instal
 version they name. The host's image and the release of Docker Compose it is given are named in
 `host.tf` and change by hand. The CloudWatch agent is the one Amazon Linux has in its packages
 when the host is first set up.
+
+The database is PostgreSQL 18.6 with pgvector 0.8.7, from the image
+`pgvector/pgvector:0.8.7-pg18-trixie`: the same PostgreSQL as `postgres:18.6`, built on the same
+release of Debian, with the extension added. `compose.yaml`, `deploy/compose.yaml`, and the
+backend's tests each name it. The image whose name does not end in `trixie` is built on an older
+Debian, and its C library sorts text another way than the one the host's indexes were built with,
+so it is not the one to take. To go back to `postgres:18.6`, put that name back in those three
+places and apply. That works for as long as no migration has created the extension: a database
+that has it does not start on an image without it.
