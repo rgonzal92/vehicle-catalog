@@ -52,6 +52,13 @@ export const routes: Routes = [
           import('./features/review/review-page').then((page) => page.ReviewPage),
       },
       {
+        path: 'analyst',
+        title: 'Analyst · Vehicle Catalog',
+        canActivate: [holding('author')],
+        loadComponent: () =>
+          import('./features/analyst/analyst-page').then((page) => page.AnalystPage),
+      },
+      {
         path: 'admin/vehicle-lines',
         title: 'Vehicle lines · Vehicle Catalog',
         canActivate: [holding('admin')],

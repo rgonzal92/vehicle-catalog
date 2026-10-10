@@ -8,14 +8,14 @@ const demoAccounts = [
     role: 'author',
     name: 'Demo Author',
     sections: ['My catalogs', 'Approved catalogs'],
-    pages: ['Dashboard'],
+    pages: ['Dashboard', 'Analyst'],
   },
   {
     username: 'manager',
     role: 'manager',
     name: 'Demo Manager',
     sections: ['My catalogs', 'Approved catalogs', 'Review queue'],
-    pages: ['Dashboard'],
+    pages: ['Dashboard', 'Analyst'],
   },
   {
     username: 'admin',
@@ -24,6 +24,7 @@ const demoAccounts = [
     sections: ['My catalogs', 'Approved catalogs', 'Review queue'],
     pages: [
       'Dashboard',
+      'Analyst',
       'Vehicle lines',
       'Trims',
       'Regions',

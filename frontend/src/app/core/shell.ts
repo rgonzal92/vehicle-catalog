@@ -12,6 +12,7 @@ import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } fro
 import { AngleDoubleLeft } from '@primeicons/angular/angle-double-left';
 import { AngleDoubleRight } from '@primeicons/angular/angle-double-right';
 import { Car } from '@primeicons/angular/car';
+import { Comments } from '@primeicons/angular/comments';
 import { Globe } from '@primeicons/angular/globe';
 import { Home } from '@primeicons/angular/home';
 import { List } from '@primeicons/angular/list';
@@ -64,6 +65,7 @@ const SIDEBAR = 'sidebar';
     AngleDoubleLeft,
     AngleDoubleRight,
     Car,
+    Comments,
     Globe,
     Home,
     List,
@@ -130,11 +132,25 @@ const SIDEBAR = 'sidebar';
                         pSidebarMenuButton
                         routerLink="/dashboard"
                         title="Dashboard"
-                        [isActive]="!onAdminPage()"
-                        [attr.aria-current]="onAdminPage() ? null : 'page'"
+                        [isActive]="onCatalogPages()"
+                        [attr.aria-current]="onCatalogPages() ? 'page' : null"
                       >
                         <svg data-p-icon="home" />
                         <span>Dashboard</span>
+                      </a>
+                    </p-sidebar-menu-item>
+                    <p-sidebar-menu-item>
+                      <a
+                        #analyst="routerLinkActive"
+                        pSidebarMenuButton
+                        routerLink="/analyst"
+                        routerLinkActive
+                        ariaCurrentWhenActive="page"
+                        title="Analyst"
+                        [isActive]="analyst.isActive"
+                      >
+                        <svg data-p-icon="comments" />
+                        <span>Analyst</span>
                       </a>
                     </p-sidebar-menu-item>
                   </p-sidebar-menu>
@@ -345,7 +361,8 @@ export class Shell {
   /** The title of the page in the outlet, which is its route's title without the app's name. */
   protected readonly title = signal(this.titleOfPage());
 
-  protected readonly onAdminPage = signal(this.router.url.startsWith('/admin'));
+  /** Whether the page is the dashboard or one reached from it, which no other link leads to. */
+  protected readonly onCatalogPages = signal(this.amongCatalogPages());
 
   constructor() {
     // The frame is made in the course of the navigation that first shows it, which then ends.
@@ -357,7 +374,7 @@ export class Shell {
       )
       .subscribe(() => {
         this.title.set(this.titleOfPage());
-        this.onAdminPage.set(this.router.url.startsWith('/admin'));
+        this.onCatalogPages.set(this.amongCatalogPages());
         if (!arriving) {
           // Someone who follows a link hears and sees where it led.
           afterNextRender(() => this.heading().nativeElement.focus(), { injector: this.injector });
@@ -375,6 +392,10 @@ export class Shell {
   protected skip(event: Event): void {
     event.preventDefault();
     this.main().nativeElement.focus();
+  }
+
+  private amongCatalogPages(): boolean {
+    return !/^\/(admin|analyst)\b/.test(this.router.url);
   }
 
   private titleOfPage(): string {

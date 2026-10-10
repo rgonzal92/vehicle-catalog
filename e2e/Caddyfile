@@ -17,10 +17,19 @@
 	}
 }
 
-# Stands in for OpenAI, which no test reaches. Whatever the model is asked, it answers with one
-# thing that holds an answer to each: that Leather Seats require Premium Audio, on every trim and
-# in every region, and a summary that names no feature and no trim.
+# Stands in for OpenAI, which no test reaches. Asked with tools to use, it asks for the lineages to
+# be listed, and once it has them it answers in words. Whatever else it is asked, it answers with
+# one thing that holds an answer to each: that Leather Seats require Premium Audio, on every trim
+# and in every region, and a summary that names no feature and no trim.
 :8090 {
 	header Content-Type application/json
-	respond /v1/chat/completions `{"id":"chatcmpl-a-test","object":"chat.completion","created":1,"model":"gpt-6-luna","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"{\"saysOneRule\":true,\"kind\":\"REQUIRES\",\"source\":\"SEAT_LEATHER\",\"targets\":[\"AUDIO_PREMIUM\"],\"trims\":null,\"regions\":null,\"headline\":\"A summary from the stand-in\",\"bullets\":[\"It says what the catalog changes.\"]}"}}],"usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120}}` 200
+
+	@hasWhatAToolReturned expression `{http.request.body}.contains('"tool_call_id"')`
+	@mayUseTools expression `{http.request.body}.contains('"tools"')`
+
+	route /v1/chat/completions {
+		respond @hasWhatAToolReturned `{"id":"chatcmpl-a-test","object":"chat.completion","created":1,"model":"gpt-6-luna","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"An answer from the stand-in, from what the tool returned."}}],"usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120}}` 200
+		respond @mayUseTools `{"id":"chatcmpl-a-test","object":"chat.completion","created":1,"model":"gpt-6-luna","choices":[{"index":0,"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"list_lineages","arguments":"{}"}}]}}],"usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120}}` 200
+		respond `{"id":"chatcmpl-a-test","object":"chat.completion","created":1,"model":"gpt-6-luna","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"{\"saysOneRule\":true,\"kind\":\"REQUIRES\",\"source\":\"SEAT_LEATHER\",\"targets\":[\"AUDIO_PREMIUM\"],\"trims\":null,\"regions\":null,\"headline\":\"A summary from the stand-in\",\"bullets\":[\"It says what the catalog changes.\"]}"}}],"usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120}}` 200
+	}
 }
