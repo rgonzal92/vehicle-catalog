@@ -5,6 +5,11 @@ case "$*" in
   *"--name /vehicle-catalog/origin-secret "*) echo "a-secret-for-this-check" ;;
   *"--name /vehicle-catalog/database-password "*) echo "a-password-for-this-check" ;;
   *"--name /vehicle-catalog/login-client-secret "*) echo "a-client-secret-for-this-check" ;;
+  # The key for the language model is there only while the check says it is.
+  *"--name /vehicle-catalog/openai-api-key "*)
+    [ -n "${MODEL_KEY:-}" ] || { echo "ParameterNotFound" >&2; exit 254; }
+    echo "$MODEL_KEY"
+    ;;
   # Keeps what is sent to a bucket in a directory, and has one bucket that takes nothing.
   "s3 cp "*" s3://a-bucket-that-refuses/"*) exit 1 ;;
   "s3 cp "*" s3://a-bucket/"*) cp "$3" "$BACKUPS/${4##*/}" ;;

@@ -33,10 +33,16 @@ parameter() {
 origin_secret="$(parameter origin-secret)"
 database_password="$(parameter database-password)"
 login_client_secret="$(parameter login-client-secret)"
+# The key for the language model is the one secret the stack runs without: when there is none, the
+# app says that the model cannot be asked, and does everything else.
+if ! openai_api_key="$(parameter openai-api-key 2>/dev/null)"; then
+  openai_api_key=
+  echo "No key for the language model was read. The stack runs without one."
+fi
 (
   umask 077
-  printf 'ORIGIN_SECRET=%s\nDATABASE_PASSWORD=%s\nOIDC_CLIENT_SECRET=%s\n' \
-    "$origin_secret" "$database_password" "$login_client_secret" > .env.new
+  printf 'ORIGIN_SECRET=%s\nDATABASE_PASSWORD=%s\nOIDC_CLIENT_SECRET=%s\nOPENAI_API_KEY=%s\n' \
+    "$origin_secret" "$database_password" "$login_client_secret" "$openai_api_key" > .env.new
 )
 mv .env.new .env
 

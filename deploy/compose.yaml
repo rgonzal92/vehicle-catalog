@@ -38,6 +38,8 @@ services:
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:?The database password is not set}
       PUBLIC_URL: https://catalog.rgonz.dev
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?The secret the backend shows the login provider is not set}
+      # The key for the language model, which there may be none of: the app then says so.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       # The log is written as JSON, one object to a line, with the trace id a line belongs to.
       LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
       # Where the agent listens: for metrics on one port of the host, for traces on another.
@@ -94,6 +96,8 @@ services:
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:?The database password is not set}
       PUBLIC_URL: https://catalog.rgonz.dev
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?The secret the backend shows the login provider is not set}
+      # The key for the language model, which there may be none of: the app then says so.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
       # Its traces go to the agent, as the API's do, and so does its one metric: how long each job
       # took.
