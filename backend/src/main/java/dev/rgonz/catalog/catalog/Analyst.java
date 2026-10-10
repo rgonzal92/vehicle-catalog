@@ -140,14 +140,19 @@ class Analyst {
                 this::catalog),
             new Lookup(
                 "search_features",
-                "Searches the feature library by part of a code or of a name, and answers with at"
-                    + " most %d features.".formatted(MOST_FEATURES),
+                "Searches the feature library by words, or parts of words, of a code or of a name."
+                    + " A feature is found when every word is in its code or in its name, in any"
+                    + " order, so fewer words find more. Answers with at most %d features."
+                        .formatted(MOST_FEATURES),
                 """
                 {
                   "type": "object",
                   "required": ["query"],
                   "properties": {
-                    "query": {"type": "string", "description": "Part of a code or of a name."}
+                    "query": {
+                      "type": "string",
+                      "description": "Words, or parts of words, of a code or of a name."
+                    }
                   }
                 }
                 """,
@@ -397,22 +402,31 @@ class Analyst {
   }
 
   private Object features(JsonNode asked) {
-    var part = asked.path("query").asString("").strip().toLowerCase(Locale.ROOT);
-    if (part.isEmpty()) {
-      return Map.of("error", "Give part of a code or of a name.");
+    var query = asked.path("query").asString("").strip().toLowerCase(Locale.ROOT);
+    if (query.isEmpty()) {
+      return Map.of("error", "Give words of a code or of a name.");
     }
+    // Every word has to be in the code or in the name. A word holds no space, so in the two put
+    // together with a space between them it is found in one of them and never across both. A
+    // backslash keeps what would be a pattern of the database's as it was typed.
     var found =
         jdbc.sql(
                 """
                 SELECT code, name, kind, category_code AS category, status
                 FROM feature
-                WHERE lower(code) LIKE :part ESCAPE '\\' OR lower(name) LIKE :part ESCAPE '\\'
+                WHERE lower(code || ' ' || name) LIKE ALL (:words::text[])
                 ORDER BY code
                 LIMIT :most
                 """)
             .param(
-                "part",
-                "%" + part.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%")
+                "words",
+                Stream.of(query.split("\\s+"))
+                    .map(
+                        word ->
+                            "%"
+                                + word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                                + "%")
+                    .toArray(String[]::new))
             .param("most", MOST_FEATURES + 1)
             .query(Feature.class)
             .list();

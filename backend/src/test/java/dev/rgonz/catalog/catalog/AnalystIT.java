@@ -257,6 +257,33 @@ class AnalystIT extends WorkingCopyTests {
   }
 
   @Test
+  void aFeatureIsFoundByItsWordsInAnyOrderAndOnlyWhenEveryWordIsInItsCodeOrItsName() {
+    // The name is "Massaging Front Seats": the words are there, and not as one piece. "massage"
+    // is in the code alone.
+    for (var query :
+        List.of("massaging seats", "seats massaging", "seat massage", " MASSAGING   seats ")) {
+      assertThat(
+              returned(ana(), "search_features", Map.of("query", query))
+                  .path("features")
+                  .findValuesAsString("code"))
+          .as(query)
+          .containsExactly("SEAT_MASSAGE_FRONT");
+    }
+
+    assertThat(
+            returned(ana(), "search_features", Map.of("query", "massaging brakes"))
+                .path("features"))
+        .isEmpty();
+
+    // The model is told so where it is told what the tool does.
+    for (var tool : ModelStandIn.asked().getFirst().path("tools")) {
+      if (tool.findValue("name").asString().equals("search_features")) {
+        assertThat(tool.findValue("description").asString()).contains("every word");
+      }
+    }
+  }
+
+  @Test
   void eachRoleAsksAndSomeoneNotSignedInDoesNot() {
     for (var who : List.of(ana(), signedInAs(Role.MANAGER, "mia"), signedInAs(Role.ADMIN, "ada"))) {
       ModelStandIn.says("An answer.");
