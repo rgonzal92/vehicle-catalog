@@ -56,16 +56,18 @@ test('an admin sees a job that has failed, and has it retried', async ({ page })
   await expectAccessible(page);
 
   // Retried, it is no longer among the failed jobs, and is done once the worker has got to it.
+  // The other tests leave jobs of their own meanwhile, newer ones, so the first page of the jobs
+  // that succeeded may not reach back to this one: what became of it is read where it is kept.
   await failed.getByRole('button', { name: `Retry job ${job}` }).click();
   await expect(failed).toHaveCount(0);
-  await choose(page.getByRole('main'), 'Status', 'Succeeded');
-  await expect(async () => {
-    await page.getByRole('button', { name: 'Refresh' }).click();
-    await expect(page.locator(`[data-job="${job}"]`).getByRole('cell').nth(3)).toHaveText('4', {
-      timeout: 2000,
-    });
-  }).toPass();
-  await expect(page.locator(`[data-job="${job}"]`).getByRole('cell').nth(4)).toHaveText('');
+  await expect
+    .poll(() =>
+      inTheDatabase(
+        `SELECT status || ' after ' || attempts || coalesce(': ' || error, '')
+         FROM job WHERE id = ${job}`,
+      ),
+    )
+    .toBe('SUCCEEDED after 4');
 });
 
 test('an author and a manager have no way to the jobs', async ({ page }) => {
