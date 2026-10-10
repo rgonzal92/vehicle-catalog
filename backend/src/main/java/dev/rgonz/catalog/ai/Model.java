@@ -242,8 +242,8 @@ public class Model {
         allowance.reserve(
             question.accountId(), question.purpose(), size, question.mostOutputTokens());
 
-    // Without reasoning the model says what it is asked for and no more, so the limit on what it
-    // says is a limit on what it costs.
+    // The limit on what the model says covers what it reasons first, so with reasoning and
+    // without it the limit is one on what the request costs.
     var options =
         OpenAiChatOptions.builder()
             .model(name)
@@ -251,7 +251,7 @@ public class Model {
             .timeout(timeout)
             .maxRetries(0)
             .maxCompletionTokens(question.mostOutputTokens())
-            .reasoningEffort("none")
+            .reasoningEffort(question.reasoning())
             .outputSchema(question.answerSchema())
             .build();
     var answer =
@@ -477,7 +477,8 @@ public class Model {
    * @param instructions what the model is to do, which holds nothing that a person typed
    * @param given what it is to do it with, which is sent as JSON
    * @param answerSchema the JSON schema its answer has to fit
-   * @param mostOutputTokens the most tokens it may answer with
+   * @param mostOutputTokens the most tokens it may answer with, its reasoning among them
+   * @param reasoning how much it reasons before it answers, as OpenAI names it: none or medium
    */
   public record Question(
       Long accountId,
@@ -485,5 +486,18 @@ public class Model {
       String instructions,
       Object given,
       String answerSchema,
-      int mostOutputTokens) {}
+      int mostOutputTokens,
+      String reasoning) {
+
+    /** A question that is answered without reasoning first. */
+    public Question(
+        Long accountId,
+        String purpose,
+        String instructions,
+        Object given,
+        String answerSchema,
+        int mostOutputTokens) {
+      this(accountId, purpose, instructions, given, answerSchema, mostOutputTokens, "none");
+    }
+  }
 }

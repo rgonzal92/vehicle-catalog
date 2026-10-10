@@ -19,7 +19,8 @@ What holds for every request:
 ## Consequences
 
 - The model's name, its address, and the time it is given are configuration: `gpt-6-luna`, as OpenAI lists it on 2026-10-09, and twenty seconds.
-- The model is asked with its reasoning effort set to `none`. What it may say is then what it does say, so the limit on its output is a limit on its cost, and OpenAI's page for the model says that calling tools over Chat Completions needs it.
+- The model is asked with its reasoning effort set to `none`, and OpenAI's page for the model says that calling tools over Chat Completions needs it. A rule's suggestion is the one thing asked with `medium`. Whether a name could be either of two of the catalog's features is found by holding it against the whole list, and without reasoning a sentence with such a name got a rule for one of the two in 12 askings of 60, where with `medium` it got one in none of 100.
+- The limit on the model's output is a limit on its cost, with reasoning as without. Asked to reason with a limit of 16 tokens, the real model stopped at the limit with nothing said and was paid for 16, where without the limit it was paid for 265.
 - Spring AI's client takes a request's time to answer in from that request's own options, so the one class gives it with each request.
 - A check that a rule entered by hand passes through is the check a suggestion passes through. A new check is written once.
 - The tests reach a stand-in and never OpenAI. What the real model makes of real sentences is not something they show.

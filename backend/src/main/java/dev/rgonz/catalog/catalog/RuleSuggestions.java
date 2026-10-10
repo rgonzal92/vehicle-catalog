@@ -23,8 +23,19 @@ class RuleSuggestions {
   /** The longest sentence a rule is suggested from, in characters. */
   static final int LONGEST_SENTENCE = 500;
 
-  /** The most the model may say in answer, which a rule of twenty targets fits well within. */
-  private static final int MOST_OUTPUT_TOKENS = 300;
+  /**
+   * The most the model may say in answer, which a rule of twenty targets and the reasoning before
+   * it fit well within.
+   */
+  private static final int MOST_OUTPUT_TOKENS = 1000;
+
+  /**
+   * How much the model reasons before it answers. Whether a name could be either of two of the
+   * catalog's features is found by holding it against the whole list. Asked of the real model, "The
+   * infotainment display requires Bluetooth." got a rule for one of the catalog's two displays in
+   * 12 askings of 60 without reasoning, in 5 of 150 with {@code low}, and in none of 100 with this.
+   */
+  private static final String REASONING = "medium";
 
   private static final String NOT_A_RULE = "The model's answer was not a rule.";
 
@@ -156,7 +167,8 @@ class RuleSuggestions {
                 INSTRUCTIONS,
                 given(sentence, catalog),
                 ANSWER,
-                MOST_OUTPUT_TOKENS));
+                MOST_OUTPUT_TOKENS,
+                REASONING));
 
     JsonNode answer;
     try {
