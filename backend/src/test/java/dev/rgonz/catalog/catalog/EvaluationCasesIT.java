@@ -35,10 +35,16 @@ class EvaluationCasesIT extends EvaluationRuns {
     Worker.forgets(application);
   }
 
-  /** The model's answer that says this rule, or that the sentence says none. */
+  /** The model's answer that says this rule. */
   private static String saying(Rule rule) {
+    return saying(rule, null);
+  }
+
+  /** The model's answer that says this rule, or that the sentence says none and why. */
+  private static String saying(Rule rule, String why) {
     var said = new LinkedHashMap<String, Object>();
     said.put("saysOneRule", rule != null);
+    said.put("why", why);
     said.put("kind", rule == null ? null : rule.kind());
     said.put("source", rule == null ? null : rule.source());
     said.put("targets", rule == null ? List.of() : rule.targets());
@@ -62,6 +68,12 @@ class EvaluationCasesIT extends EvaluationRuns {
     assertThat(sentences).extracting(RuleSuggestionCases.Case::id).doesNotHaveDuplicates();
     assertThat(sentences.stream().filter(RuleSuggestionCases.Case::heldOut).count() * 3)
         .isEqualTo(sentences.size());
+    // A sentence that is to get no rule says why, and one that is to get a rule does not.
+    assertThat(sentences).allMatch(one -> (one.expected() == null) == (one.why() != null));
+    assertThat(sentences)
+        .filteredOn(one -> !one.heldOut())
+        .extracting(RuleSuggestionCases.Case::why)
+        .contains("NOT_ONE_RULE", "NOT_IN_THE_CATALOG", "CANNOT_TELL_APART");
     assertThat(changes).extracting(SummaryCases.Case::id).doesNotHaveDuplicates();
     assertThat(changes.stream().filter(SummaryCases.Case::heldOut).count() * 3)
         .isEqualTo(changes.size());
@@ -75,7 +87,7 @@ class EvaluationCasesIT extends EvaluationRuns {
   void everySentencePassesWhenTheModelSaysWhatIsExpectedSoEachExpectedRuleIsOneTheCatalogTakes() {
     long copy = workingCopy(ana(), "COMPACT_SUV", 2026);
     for (var one : RuleSuggestionCases.all()) {
-      ModelStandIn.says(saying(one.expected()));
+      ModelStandIn.says(saying(one.expected(), one.why()));
 
       var result = suggested(copy, one);
 
@@ -92,7 +104,8 @@ class EvaluationCasesIT extends EvaluationRuns {
             right.id(),
             true,
             right.sentence(),
-            new Rule("REQUIRES", "SEAT_LEATHER", List.of("NAVIGATION"), List.of("Sport"), null));
+            new Rule("REQUIRES", "SEAT_LEATHER", List.of("NAVIGATION"), List.of("Sport"), null),
+            null);
     ModelStandIn.says(saying(right.expected()));
     ModelStandIn.says(saying(right.expected()));
 
@@ -141,7 +154,8 @@ class EvaluationCasesIT extends EvaluationRuns {
             "an-exclusion",
             false,
             "The panoramic roof can't be had with crossbars.",
-            new Rule("EXCLUDES", "ROOF_PANORAMIC", List.of("ROOF_CROSSBARS"), null, null));
+            new Rule("EXCLUDES", "ROOF_PANORAMIC", List.of("ROOF_CROSSBARS"), null, null),
+            null);
     ModelStandIn.says(
         saying(new Rule("EXCLUDES", "ROOF_CROSSBARS", List.of("ROOF_PANORAMIC"), null, null)));
     assertThat(suggested(copy, exclusion).passed()).isTrue();
@@ -149,7 +163,8 @@ class EvaluationCasesIT extends EvaluationRuns {
     ModelStandIn.says(saying(exclusion.expected()));
     var none =
         suggested(
-            copy, new RuleSuggestionCases.Case("no-rule", false, "Make the car nicer.", null));
+            copy,
+            new RuleSuggestionCases.Case("no-rule", false, "Make the car nicer.", null, null));
     assertThat(none.passed()).isFalse();
     assertThat(none.expected()).isEqualTo("no rule");
 
@@ -158,6 +173,41 @@ class EvaluationCasesIT extends EvaluationRuns {
     var failed = suggested(copy, exclusion);
     assertThat(failed.passed()).isFalse();
     assertThat(failed.came()).isEqualTo("no rule: The model did not answer.");
+  }
+
+  @Test
+  void aCaseThatExpectsNoRulePassesOnlyWhenTheReasonItNamesIsTheOneThatCame() {
+    long copy = workingCopy(ana(), "COMPACT_SUV", 2026);
+    var limited =
+        new RuleSuggestionCases.Case(
+            "a-trim-it-does-not-have",
+            false,
+            "On the Limited trim, the sunroof requires roof rails.",
+            null,
+            "NOT_IN_THE_CATALOG");
+
+    ModelStandIn.says(saying(null, "NOT_IN_THE_CATALOG"));
+    var right = suggested(copy, limited);
+    assertThat(right.passed()).as(right.came()).isTrue();
+    assertThat(right.expected())
+        .isEqualTo(
+            "no rule: The sentence names a feature, a trim, or a region that this catalog does"
+                + " not have by that name. Name each as the catalog does.");
+    assertThat(right.came()).isEqualTo(right.expected());
+
+    ModelStandIn.says(saying(null, "NOT_ONE_RULE"));
+    var another = suggested(copy, limited);
+    assertThat(another.passed()).as("with another reason").isFalse();
+    assertThat(another.came()).isEqualTo("no rule: The sentence does not say one rule.");
+
+    // A model that names the trim leaves it to the application to say that it is not there, and
+    // the person is told the same thing.
+    ModelStandIn.says(
+        saying(
+            new Rule("REQUIRES", "ROOF_SUNROOF", List.of("ROOF_RAILS"), List.of("Limited"), null)));
+    var named = suggested(copy, limited);
+    assertThat(named.passed()).as(named.came()).isTrue();
+    assertThat(named.came()).contains("names the trim Limited");
   }
 
   @Test

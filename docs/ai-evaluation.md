@@ -3,17 +3,17 @@
 Cases with known answers, run against the real model. They are kept in `backend/src/test/resources/evaluation/`. A third of each set is held out: those cases are not looked at while a prompt is changed, and are reported apart, so that they say how the prompt does on sentences it was not written for.
 
 - Run on 2026-10-10 with `gpt-6-luna`.
-- The run cost US$0.03006494 by the table of spending, of the dollar a day may cost.
+- The run cost US$0.03053074 by the table of spending, of the dollar a day may cost.
 - To run it again, with `OPENAI_API_KEY` in the environment: `./mvnw verify -Pevaluation` in `backend/`. It writes this file, and is no part of the build or of the pipeline.
 
 ## Rule suggestions
 
-A case passes when the suggested rule equals the expected one in its kind, its source, its targets, its trims, and its regions, or when no rule is suggested where none is expected. An exclusion says the same whichever of its two features is its source. Nothing is judged by a model.
+A case passes when the suggested rule equals the expected one in its kind, its source, its targets, its trims, and its regions, or when no rule is suggested where none is expected and the person is told the reason the case names. An exclusion says the same whichever of its two features is its source. Nothing is judged by a model.
 
 | Cases | Passed | Of |
 | --- | --- | --- |
-| Worked on | 26 | 26 |
-| Held out | 13 | 13 |
+| Worked on | 28 | 28 |
+| Held out | 14 | 14 |
 
 None failed.
 

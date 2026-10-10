@@ -28,6 +28,41 @@ class RuleSuggestions {
 
   private static final String NOT_A_RULE = "The model's answer was not a rule.";
 
+  /**
+   * Why a sentence gets no rule, as the model says it, each with what the person is told. The
+   * person reads these words and none of the model's.
+   *
+   * <p>A name the catalog lacks and a name that could be two of its features are told as one thing.
+   * The model does not tell the two apart: asked of the real one, a display that could be either of
+   * two was called not in the catalog in 20 askings of 20, and instructions that said more of the
+   * difference had it choose one of the two by itself.
+   */
+  enum NoRule {
+    NOT_ONE_RULE("The sentence does not say one rule."),
+    NOT_IN_THE_CATALOG(NoRule.NOT_BY_THAT_NAME),
+    CANNOT_TELL_APART(NoRule.NOT_BY_THAT_NAME);
+
+    private static final String NOT_BY_THAT_NAME =
+        "The sentence names a feature, a trim, or a region that this catalog does not have by"
+            + " that name. Name each as the catalog does.";
+
+    final String told;
+
+    NoRule(String told) {
+      this.told = told;
+    }
+
+    /** The reason of this name, or that the sentence is not one rule when the name is no reason. */
+    static NoRule of(String name) {
+      for (var why : values()) {
+        if (why.name().equals(name)) {
+          return why;
+        }
+      }
+      return NOT_ONE_RULE;
+    }
+  }
+
   private static final String INSTRUCTIONS =
       """
       You turn one sentence about a vehicle catalog into one rule between its features.
@@ -52,6 +87,9 @@ class RuleSuggestions {
       what it names cannot be told apart between features of the lists. Never leave out what the \
       sentence names, and never put something else in its place: a rule for more or for less \
       than the sentence says is wrong.
+
+      With saysOneRule false, say in why which of the three it was: NOT_ONE_RULE, \
+      NOT_IN_THE_CATALOG, or CANNOT_TELL_APART. With saysOneRule true, give why as null.
       """;
 
   private static final String ANSWER =
@@ -59,9 +97,13 @@ class RuleSuggestions {
       {
         "type": "object",
         "additionalProperties": false,
-        "required": ["saysOneRule", "kind", "source", "targets", "trims", "regions"],
+        "required": ["saysOneRule", "why", "kind", "source", "targets", "trims", "regions"],
         "properties": {
           "saysOneRule": {"type": "boolean"},
+          "why": {
+            "type": ["string", "null"],
+            "enum": ["NOT_ONE_RULE", "NOT_IN_THE_CATALOG", "CANNOT_TELL_APART", null]
+          },
           "kind": {
             "type": ["string", "null"],
             "enum": ["REQUIRES", "REQUIRES_ONE_OF", "INCLUDES", "EXCLUDES", null]
@@ -123,7 +165,7 @@ class RuleSuggestions {
       return Answer.refused(NOT_A_RULE);
     }
     if (answer.path("saysOneRule").isBoolean() && !answer.path("saysOneRule").asBoolean()) {
-      return Answer.refused("The sentence does not say one rule.");
+      return Answer.refused(NoRule.of(answer.path("why").asString("")).told);
     }
     return rule(catalogId, catalog, answer);
   }
