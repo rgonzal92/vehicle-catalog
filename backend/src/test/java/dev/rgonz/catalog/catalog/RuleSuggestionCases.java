@@ -129,7 +129,11 @@ final class RuleSuggestionCases {
         "\"%s\"".formatted(one.sentence()),
         one.expected() == null ? "no rule" : one.expected().toString(),
         came == null
-            ? "no rule: %s".formatted(answered.path("refusal").asString("nothing was said of why"))
+            ? "no rule: %s"
+                .formatted(
+                    answered
+                        .path("refusal")
+                        .asString(answered.path("detail").asString("nothing was said of why")))
             : came.toString());
   }
 }
