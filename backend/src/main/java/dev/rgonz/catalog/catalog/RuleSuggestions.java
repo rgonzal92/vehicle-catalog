@@ -88,10 +88,7 @@ class RuleSuggestions {
    * as it is, or why there is none.
    */
   Answer suggest(long catalogId, long actorId, String sentence) {
-    var availability = model.availability();
-    if (!availability.available()) {
-      throw ApiException.unavailable("AI_UNAVAILABLE", availability.reason());
-    }
+    model.refuseUnlessAvailable(actorId);
     if (sentence == null || sentence.isBlank() || sentence.length() > LONGEST_SENTENCE) {
       throw ApiException.invalid(
           "Describe the rule in at most %d characters.".formatted(LONGEST_SENTENCE));
@@ -108,7 +105,13 @@ class RuleSuggestions {
 
     var said =
         model.ask(
-            new Model.Question(INSTRUCTIONS, given(sentence, catalog), ANSWER, MOST_OUTPUT_TOKENS));
+            new Model.Question(
+                actorId,
+                "RULE_SUGGESTION",
+                INSTRUCTIONS,
+                given(sentence, catalog),
+                ANSWER,
+                MOST_OUTPUT_TOKENS));
 
     JsonNode answer;
     try {

@@ -163,6 +163,25 @@ class DemoResetIT extends ApplicationIT {
   }
 
   @Test
+  void itLeavesWhatTheModelHasCostAsItIs() {
+    jdbc.sql("DELETE FROM ai_spend").update();
+    jdbc.sql(
+            """
+            INSERT INTO ai_spend (day, user_id, purpose, reserved)
+            VALUES ((now() AT TIME ZONE 'UTC')::date, :person, 'A_TEST', 0.25)
+            """)
+        .param("person", person("ana"))
+        .update();
+
+    reset.run();
+
+    assertThat(jdbc.sql("SELECT reserved::text FROM ai_spend").query(String.class).list())
+        .as("a reset does not give the day's allowance back")
+        .containsExactly("0.25000000");
+    jdbc.sql("DELETE FROM ai_spend").update();
+  }
+
+  @Test
   void identifiersGoOnCountingUpAndNoneIsUsedAgain() {
     var tables = List.of("trim", "feature", "vehicle_line", "lineage", "catalog");
     var highestBefore = new HashMap<String, Long>();

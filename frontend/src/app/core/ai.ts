@@ -7,6 +7,8 @@ import { IN_THE_BACKGROUND } from './api-error-interceptor';
 export interface AiAvailability {
   available: boolean;
   reason: string | null;
+  /** When a spent allowance is whole again, or null when that is not why it cannot be asked. */
+  renewsAt?: string | null;
 }
 
 /** What the app knows of the language model it asks for suggestions. */
