@@ -196,6 +196,14 @@ The secret the distribution sends the host is changed with
 `terraform apply -replace=random_password.origin_secret`. The host has the new one within a
 minute and the distribution some minutes later; in between, the API answers 403.
 
+The host reads four parameters and no other, all under `/vehicle-catalog/`: `origin-secret`,
+`database-password`, `login-client-secret`, and `openai-api-key`, which it starts without when
+there is none. The policy AWS has for Systems Manager lets a machine read every parameter the
+account holds, so the host's role has a policy of its own that refuses the rest. When the app
+comes to need another secret, name it in two places: where `deploy/release.sh` reads it, and in
+`host_parameters` in `host.tf`. `terraform test` fails while the two differ, and one apply takes
+both to the host.
+
 Terraform refuses to give up the host's address, because whoever is given it next could pass for
 the host while the `origin-catalog` record still names it. To take the host down for good, remove
 that record at Cloudflare first, and then the `prevent_destroy` line in `host.tf`.
