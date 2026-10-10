@@ -3,6 +3,7 @@ package dev.rgonz.catalog;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
 
 import com.jayway.jsonpath.JsonPath;
+import dev.rgonz.catalog.ai.ModelStandIn;
 import dev.rgonz.catalog.core.Role;
 import jakarta.servlet.http.Cookie;
 import java.io.UnsupportedEncodingException;
@@ -65,6 +66,9 @@ import software.amazon.awssdk.services.sqs.model.QueueAttributeName;
       "app.protected-accounts[0]=operator",
       // The demo reset runs only when a test runs it, never because the clock says so.
       "app.demo-reset.cron=-",
+      // A stand-in answers for the model, which is not waited for as long as the real one is.
+      "app.ai.api-key=a-key-for-the-tests",
+      "app.ai.timeout=2s",
       "spring.security.oauth2.client.registration.cognito.client-id=" + ApplicationIT.CLIENT_ID,
       "spring.security.oauth2.client.registration.cognito.client-secret=test-secret"
     })
@@ -201,6 +205,11 @@ public abstract class ApplicationIT {
 
   private static String queueServerUrl() {
     return "http://127.0.0.1:" + QUEUE.getMappedPort(9324);
+  }
+
+  @DynamicPropertySource
+  static void model(DynamicPropertyRegistry registry) {
+    registry.add("app.ai.base-url", ModelStandIn::url);
   }
 
   @DynamicPropertySource

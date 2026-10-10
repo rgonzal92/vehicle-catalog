@@ -242,3 +242,42 @@ test('an Approved version shows its rules, and nobody changes them', async ({ pa
   await expect(rules.getByRole('button', { name: 'Add rule' })).toHaveCount(0);
   await expect(rules.getByRole('button', { name: /^Edit the rule/ })).toHaveCount(0);
 });
+
+test('the owner has a rule suggested from a sentence, checks it, and saves it', async ({
+  page,
+}) => {
+  await signIn(page, 'author');
+  await createWorkingCopy(page, 'SUV', 'Compact SUV', '2026');
+  await page.getByRole('tab', { name: 'Rules' }).click();
+  const rules = page.getByRole('tabpanel', { name: 'Rules' });
+  const suggested = rules.getByRole('row', {
+    name: /^Leather Seats Requires Premium Audio Every trim Every region Catalog/,
+  });
+
+  // The stand-in for the model suggests the same rule whatever it is asked.
+  await rules.getByRole('button', { name: 'Add rule' }).click();
+  const adding = page.getByRole('dialog', { name: 'Add rule' });
+  await adding.getByLabel('Describe the rule').fill('Leather seats need the premium audio');
+  await adding.getByRole('button', { name: 'Suggest' }).click();
+  await expect(
+    adding.getByText('The form holds the suggested rule. Check it, then save it.'),
+  ).toBeVisible();
+  await expect(adding.getByRole('combobox', { name: 'Kind' })).toHaveText('Requires');
+  await expect(adding.getByRole('combobox', { name: 'Source' })).toHaveText('Leather Seats');
+  await expect(adding.getByText('Premium Audio', { exact: true })).toBeVisible();
+  await expect(suggested).toHaveCount(0);
+  await expectAccessible(page);
+
+  // It is a rule of the catalog once its owner saves it.
+  await adding.getByRole('button', { name: 'Save' }).click();
+  await expect(adding).toBeHidden();
+  await expect(suggested).toBeVisible();
+
+  // Suggested once more, it is what the catalog has already, which is said and fills nothing in.
+  await rules.getByRole('button', { name: 'Add rule' }).click();
+  await adding.getByLabel('Describe the rule').fill('Leather seats need the premium audio');
+  await adding.getByRole('button', { name: 'Suggest' }).click();
+  await expect(adding.getByText('This rule already exists.')).toBeVisible();
+  await expect(adding.getByRole('button', { name: 'Save' })).toBeDisabled();
+  await expectAccessible(page);
+});

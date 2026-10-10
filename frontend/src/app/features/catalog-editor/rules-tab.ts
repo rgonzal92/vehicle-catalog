@@ -9,17 +9,24 @@ import {
   input,
   signal,
 } from '@angular/core';
-import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import {
+  FormControl,
+  NonNullableFormBuilder,
+  ReactiveFormsModule,
+  Validators,
+} from '@angular/forms';
 import { ArrowRightArrowLeft } from '@primeicons/angular/arrow-right-arrow-left';
 import { Plus } from '@primeicons/angular/plus';
 import { Button, ButtonDirective, ButtonIcon, ButtonLabel } from 'primeng/button';
 import { Checkbox } from 'primeng/checkbox';
 import { Dialog } from 'primeng/dialog';
+import { InputText } from 'primeng/inputtext';
 import { Message } from 'primeng/message';
 import { MultiSelect } from 'primeng/multiselect';
 import { Select } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { Tag } from 'primeng/tag';
+import { Ai, AiAvailability } from '../../core/ai';
 import { Catalog, CatalogEdit, CatalogRule, Catalogs } from '../../core/catalogs';
 import {
   FEWEST_TARGETS,
@@ -95,6 +102,7 @@ function rowOf(
     ButtonLabel,
     Checkbox,
     Dialog,
+    InputText,
     Message,
     MultiSelect,
     Select,
@@ -216,6 +224,41 @@ function rowOf(
       <form class="grid gap-4" [formGroup]="form" (ngSubmit)="save()">
         @if (refusal()) {
           <p-message severity="error">{{ refusal() }}</p-message>
+        }
+        @if (!editing()) {
+          <div class="grid gap-1">
+            <label for="catalog-rule-sentence">Describe the rule</label>
+            <div class="flex gap-2">
+              <input
+                pInputText
+                id="catalog-rule-sentence"
+                class="min-w-0 grow"
+                maxlength="500"
+                autocomplete="off"
+                aria-describedby="catalog-rule-sentence-help"
+                [formControl]="sentence"
+                (keydown.enter)="$event.preventDefault(); suggest()"
+              />
+              <p-button
+                label="Suggest"
+                severity="secondary"
+                [loading]="suggesting()"
+                [disabled]="!ai().available || !sentence.value.trim()"
+                (onClick)="suggest()"
+              />
+            </div>
+            <p id="catalog-rule-sentence-help" class="text-sm text-muted-color" data-suggestions>
+              @if (ai().available) {
+                A language model suggests a rule from your words. Check it before you save: nothing
+                is saved until you do.
+              } @else if (ai().reason) {
+                A rule cannot be suggested now. {{ ai().reason }}
+              }
+            </p>
+            @if (suggestion(); as said) {
+              <p-message [severity]="said.refused ? 'warn' : 'info'">{{ said.words }}</p-message>
+            }
+          </div>
         }
         <div class="grid gap-1">
           <label id="catalog-rule-kind-label" for="catalog-rule-kind">Kind</label>
@@ -356,6 +399,7 @@ function rowOf(
 })
 export class RulesTab {
   private readonly catalogs = inject(Catalogs);
+  private readonly aiService = inject(Ai);
   private readonly globalRules = inject(GlobalRules);
 
   /** The catalog whose rules are shown. */
@@ -456,6 +500,18 @@ export class RulesTab {
     allRegions: [true],
     regionCodes: [[] as string[]],
   });
+
+  /** The sentence a rule is to be suggested from. It is no part of the rule. */
+  protected readonly sentence = new FormControl('', { nonNullable: true });
+
+  /** Whether the model can be asked. It is found out when the dialog opens to add a rule. */
+  protected readonly ai = signal<AiAvailability>({ available: false, reason: null });
+
+  /** Whether a suggestion is being waited for. */
+  protected readonly suggesting = signal(false);
+
+  /** What became of the last sentence: that the form holds a suggestion, or why it holds none. */
+  protected readonly suggestion = signal<{ refused: boolean; words: string } | null>(null);
 
   /** What the form holds, as a signal, so that what it offers follows what is chosen. */
   private readonly chosen = signal(this.form.getRawValue());
@@ -566,6 +622,41 @@ export class RulesTab {
     this.open(null);
     this.form.reset();
     this.form.controls.kind.enable();
+    this.sentence.reset();
+    this.suggestion.set(null);
+    void this.aiService.availability().then((found) => this.ai.set(found));
+  }
+
+  /**
+   * Asks for a rule to be suggested from the sentence and puts it into the form, for its owner to
+   * check and save. A sentence that gives no rule leaves the form as it was and says why.
+   */
+  protected async suggest(): Promise<void> {
+    const sentence = this.sentence.value.trim();
+    if (!sentence || !this.ai().available || this.suggesting()) {
+      return;
+    }
+    this.suggestion.set(null);
+    this.suggesting.set(true);
+    try {
+      const said = await this.catalogs.suggestRule(this.catalog().snapshot.catalogId, sentence);
+      if (said.suggestion) {
+        this.form.reset(said.suggestion);
+        this.suggestion.set({
+          refused: false,
+          words: 'The form holds the suggested rule. Check it, then save it.',
+        });
+      } else {
+        this.suggestion.set({ refused: true, words: said.refusal ?? 'No rule was suggested.' });
+      }
+    } catch (error) {
+      this.suggestion.set({
+        refused: true,
+        words: `No rule could be suggested. ${reasonOf(error)}`,
+      });
+    } finally {
+      this.suggesting.set(false);
+    }
   }
 
   protected startEditing(rule: CatalogRule): void {

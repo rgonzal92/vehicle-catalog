@@ -218,15 +218,124 @@ describe('RulesTab', () => {
     expect(rows(element).map((row) => row.at(-1))).toEqual(['', '', '', '']);
   });
 
+  /** Opens the dialog to add a rule, and answers its asking whether the model can be asked. */
+  async function adding(element: HTMLElement, ai: object = { available: true, reason: null }) {
+    button(element, 'Add rule').click();
+    backend.expectOne('/api/ai').flush(ai);
+    await vi.waitFor(() => expect(dialog()?.textContent).toContain('Add rule'));
+    await vi.waitFor(() =>
+      expect(dialog()!.querySelector('[data-suggestions]')?.textContent?.trim()).toBeTruthy(),
+    );
+
+    return dialog()!;
+  }
+
+  /** Types the sentence and asks for a suggestion. */
+  function describe$(scope: HTMLElement, sentence: string): void {
+    const field = scope.querySelector<HTMLInputElement>('#catalog-rule-sentence')!;
+    field.value = sentence;
+    field.dispatchEvent(new Event('input'));
+  }
+
   it('cannot save a new rule until it has a source and enough targets', async () => {
     const element = await tab();
 
-    button(element, 'Add rule').click();
+    await adding(element);
 
-    await vi.waitFor(() => expect(dialog()?.textContent).toContain('Add rule'));
     expect(button(dialog()!, 'Save').disabled).toBe(true);
     expect(dialog()!.textContent).toContain('Choose 1 to 20 feature rows.');
     expect(dialog()!.textContent).toContain('The rule holds on every trim');
+  });
+
+  it('fills the form in with a suggested rule, which is not saved until Save', async () => {
+    const element = await tab();
+    const open = await adding(element);
+
+    describe$(open, 'Leather needs the panoramic roof on Sport');
+    await vi.waitFor(() => expect(button(open, 'Suggest').disabled).toBe(false));
+    button(open, 'Suggest').click();
+    const asked = backend.expectOne({ method: 'POST', url: '/api/catalogs/41/rule-suggestions' });
+    expect(asked.request.body).toEqual({ sentence: 'Leather needs the panoramic roof on Sport' });
+    asked.flush({
+      suggestion: {
+        kind: 'REQUIRES',
+        sourceFeatureId: 9,
+        targetFeatureIds: [8],
+        allTrims: false,
+        trimIds: [2],
+        allRegions: true,
+        regionCodes: [],
+      },
+      refusal: null,
+    });
+
+    await vi.waitFor(() =>
+      expect(open.textContent).toContain(
+        'The form holds the suggested rule. Check it, then save it.',
+      ),
+    );
+    expect(host.sent).toHaveLength(0);
+    await vi.waitFor(() => expect(button(open, 'Save').disabled).toBe(false));
+
+    button(open, 'Save').click();
+    const saved = await vi.waitFor(() =>
+      backend.expectOne({ method: 'POST', url: '/api/catalogs/41/rules' }),
+    );
+    expect(saved.request.body).toEqual({
+      kind: 'REQUIRES',
+      sourceFeatureId: 9,
+      targetFeatureIds: [8],
+      allTrims: false,
+      trimIds: [2],
+      allRegions: true,
+      regionCodes: [],
+    });
+    saved.flush({ revision: 5, issues: [] }, { headers: { ETag: '"5"' } });
+    await vi.waitFor(() => expect(host.sent).toHaveLength(1));
+  });
+
+  it('leaves the form as it was and says why when no rule is suggested', async () => {
+    const element = await tab();
+    const open = await adding(element);
+
+    describe$(open, 'What is the weather?');
+    await vi.waitFor(() => expect(button(open, 'Suggest').disabled).toBe(false));
+    button(open, 'Suggest').click();
+    backend
+      .expectOne({ method: 'POST', url: '/api/catalogs/41/rule-suggestions' })
+      .flush({ suggestion: null, refusal: 'The sentence does not say one rule.' });
+
+    await vi.waitFor(() =>
+      expect(open.textContent).toContain('The sentence does not say one rule.'),
+    );
+    expect(button(open, 'Save').disabled).toBe(true);
+
+    button(open, 'Suggest').click();
+    backend
+      .expectOne({ method: 'POST', url: '/api/catalogs/41/rule-suggestions' })
+      .flush(
+        { code: 'AI_FAILED', detail: 'The model did not answer.' },
+        { status: 503, statusText: 'Service Unavailable' },
+      );
+
+    await vi.waitFor(() =>
+      expect(open.textContent).toContain('No rule could be suggested. The model did not answer.'),
+    );
+  });
+
+  it('shows why a rule cannot be suggested when the model cannot be asked', async () => {
+    const element = await tab();
+
+    const open = await adding(element, {
+      available: false,
+      reason: 'No key for the model is set.',
+    });
+    describe$(open, 'Leather needs the panoramic roof');
+
+    expect(open.textContent).toContain(
+      'A rule cannot be suggested now. No key for the model is set.',
+    );
+    expect(button(open, 'Suggest').disabled).toBe(true);
   });
 
   it('changes a rule to what the dialog holds, as an edit of the catalog', async () => {

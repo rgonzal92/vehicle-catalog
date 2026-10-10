@@ -16,3 +16,10 @@
 		file_server
 	}
 }
+
+# Stands in for OpenAI, which no test reaches. Whatever the model is asked, it answers that Leather
+# Seats require Premium Audio, on every trim and in every region.
+:8090 {
+	header Content-Type application/json
+	respond /v1/chat/completions `{"id":"chatcmpl-a-test","object":"chat.completion","created":1,"model":"gpt-6-luna","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"{\"saysOneRule\":true,\"kind\":\"REQUIRES\",\"source\":\"SEAT_LEATHER\",\"targets\":[\"AUDIO_PREMIUM\"],\"trims\":null,\"regions\":null}"}}],"usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120}}` 200
+}

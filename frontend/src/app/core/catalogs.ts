@@ -82,6 +82,15 @@ export interface CatalogRule {
 /** What an owner gives to add a catalog rule or to change one. */
 export type CatalogRuleContent = Omit<CatalogRule, 'key' | 'pairKey'>;
 
+/**
+ * What the model made of a sentence: a rule that could be added as it is, or why there is none.
+ * One of the two is null.
+ */
+export interface RuleSuggestion {
+  suggestion: CatalogRuleContent | null;
+  refusal: string | null;
+}
+
 /** A catalog: what describes it, and its contents as the matrix shows them. */
 export interface Catalog {
   name: string;
@@ -620,6 +629,20 @@ export class Catalogs {
   /** Adds a rule to a working copy. An Excludes rule is added as a pair for each of its targets. */
   addRule(catalogId: number, revision: number, rule: CatalogRuleContent): Promise<number> {
     return this.edit(catalogId, 'POST', '/rules', revision, rule);
+  }
+
+  /**
+   * Asks for a rule to be suggested from a sentence, for a working copy. Nothing is saved by it.
+   * A failure is the caller's to show, since it belongs to the dialog that asked.
+   */
+  suggestRule(catalogId: number, sentence: string): Promise<RuleSuggestion> {
+    return firstValueFrom(
+      this.http.post<RuleSuggestion>(
+        `/api/catalogs/${catalogId}/rule-suggestions`,
+        { sentence },
+        { context: new HttpContext().set(IN_THE_BACKGROUND, true) },
+      ),
+    );
   }
 
   /** Changes a rule of a working copy, and its pair with it. Its kind stays what it was. */

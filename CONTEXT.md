@@ -149,6 +149,10 @@ _Avoid_: Scope, level
 The trims and regions a rule applies to; each is either all or a list. A global rule has a region scope only.
 _Avoid_: Origin, applicability
 
+**Suggestion**:
+A rule that the language model proposes from a sentence its owner typed. It is checked as a rule entered by hand is and fills the rule dialog in; it is no rule of the catalog until its owner saves it.
+_Avoid_: Draft (a working copy's status), generated rule, AI rule
+
 ### Validation
 
 **Issue**:

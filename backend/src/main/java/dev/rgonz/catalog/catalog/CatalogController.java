@@ -56,6 +56,7 @@ class CatalogController {
   private final Reviews reviews;
   private final Updates updates;
   private final ChangeHistory history;
+  private final RuleSuggestions suggestions;
   private final AppUsers people;
   private final RoleHierarchy roles;
 
@@ -67,8 +68,10 @@ class CatalogController {
       Reviews reviews,
       Updates updates,
       ChangeHistory history,
+      RuleSuggestions suggestions,
       AppUsers people,
       RoleHierarchy roles) {
+    this.suggestions = suggestions;
     this.reviews = reviews;
     this.updates = updates;
     this.roles = roles;
@@ -310,6 +313,19 @@ class CatalogController {
       Authentication caller) {
     return saved(id, caller, edits.addRule(id, people.idOf(caller), ifMatch, given));
   }
+
+  /**
+   * Suggests a rule for the caller's working copy from a sentence. Nothing is saved: the rule is
+   * the caller's to check and to add.
+   */
+  @PostMapping("/api/catalogs/{id}/rule-suggestions")
+  RuleSuggestions.Answer suggestRule(
+      @PathVariable long id, @RequestBody Described given, Authentication caller) {
+    return suggestions.suggest(id, people.idOf(caller), given.sentence());
+  }
+
+  /** A rule as a person describes it. */
+  record Described(String sentence) {}
 
   /** Changes a rule of the caller's working copy, and its pair with it. */
   @PutMapping("/api/catalogs/{id}/rules/{ruleKey}")
