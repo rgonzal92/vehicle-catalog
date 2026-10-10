@@ -3,7 +3,7 @@
 Cases with known answers, run against the real model. They are kept in `backend/src/test/resources/evaluation/`. A third of each set is held out: those cases are not looked at while a prompt is changed, and are reported apart, so that they say how the prompt does on sentences it was not written for.
 
 - Run on 2026-10-10 with `gpt-6-luna`.
-- The run cost US$0.02721664 by the table of spending, of the dollar a day may cost.
+- The run cost US$0.03006494 by the table of spending, of the dollar a day may cost.
 - To run it again, with `OPENAI_API_KEY` in the environment: `./mvnw verify -Pevaluation` in `backend/`. It writes this file, and is no part of the build or of the pipeline.
 
 ## Rule suggestions
@@ -12,17 +12,10 @@ A case passes when the suggested rule equals the expected one in its kind, its s
 
 | Cases | Passed | Of |
 | --- | --- | --- |
-| Worked on | 20 | 22 |
-| Held out | 11 | 11 |
+| Worked on | 26 | 26 |
+| Held out | 13 | 13 |
 
-### Failed
-
-- `convenience-package-content` (worked on): "The Convenience Package includes the power liftgate and remote start."
-  - expected: INCLUDES PACKAGE_CONVENIENCE -> LIFTGATE_POWER, REMOTE_START; trims: every one; regions: every one
-  - came: no rule: The sentence does not say one rule.
-- `adaptive-cruise-needs-two` (worked on): "Adaptive cruise control requires forward collision warning and automatic emergency braking."
-  - expected: REQUIRES ADAS_ADAPTIVE_CRUISE -> SAFETY_FORWARD_COLLISION, SAFETY_EMERGENCY_BRAKING; trims: every one; regions: every one
-  - came: no rule: The sentence does not say one rule.
+None failed.
 
 ## Summaries
 
