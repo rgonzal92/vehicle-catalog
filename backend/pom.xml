@@ -239,4 +239,33 @@
 		</plugins>
 	</build>
 
+	<profiles>
+		<!-- Measures the language model against the cases in src/test/resources/evaluation, by asking
+			the real model: ./mvnw verify -Pevaluation, with OPENAI_API_KEY in the environment. The
+			build without this profile runs no class of this name. -->
+		<profile>
+			<id>evaluation</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-surefire-plugin</artifactId>
+						<configuration>
+							<skipTests>true</skipTests>
+						</configuration>
+					</plugin>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-failsafe-plugin</artifactId>
+						<configuration>
+							<includes>
+								<include>**/*Evaluation.java</include>
+							</includes>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
+
 </project>
