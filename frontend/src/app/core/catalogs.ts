@@ -1,4 +1,4 @@
-import { HttpClient, HttpContext } from '@angular/common/http';
+import { HttpClient, HttpContext, HttpErrorResponse } from '@angular/common/http';
 import { inject, Injectable, signal } from '@angular/core';
 import { firstValueFrom, timeout } from 'rxjs';
 import {
@@ -81,6 +81,17 @@ export interface CatalogRule {
 
 /** What an owner gives to add a catalog rule or to change one. */
 export type CatalogRuleContent = Omit<CatalogRule, 'key' | 'pairKey'>;
+
+/**
+ * The summary the language model wrote of what a Submitted catalog changes: being written, there,
+ * or not to be had, with the reason.
+ */
+export interface SubmissionSummary {
+  status: 'PENDING' | 'READY' | 'UNAVAILABLE';
+  headline: string | null;
+  bullets: string[];
+  reason: string | null;
+}
 
 /**
  * What the model made of a sentence: a rule that could be added as it is, or why there is none.
@@ -472,6 +483,25 @@ export class Catalogs {
     return firstValueFrom(
       this.http.get<CatalogChanges>(`/api/catalogs/${catalogId}/diff`, { params: { against } }),
     );
+  }
+
+  /**
+   * The summary of what a Submitted catalog changes, or null when it has none. Nobody is kept
+   * waiting for it, so a failure to read it is not shown: whoever asks goes on asking.
+   */
+  async summary(catalogId: number): Promise<SubmissionSummary | null> {
+    try {
+      return await firstValueFrom(
+        this.http.get<SubmissionSummary>(`/api/catalogs/${catalogId}/summary`, {
+          context: new HttpContext().set(IN_THE_BACKGROUND, true),
+        }),
+      );
+    } catch (error) {
+      if (error instanceof HttpErrorResponse && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
   }
 
   /**

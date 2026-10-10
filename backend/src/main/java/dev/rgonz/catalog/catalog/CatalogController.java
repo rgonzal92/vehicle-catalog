@@ -57,6 +57,7 @@ class CatalogController {
   private final Updates updates;
   private final ChangeHistory history;
   private final RuleSuggestions suggestions;
+  private final SubmissionSummaries summaries;
   private final AppUsers people;
   private final RoleHierarchy roles;
 
@@ -69,9 +70,11 @@ class CatalogController {
       Updates updates,
       ChangeHistory history,
       RuleSuggestions suggestions,
+      SubmissionSummaries summaries,
       AppUsers people,
       RoleHierarchy roles) {
     this.suggestions = suggestions;
+    this.summaries = summaries;
     this.reviews = reviews;
     this.updates = updates;
     this.roles = roles;
@@ -464,6 +467,21 @@ class CatalogController {
    * by its id, or as {@code base}: the catalog this one was copied from, or an empty catalog when
    * it started empty.
    */
+  /**
+   * The summary the language model wrote of what a Submitted catalog changes, for whoever may open
+   * its review: pending while it is being written, ready, or unavailable with the reason.
+   */
+  @GetMapping("/api/catalogs/{id}/summary")
+  SubmissionSummaries.Summary summary(@PathVariable long id, Authentication caller) {
+    var catalog =
+        catalogs
+            .find(id, people.idOf(caller), reviews(caller))
+            .orElseThrow(ApiException::notFound)
+            .snapshot();
+
+    return summaries.find(id, catalog.revision()).orElseThrow(ApiException::notFound);
+  }
+
   @GetMapping("/api/catalogs/{id}/diff")
   Changes diff(@PathVariable long id, @RequestParam String against, Authentication caller) {
     var viewer = people.idOf(caller);

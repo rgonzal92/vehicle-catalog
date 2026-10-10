@@ -10,6 +10,7 @@ import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -19,7 +20,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * what the request did cost. A request whose cost never became known keeps what it reserved.
  *
  * <p>A day is a UTC calendar day. One reservation is made at a time, by whichever process makes it,
- * so that two cannot both have the last of an allowance.
+ * so that two cannot both have the last of an allowance. What is reserved and what is spent is
+ * written at once and for good, whatever becomes of the work that asked for it: a job that is
+ * rolled back has asked the model all the same.
  */
 @Component
 class Allowance {
@@ -57,7 +60,10 @@ class Allowance {
       @Value("${app.ai.price.input-per-million}") BigDecimal inputPrice,
       @Value("${app.ai.price.output-per-million}") BigDecimal outputPrice) {
     this.jdbc = jdbc;
-    this.transactions = transactions;
+    // A transaction of its own, so that the turn it takes ends when the reservation is written
+    // and not when a transaction around it does, which may last as long as the model takes.
+    this.transactions = new TransactionTemplate(transactions.getTransactionManager());
+    this.transactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     this.daily = daily;
     this.dailyPerAccount = dailyPerAccount;
     this.inputPrice = inputPrice;
@@ -103,10 +109,12 @@ class Allowance {
 
   /** Makes a reservation what its request did cost, by the tokens that were used. */
   void spent(long reservation, long inputTokens, long outputTokens) {
-    jdbc.sql("UPDATE ai_spend SET spent = :spent WHERE id = :id")
-        .param("spent", cost(inputTokens, outputTokens))
-        .param("id", reservation)
-        .update();
+    transactions.executeWithoutResult(
+        recording ->
+            jdbc.sql("UPDATE ai_spend SET spent = :spent WHERE id = :id")
+                .param("spent", cost(inputTokens, outputTokens))
+                .param("id", reservation)
+                .update());
   }
 
   /**

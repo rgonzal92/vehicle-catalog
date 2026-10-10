@@ -24,6 +24,7 @@ class AllowanceIT extends ApplicationIT {
   private static final long FIVE_CENTS = 500_000;
 
   @Autowired Allowance allowance;
+  @Autowired org.springframework.transaction.support.TransactionTemplate transactions;
 
   @BeforeEach
   @AfterEach
@@ -115,6 +116,17 @@ class AllowanceIT extends ApplicationIT {
                   .containsEntry("code", "AI_ALLOWANCE_SPENT")
                   .containsEntry("renewsAt", Allowance.renewsAt());
             });
+  }
+
+  @Test
+  void whatIsReservedStaysWhenTheWorkThatAskedForItIsRolledBack() {
+    transactions.executeWithoutResult(
+        work -> {
+          allowance.reserve(null, "A_TEST", FIVE_CENTS, 0);
+          work.setRollbackOnly();
+        });
+
+    assertThat(reservedToday()).isEqualByComparingTo("0.05");
   }
 
   @Test

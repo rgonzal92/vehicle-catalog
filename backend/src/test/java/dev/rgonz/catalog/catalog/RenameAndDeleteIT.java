@@ -125,6 +125,10 @@ class RenameAndDeleteIT extends WorkingCopyTests {
         .param("catalog", copy)
         .param("requester", person("ana"))
         .update();
+    // A summary of an earlier submit, which a catalog keeps when it is a Draft again.
+    jdbc.sql("INSERT INTO submission_summary (catalog_id, revision) VALUES (:catalog, 1)")
+        .param("catalog", copy)
+        .update();
     var approved = approved("COMPACT_SUV", 2026, 2);
     var sibling = workingCopy(ben(), "COMPACT_SUV", 2026);
     var lineages = jdbc.sql("SELECT * FROM lineage ORDER BY id").query().listOfRows();

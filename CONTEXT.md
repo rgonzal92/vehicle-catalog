@@ -181,6 +181,10 @@ A manager or admin deciding on a submitted catalog they do not own.
 Sent back to Draft by the system because another catalog of the same lineage was approved first.
 _Avoid_: Rejected (a reviewer's decision, which needs a comment)
 
+**Summary**:
+A few lines the language model writes of what a submitted catalog changes against its base, for its reviewer to read beside the changes. It is checked against the changes and is never the record; it is pending while it is written and unavailable when there is none, with the reason.
+_Avoid_: AI review, description
+
 ### Jobs
 
 **Job**:

@@ -25,6 +25,7 @@ class Submissions {
   private final TransactionTemplate transactions;
   private final CatalogEdits edits;
   private final Catalogs catalogs;
+  private final SubmissionSummaries summaries;
 
   /** How many submits were refused for the state the catalog was in, by the refusal's code. */
   private final Map<String, Counter> refusals;
@@ -34,7 +35,9 @@ class Submissions {
       TransactionTemplate transactions,
       CatalogEdits edits,
       Catalogs catalogs,
+      SubmissionSummaries summaries,
       MeterRegistry metrics) {
+    this.summaries = summaries;
     this.jdbc = jdbc;
     this.transactions = transactions;
     this.edits = edits;
@@ -115,18 +118,22 @@ class Submissions {
               .param("actor", ownerId)
               .param("note", said.isEmpty() ? null : said)
               .update();
-          return jdbc.sql(
-                  """
-                  UPDATE catalog
-                  SET status = 'SUBMITTED', submit_note = :note, submitted_at = now(),
-                      revision = revision + 1, updated_at = now()
-                  WHERE id = :id
-                  RETURNING revision
-                  """)
-              .param("note", said.isEmpty() ? null : said)
-              .param("id", catalogId)
-              .query(Long.class)
-              .single();
+          long revision =
+              jdbc.sql(
+                      """
+                      UPDATE catalog
+                      SET status = 'SUBMITTED', submit_note = :note, submitted_at = now(),
+                          revision = revision + 1, updated_at = now()
+                      WHERE id = :id
+                      RETURNING revision
+                      """)
+                  .param("note", said.isEmpty() ? null : said)
+                  .param("id", catalogId)
+                  .query(Long.class)
+                  .single();
+          summaries.expect(catalogId, revision);
+
+          return revision;
         });
   }
 
