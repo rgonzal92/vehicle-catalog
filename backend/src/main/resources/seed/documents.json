@@ -1,0 +1,20 @@
+[
+  {
+    "title": "Compact SUV 2026: product notes",
+    "file": "compact-suv-2026-product-notes.md",
+    "vehicleLine": "COMPACT_SUV",
+    "modelYear": 2026
+  },
+  {
+    "title": "Compact SUV 2027: product notes",
+    "file": "compact-suv-2027-product-notes.md",
+    "vehicleLine": "COMPACT_SUV",
+    "modelYear": 2027
+  },
+  {
+    "title": "Sedan 2027: product notes",
+    "file": "sedan-2027-product-notes.md",
+    "vehicleLine": "SEDAN",
+    "modelYear": 2027
+  }
+]

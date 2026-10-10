@@ -32,6 +32,11 @@ class DocumentFiles {
     }
   }
 
+  /** Whether this installation has somewhere to keep a document. */
+  boolean hasABucket() {
+    return !bucket.isBlank();
+  }
+
   /** Keeps a file under a key. */
   void put(String key, byte[] file, String contentType) {
     s3().putObject(

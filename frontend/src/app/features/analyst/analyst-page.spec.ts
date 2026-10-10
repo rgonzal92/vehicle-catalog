@@ -168,6 +168,17 @@ describe('AnalystPage', () => {
     await open();
 
     expect(element.querySelector('#analyst-documents')).toBeNull();
+    expect(words(element.querySelector('[data-conversation]'))).not.toContain('Documents of');
+  });
+
+  it('says that documents can be chosen when there are some', async () => {
+    await open({ available: true, reason: null }, [
+      { vehicleLineId: 3, vehicleLine: 'Compact SUV', modelYear: 2026, documents: 1 },
+    ]);
+
+    expect(words(element.querySelector('[data-conversation]'))).toContain(
+      'Choose a vehicle line\'s model year under "Documents of" to ask what its notes say as well.',
+    );
   });
 
   it('asks with the documents that were chosen, and lists what the answer cites', async () => {

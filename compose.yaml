@@ -115,7 +115,8 @@ services:
       SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_COGNITO_TOKEN_URI: http://login:8080/default/token
       SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_COGNITO_JWK_SET_URI: http://login:8080/default/jwks
       # The demo accounts as the login server above knows them. Its subject for an account is the
-      # username typed at sign-in. Seeded catalogs belong to the author and the manager.
+      # username typed at sign-in. Seeded catalogs belong to the author and the manager, and the
+      # seeded documents were uploaded by the admin.
       APP_DEMOACCOUNTS_0_ROLE: author
       APP_DEMOACCOUNTS_0_USERNAME: author
       APP_DEMOACCOUNTS_0_SUBJECT: author
@@ -127,6 +128,7 @@ services:
       APP_DEMOACCOUNTS_2_ROLE: admin
       APP_DEMOACCOUNTS_2_USERNAME: admin
       APP_DEMOACCOUNTS_2_SUBJECT: admin
+      APP_DEMOACCOUNTS_2_DISPLAYNAME: Demo Admin
       # Sandbox accounts are the ones an admin of the public demo may see and manage. The demo
       # accounts are sandbox accounts whose roles no one can change. This one's role can be
       # changed, which is what shows role management without touching anyone real. The change
