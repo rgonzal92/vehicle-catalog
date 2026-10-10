@@ -234,3 +234,29 @@ run "the_distribution_sends_the_api_to_the_host_and_keeps_nothing_of_it" {
     error_message = "A path of the API is never turned into the app's page."
   }
 }
+
+run "the_key_for_the_language_model_reaches_the_stack_and_is_kept_out_of_terraform" {
+  assert {
+    condition = (
+      strcontains(aws_ssm_association.host_stack.parameters.commands, file("../deploy/release.sh"))
+      && strcontains(file("../deploy/release.sh"), "\"$(parameter openai-api-key 2>/dev/null)\"")
+      && strcontains(file("../deploy/release.sh"), "OPENAI_API_KEY=%s")
+    )
+    error_message = "The release script the host is given reads the key when it is there, and writes it with the stack's other secrets."
+  }
+
+  assert {
+    condition = alltrue([
+      for service in ["backend", "worker"] :
+      yamldecode(file("../deploy/compose.yaml")).services[service].environment.OPENAI_API_KEY == "$${OPENAI_API_KEY:-}"
+    ]) && strcontains(aws_ssm_association.host_stack.parameters.commands, file("../deploy/compose.yaml"))
+    error_message = "The stack gives the key to the API and to the worker, and starts without one."
+  }
+
+  assert {
+    condition = alltrue([
+      for file in fileset(path.module, "*.tf") : !strcontains(file(file), "openai")
+    ]) && aws_ssm_association.host_stack.name == "AWS-RunShellScript"
+    error_message = "Terraform neither makes the key's parameter nor reads it, so the key is in no state."
+  }
+}

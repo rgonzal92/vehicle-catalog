@@ -289,6 +289,53 @@ The demo reset empties the bucket with everything else that visitors left.
 aws s3 ls s3://rgonz-vehicle-catalog-exports/
 ```
 
+## The language model
+
+The app asks a language model of OpenAI's, `gpt-6-luna`, to suggest things that a person then
+checks and saves. Its key is the one secret that Terraform neither makes nor keeps in its state: it
+is put into Parameter Store by hand, as `/vehicle-catalog/openai-api-key`, and the host reads it
+there whenever the stack is started. Without it the stack runs as before, and the app says that
+the model cannot be asked.
+
+This puts the key in place, or replaces it. It asks for the key and shows nothing of it, so the key
+is in no file, in no history of a shell, and in no list of what runs:
+
+```sh
+read -rs -p 'The key: ' key && printf %s "$key" | aws ssm put-parameter \
+  --name /vehicle-catalog/openai-api-key --type SecureString --overwrite \
+  --value file:///dev/stdin; unset key
+```
+
+The host takes a new key at its next release. This has it take the key now, by starting the stack
+again with the image that runs:
+
+```sh
+aws ssm send-command --document-name AWS-RunShellScript \
+  --targets Key=tag:Name,Values=vehicle-catalog \
+  --parameters commands=/opt/vehicle-catalog/release.sh
+```
+
+To take the key away, delete the parameter and start the stack again in the same way:
+
+```sh
+aws ssm delete-parameter --name /vehicle-catalog/openai-api-key
+```
+
+What the model may cost is limited by the app itself: US$1.00 in a UTC calendar day for everyone
+together, and US$0.25 of it for one account. A request that would pass either is refused before
+OpenAI is contacted, and the allowances renew at 00:00 UTC. The demo reset does not give them
+back. `docs/adr/0014` says how it is counted. On the host, this says what today has cost so far:
+
+```sh
+cd /opt/vehicle-catalog
+sudo docker compose exec -T db psql --username catalog --dbname catalog --command \
+  "SELECT purpose, count(*) AS requests, sum(coalesce(spent, reserved)) AS dollars
+   FROM ai_spend WHERE day = (now() AT TIME ZONE 'UTC')::date GROUP BY purpose"
+```
+
+A limit of OpenAI's own, set for the key's project in OpenAI's console, is the line behind that
+one.
+
 ## Backups
 
 Every night at 02:30 UTC the host writes a copy of the database to the bucket

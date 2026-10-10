@@ -2,7 +2,8 @@
 # Runs the host's stack on this machine as the host runs it, against stand-ins for the certificate
 # authority, the image registry, Parameter Store, the CloudWatch agent, and the queue of the jobs,
 # and checks what it does: who is answered, how an image is released, what happens to one that
-# does not come up healthy, what the backend reports of itself, and that the worker does a job.
+# does not come up healthy, what the backend reports of itself, that the worker does a job, and that
+# the key for the language model reaches the stack when there is one.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 
@@ -272,8 +273,21 @@ asks_the_worker() { # the path
 expect "the worker answers its health check and has nothing at an address the API answers" \
   "yes no" "$(whether asks_the_worker /api/health/readiness) $(whether asks_the_worker /api/demo-accounts)"
 
-releases "the image that runs is released again" 0 "$registry/backend:real"
+# The key for the language model, which Parameter Store has had none of so far.
+has_the_key() { # the service
+  [ "$(docker compose exec -T "$1" printenv OPENAI_API_KEY)" = a-key-for-this-check ]
+}
+expect "without a key for the language model, the API and the worker run without one" "no no" \
+  "$(whether has_the_key backend) $(whether has_the_key worker)"
+
+MODEL_KEY=a-key-for-this-check \
+  releases "the image that runs is released again" 0 "$registry/backend:real"
 expect "and the one before it is still the one before it" "yes yes" "$(kept real) $(kept echo)"
+expect "with a key in Parameter Store, the API and the worker are given it" "yes yes" \
+  "$(whether has_the_key backend) $(whether has_the_key worker)"
+expect "and the site answers, healthy" yes "$(healthy)"
+expect "and neither log holds the key" 0 \
+  "$(docker compose logs --no-log-prefix backend worker 2>&1 | grep -cF a-key-for-this-check || true)"
 
 quietly in_the_database 'CREATE TABLE kept_by_the_check AS SELECT 7 AS it'
 backend="$(running)"
