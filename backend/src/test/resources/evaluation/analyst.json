@@ -1,0 +1,206 @@
+[
+  {
+    "id": "trims-in-asia",
+    "heldOut": false,
+    "question": "Which trims does the 2027 Compact SUV have in Asia?",
+    "ofAWorkingCopy": false,
+    "tools": [
+      "get_approved_catalog"
+    ],
+    "facts": [
+      [
+        "Base"
+      ],
+      [
+        "Touring"
+      ]
+    ],
+    "absent": []
+  },
+  {
+    "id": "turbo-standard-in-north-america",
+    "heldOut": false,
+    "question": "On which trims is the 2.0L turbo engine standard in North America on the 2027 Compact SUV?",
+    "ofAWorkingCopy": false,
+    "tools": [
+      "feature_availability"
+    ],
+    "facts": [
+      [
+        "Touring"
+      ],
+      [
+        "Off-Road"
+      ]
+    ],
+    "absent": []
+  },
+  {
+    "id": "vehicle-lines-with-a-catalog",
+    "heldOut": false,
+    "question": "Which vehicle lines have an Approved catalog?",
+    "ofAWorkingCopy": false,
+    "tools": [
+      "list_lineages"
+    ],
+    "facts": [
+      [
+        "Compact SUV"
+      ],
+      [
+        "Pickup"
+      ],
+      [
+        "Sedan"
+      ]
+    ],
+    "absent": []
+  },
+  {
+    "id": "rules-naming-the-hybrid",
+    "heldOut": false,
+    "question": "Which rules name the hybrid powertrain in the current 2026 Compact SUV catalog?",
+    "ofAWorkingCopy": false,
+    "tools": [
+      "rules_naming_feature"
+    ],
+    "facts": [
+      [
+        "Regenerative Braking"
+      ],
+      [
+        "Battery Cooling"
+      ]
+    ],
+    "absent": []
+  },
+  {
+    "id": "what-changed-between-versions",
+    "heldOut": false,
+    "question": "What changed between version 1 and version 2 of the 2026 Compact SUV?",
+    "ofAWorkingCopy": false,
+    "tools": [
+      "compare_versions"
+    ],
+    "facts": [
+      [
+        "Hybrid"
+      ]
+    ],
+    "absent": []
+  },
+  {
+    "id": "how-a-lineage-came-to-its-version",
+    "heldOut": false,
+    "question": "Who approved each version of the 2026 Compact SUV, and when?",
+    "ofAWorkingCopy": false,
+    "tools": [
+      "list_versions"
+    ],
+    "facts": [
+      [
+        "Demo Manager"
+      ],
+      [
+        "2025"
+      ]
+    ],
+    "absent": []
+  },
+  {
+    "id": "where-a-feature-is-found",
+    "heldOut": false,
+    "question": "Is there a feature for massaging seats, and which vehicle line offers it?",
+    "ofAWorkingCopy": false,
+    "tools": [
+      "search_features",
+      "feature_availability"
+    ],
+    "facts": [
+      [
+        "Massaging Front Seats",
+        "SEAT_MASSAGE_FRONT"
+      ],
+      [
+        "Sedan"
+      ]
+    ],
+    "absent": []
+  },
+  {
+    "id": "a-working-copys-trims",
+    "heldOut": false,
+    "question": "Which trims does my working copy have? It is catalog {copy}.",
+    "ofAWorkingCopy": true,
+    "tools": [],
+    "facts": [],
+    "absent": [
+      "Performance"
+    ]
+  },
+  {
+    "id": "regions-of-the-sedan",
+    "heldOut": true,
+    "question": "In which regions is the 2027 Sedan sold?",
+    "ofAWorkingCopy": false,
+    "tools": [
+      "get_approved_catalog"
+    ],
+    "facts": [
+      [
+        "North America"
+      ],
+      [
+        "Europe"
+      ],
+      [
+        "Asia"
+      ]
+    ],
+    "absent": []
+  },
+  {
+    "id": "leather-standard-on-the-compact-suv",
+    "heldOut": true,
+    "question": "On which trim are leather seats standard on the 2027 Compact SUV?",
+    "ofAWorkingCopy": false,
+    "tools": [
+      "feature_availability"
+    ],
+    "facts": [
+      [
+        "Touring"
+      ]
+    ],
+    "absent": []
+  },
+  {
+    "id": "what-a-package-includes",
+    "heldOut": true,
+    "question": "What does the Technology Package include on the current 2026 Compact SUV?",
+    "ofAWorkingCopy": false,
+    "tools": [
+      "rules_naming_feature"
+    ],
+    "facts": [
+      [
+        "Surround View"
+      ],
+      [
+        "Head-Up Display"
+      ]
+    ],
+    "absent": []
+  },
+  {
+    "id": "a-drafts-trims-and-regions",
+    "heldOut": true,
+    "question": "Show me the trims and the regions of catalog {copy}, which is my draft of the 2026 Compact SUV.",
+    "ofAWorkingCopy": true,
+    "tools": [],
+    "facts": [],
+    "absent": [
+      "Performance"
+    ]
+  }
+]

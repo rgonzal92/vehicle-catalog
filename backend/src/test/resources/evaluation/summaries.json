@@ -1,0 +1,288 @@
+[
+  {
+    "id": "navigation-standard-on-sport",
+    "heldOut": false,
+    "cells": [
+      {
+        "feature": "NAVIGATION",
+        "trim": "Sport",
+        "region": "NA",
+        "availability": "S"
+      }
+    ],
+    "rules": [],
+    "mentions": [
+      [
+        "Navigation"
+      ],
+      [
+        "Sport"
+      ],
+      [
+        "Standard"
+      ]
+    ],
+    "mustNot": [
+      "Europe",
+      "Off-Road"
+    ]
+  },
+  {
+    "id": "sunroof-dropped-from-sport-in-europe",
+    "heldOut": false,
+    "cells": [
+      {
+        "feature": "ROOF_SUNROOF",
+        "trim": "Sport",
+        "region": "EU",
+        "availability": "N"
+      }
+    ],
+    "rules": [],
+    "mentions": [
+      [
+        "Sunroof"
+      ],
+      [
+        "Sport"
+      ],
+      [
+        "Europe",
+        "EU"
+      ]
+    ],
+    "mustNot": [
+      "Touring",
+      "Off-Road"
+    ]
+  },
+  {
+    "id": "two-features-on-off-road",
+    "heldOut": false,
+    "cells": [
+      {
+        "feature": "CHARGING_WIRELESS",
+        "trim": "Off-Road",
+        "region": "NA",
+        "availability": "A"
+      },
+      {
+        "feature": "LIFTGATE_POWER",
+        "trim": "Off-Road",
+        "region": "NA",
+        "availability": "A"
+      }
+    ],
+    "rules": [],
+    "mentions": [
+      [
+        "Wireless Phone Charging"
+      ],
+      [
+        "Power Liftgate"
+      ],
+      [
+        "Off-Road"
+      ]
+    ],
+    "mustNot": [
+      "Europe",
+      "Touring"
+    ]
+  },
+  {
+    "id": "fog-lights-on-base",
+    "heldOut": false,
+    "cells": [
+      {
+        "feature": "LIGHT_FOG",
+        "trim": "Base",
+        "region": "NA",
+        "availability": "S"
+      },
+      {
+        "feature": "LIGHT_FOG",
+        "trim": "Base",
+        "region": "EU",
+        "availability": "S"
+      }
+    ],
+    "rules": [],
+    "mentions": [
+      [
+        "Fog Lights"
+      ],
+      [
+        "Base"
+      ]
+    ],
+    "mustNot": [
+      "Touring",
+      "Off-Road"
+    ]
+  },
+  {
+    "id": "a-rule-added",
+    "heldOut": false,
+    "cells": [],
+    "rules": [
+      {
+        "kind": "REQUIRES",
+        "source": "SEAT_MEMORY_DRIVER",
+        "targets": [
+          "SEAT_POWER_DRIVER"
+        ],
+        "trims": null,
+        "regions": null
+      }
+    ],
+    "mentions": [
+      [
+        "Memory Driver Seat"
+      ],
+      [
+        "Power Driver Seat"
+      ],
+      [
+        "require",
+        "rule"
+      ]
+    ],
+    "mustNot": [
+      "Sport",
+      "Touring"
+    ]
+  },
+  {
+    "id": "wheels-in-both-regions",
+    "heldOut": false,
+    "cells": [
+      {
+        "feature": "WHEEL_19_MACHINED",
+        "trim": "Touring",
+        "region": "NA",
+        "availability": "S"
+      },
+      {
+        "feature": "WHEEL_19_MACHINED",
+        "trim": "Touring",
+        "region": "EU",
+        "availability": "S"
+      }
+    ],
+    "rules": [],
+    "mentions": [
+      [
+        "19-inch"
+      ],
+      [
+        "Touring"
+      ]
+    ],
+    "mustNot": [
+      "Sport",
+      "Off-Road"
+    ]
+  },
+  {
+    "id": "remote-start-in-europe",
+    "heldOut": true,
+    "cells": [
+      {
+        "feature": "REMOTE_START",
+        "trim": "Sport",
+        "region": "EU",
+        "availability": "A"
+      },
+      {
+        "feature": "REMOTE_START",
+        "trim": "Touring",
+        "region": "EU",
+        "availability": "A"
+      }
+    ],
+    "rules": [],
+    "mentions": [
+      [
+        "Remote Start"
+      ],
+      [
+        "Europe",
+        "EU"
+      ]
+    ],
+    "mustNot": [
+      "Off-Road",
+      "North America"
+    ]
+  },
+  {
+    "id": "ambient-lighting-and-privacy-glass",
+    "heldOut": true,
+    "cells": [
+      {
+        "feature": "LIGHT_AMBIENT",
+        "trim": "Sport",
+        "region": "NA",
+        "availability": "A"
+      },
+      {
+        "feature": "GLASS_PRIVACY",
+        "trim": "Base",
+        "region": "NA",
+        "availability": "A"
+      }
+    ],
+    "rules": [],
+    "mentions": [
+      [
+        "Ambient Interior Lighting"
+      ],
+      [
+        "Rear Privacy Glass"
+      ]
+    ],
+    "mustNot": [
+      "Europe",
+      "Off-Road"
+    ]
+  },
+  {
+    "id": "a-rule-and-a-cell",
+    "heldOut": true,
+    "cells": [
+      {
+        "feature": "ROOF_SUNROOF",
+        "trim": "Touring",
+        "region": "NA",
+        "availability": "A"
+      }
+    ],
+    "rules": [
+      {
+        "kind": "EXCLUDES",
+        "source": "PAINT_TWO_TONE_ROOF",
+        "targets": [
+          "ROOF_PANORAMIC"
+        ],
+        "trims": null,
+        "regions": null
+      }
+    ],
+    "mentions": [
+      [
+        "Two-Tone"
+      ],
+      [
+        "Panoramic"
+      ],
+      [
+        "Sunroof"
+      ]
+    ],
+    "mustNot": [
+      "Europe",
+      "Off-Road"
+    ]
+  }
+]
