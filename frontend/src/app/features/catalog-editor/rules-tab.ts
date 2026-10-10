@@ -654,6 +654,8 @@ export class RulesTab {
         refused: true,
         words: `No rule could be suggested. ${reasonOf(error)}`,
       });
+      // The refusal may be that the day's allowance is spent, which the button then shows.
+      void this.aiService.availability().then((found) => this.ai.set(found));
     } finally {
       this.suggesting.set(false);
     }

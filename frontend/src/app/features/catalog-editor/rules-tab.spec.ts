@@ -321,6 +321,34 @@ describe('RulesTab', () => {
     await vi.waitFor(() =>
       expect(open.textContent).toContain('No rule could be suggested. The model did not answer.'),
     );
+    backend.expectOne('/api/ai').flush({ available: true, reason: null });
+  });
+
+  it('says that the allowance is spent, and from when a rule can be suggested again', async () => {
+    const element = await tab();
+    const open = await adding(element);
+    const spent = "Today's allowance for the model is spent. It renews at 00:00 UTC.";
+
+    describe$(open, 'Leather needs the panoramic roof');
+    await vi.waitFor(() => expect(button(open, 'Suggest').disabled).toBe(false));
+    button(open, 'Suggest').click();
+    backend
+      .expectOne({ method: 'POST', url: '/api/catalogs/41/rule-suggestions' })
+      .flush(
+        { code: 'AI_ALLOWANCE_SPENT', detail: spent, renewsAt: '2026-10-10T00:00:00Z' },
+        { status: 429, statusText: 'Too Many Requests' },
+      );
+
+    await vi.waitFor(() =>
+      expect(open.textContent).toContain(`No rule could be suggested. ${spent}`),
+    );
+    (await vi.waitFor(() => backend.expectOne('/api/ai'))).flush({
+      available: false,
+      reason: spent,
+      renewsAt: '2026-10-10T00:00:00Z',
+    });
+    await vi.waitFor(() => expect(button(open, 'Suggest').disabled).toBe(true));
+    expect(open.textContent).toContain(`A rule cannot be suggested now. ${spent}`);
   });
 
   it('shows why a rule cannot be suggested when the model cannot be asked', async () => {

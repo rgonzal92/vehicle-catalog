@@ -26,8 +26,12 @@ public final class ModelStandIn {
 
   private ModelStandIn() {}
 
-  /** What it does with the next request: answers, fails, or keeps the caller waiting. */
-  private record Answer(int status, String content, long afterMillis) {}
+  /**
+   * What it does with the next request: answers, fails, or keeps the caller waiting. An answer says
+   * how many tokens the request was and how many it answered with.
+   */
+  private record Answer(
+      int status, String content, long afterMillis, int inputTokens, int outputTokens) {}
 
   private static HttpServer started() {
     try {
@@ -45,7 +49,7 @@ public final class ModelStandIn {
     ASKED.add(JSON.readTree(exchange.getRequestBody().readAllBytes()));
     var answer = ANSWERS.poll();
     if (answer == null) {
-      answer = new Answer(500, "No test said what the model answers here.", 0);
+      answer = new Answer(500, "No test said what the model answers here.", 0, 0, 0);
     }
     try {
       Thread.sleep(answer.afterMillis());
@@ -60,6 +64,12 @@ public final class ModelStandIn {
                     .put("object", "chat.completion")
                     .put("created", 1)
                     .put("model", "the-model-of-the-tests")
+                    .<tools.jackson.databind.node.ObjectNode>set(
+                        "usage",
+                        JSON.createObjectNode()
+                            .put("prompt_tokens", answer.inputTokens())
+                            .put("completion_tokens", answer.outputTokens())
+                            .put("total_tokens", answer.inputTokens() + answer.outputTokens()))
                     .set(
                         "choices",
                         JSON.createArrayNode()
@@ -87,19 +97,24 @@ public final class ModelStandIn {
     return "http://127.0.0.1:" + SERVER.getAddress().getPort() + "/v1";
   }
 
-  /** The model answers the next request with this content. */
+  /** The model answers the next request with this content, and says it used a thousand tokens. */
   public static void says(String content) {
-    ANSWERS.add(new Answer(200, content, 0));
+    says(content, 900, 100);
+  }
+
+  /** The model answers the next request with this content, having used so many tokens. */
+  public static void says(String content, int inputTokens, int outputTokens) {
+    ANSWERS.add(new Answer(200, content, 0, inputTokens, outputTokens));
   }
 
   /** The model answers the next request with an error. */
   public static void fails() {
-    ANSWERS.add(new Answer(500, "The model is not well.", 0));
+    ANSWERS.add(new Answer(500, "The model is not well.", 0, 0, 0));
   }
 
   /** The model keeps the next request waiting for longer than the application waits. */
   public static void keepsWaiting() {
-    ANSWERS.add(new Answer(200, "{}", 4000));
+    ANSWERS.add(new Answer(200, "{}", 4000, 0, 0));
   }
 
   /** The requests it was sent since it last forgot them, oldest first. */

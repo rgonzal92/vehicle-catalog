@@ -6,6 +6,7 @@ import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.ai.ModelStandIn;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,6 +34,12 @@ class RuleSuggestionsIT extends WorkingCopyTests {
     seedLibraryAndCatalogs();
     copy = workingCopy(ana(), "COMPACT_SUV", 2026);
     ModelStandIn.forgets();
+    jdbc.sql("DELETE FROM ai_spend").update();
+  }
+
+  @AfterEach
+  void nothingSpent() {
+    jdbc.sql("DELETE FROM ai_spend").update();
   }
 
   /** A rule as the model answers with it. Null trims or regions are every one. */
@@ -231,6 +238,74 @@ class RuleSuggestionsIT extends WorkingCopyTests {
         .extractingPath("$.code")
         .isEqualTo("NOT_DRAFT");
     assertThat(ModelStandIn.asked()).as("the model was asked for none of these").isEmpty();
+  }
+
+  @Test
+  void aRequestThatTheAllowanceDoesNotCoverIsRefusedAndTheModelIsNotAsked() {
+    jdbc.sql(
+            """
+            INSERT INTO ai_spend (day, purpose, reserved)
+            VALUES ((now() AT TIME ZONE 'UTC')::date, 'A_TEST', 1.00)
+            """)
+        .update();
+
+    var refused = suggest(ana(), copy, "Leather needs premium audio");
+
+    assertThat(refused).hasStatus(429);
+    assertThat(ApplicationIT.<Map<String, Object>>read(refused, "$"))
+        .containsEntry("code", "AI_ALLOWANCE_SPENT")
+        .containsEntry(
+            "detail", "Today's allowance for the model is spent. It renews at 00:00 UTC.")
+        .containsKey("renewsAt");
+    assertThat(ModelStandIn.asked()).isEmpty();
+    var said = mvc.get().uri("/api/ai").with(ana()).exchange();
+    assertThat(ApplicationIT.<Map<String, Object>>read(said, "$"))
+        .containsEntry("available", false)
+        .containsEntry(
+            "reason", "Today's allowance for the model is spent. It renews at 00:00 UTC.")
+        .containsKey("renewsAt");
+    assertThat(
+            edit(
+                ana(),
+                mvc.post().uri("/api/catalogs/{id}/rules", copy),
+                "\"" + revision(copy) + "\"",
+                """
+                {"kind": "REQUIRES", "sourceFeatureId": %d, "targetFeatureIds": [%d],
+                 "allTrims": true, "trimIds": [], "allRegions": true, "regionCodes": []}
+                """
+                    .formatted(feature("SEAT_LEATHER"), feature("AUDIO_PREMIUM"))))
+        .as("a rule entered by hand")
+        .hasStatusOk();
+  }
+
+  @Test
+  void theRecordOfSpendingHoldsWhatTheModelSaysWasUsedOrWhatWasReservedWhenItNeverSays() {
+    ModelStandIn.says(rule("REQUIRES", "SEAT_LEATHER", null, null, "AUDIO_PREMIUM"), 1234, 56);
+
+    suggest(ana(), copy, "Leather needs premium audio");
+
+    assertThat(
+            jdbc.sql(
+                    """
+                    SELECT purpose || ' ' || spent || ' ' || (reserved > spent) || ' ' || username
+                    FROM ai_spend JOIN app_user ON app_user.id = user_id
+                    """)
+                .query(String.class)
+                .single())
+        .as("what it was for, what it cost, that more was reserved, and whose it was")
+        .isEqualTo("RULE_SUGGESTION 0.00015140 true ana");
+
+    jdbc.sql("DELETE FROM ai_spend").update();
+    ModelStandIn.keepsWaiting();
+
+    suggest(ana(), copy, "Leather needs premium audio");
+
+    assertThat(
+            jdbc.sql("SELECT (spent IS NULL AND reserved > 0)::text FROM ai_spend")
+                .query(String.class)
+                .single())
+        .as("what a request that was not answered in time reserved, which stays")
+        .isEqualTo("true");
   }
 
   @Test

@@ -98,6 +98,16 @@ public final class ApiException extends ErrorResponseException {
     return new ApiException(HttpStatusCode.valueOf(422), "LIMIT_EXCEEDED", reason);
   }
 
+  /**
+   * What the language model may cost in a day has been reserved or spent, so it is not asked for
+   * more until the allowance renews.
+   */
+  public static ApiException allowanceSpent(String reason, java.time.Instant renewsAt) {
+    var refusal = new ApiException(HttpStatus.TOO_MANY_REQUESTS, "AI_ALLOWANCE_SPENT", reason);
+    refusal.getBody().setProperty("renewsAt", renewsAt);
+    return refusal;
+  }
+
   private static ProblemDetail problem(HttpStatusCode status, String code, String reason) {
     var problem = ProblemDetail.forStatusAndDetail(status, reason);
     problem.setProperty("code", code);
