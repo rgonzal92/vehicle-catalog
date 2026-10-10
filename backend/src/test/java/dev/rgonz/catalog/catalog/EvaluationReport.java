@@ -2,7 +2,10 @@ package dev.rgonz.catalog.catalog;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * The report of a run of the cases the language model is measured against: how many of each set
@@ -11,6 +14,16 @@ import java.util.List;
  */
 final class EvaluationReport {
   private EvaluationReport() {}
+
+  /** Where what came of asking chosen cases several times goes, from where the build runs. */
+  static final String ASKED_OFTEN = "target/ai-evaluation-asked-often.md";
+
+  /** A case of any set: what it is known by, and whether it is held out. */
+  interface ACase {
+    String id();
+
+    boolean heldOut();
+  }
 
   /**
    * What became of one case.
@@ -52,7 +65,14 @@ final class EvaluationReport {
         .append(
             "- To run it again, with `OPENAI_API_KEY` in the environment:"
                 + " `./mvnw verify -Pevaluation` in `backend/`. It writes this file, and is no"
-                + " part of the build or of the pipeline.\n");
+                + " part of the build or of the pipeline.\n")
+        .append(
+            "- One asking does not show a failure that comes and goes. To ask chosen cases"
+                + " several times each, add `-Dask=` with their ids and `-Dtimes=` with how"
+                + " often, which is ten times when it is left out. Commas go between ids, and"
+                + " `rule-suggestions`, `analyst`, or `documents` in the place of an id asks"
+                + " every case of that set that is worked on. Such a run asks no held-out case,"
+                + " leaves this file as it is, and writes `backend/%s`.\n".formatted(ASKED_OFTEN));
     for (var suite : suites) {
       report
           .append("\n## %s\n\n".formatted(suite.name()))
@@ -73,6 +93,56 @@ final class EvaluationReport {
             .append("  - expected: %s\n".formatted(one.expected()))
             .append("  - came: %s\n".formatted(one.came()));
       }
+    }
+    return report.toString();
+  }
+
+  /**
+   * What came of asking chosen cases several times each, as Markdown: of each case, how many of its
+   * askings passed, and what else came with how often. Every asking is a result of its own.
+   */
+  static String ofAskedOften(LocalDate date, String model, BigDecimal cost, List<Suite> suites) {
+    var report = new StringBuilder();
+    report
+        .append("# How often chosen cases pass\n\n")
+        .append(
+            "Cases that prompts are worked on with, each asked several times of the real model,"
+                + " since one asking does not show a failure that comes and goes.\n\n")
+        .append("- Run on %s with `%s`.\n".formatted(date, model))
+        .append(
+            "- The askings cost US$%s by the table of spending.\n".formatted(cost.toPlainString()));
+    for (var suite : suites) {
+      var askings =
+          suite.results().stream()
+              .collect(Collectors.groupingBy(Result::id, LinkedHashMap::new, Collectors.toList()));
+      report.append(
+          "\n## %s\n\n| Case | Passed | Of |\n| --- | --- | --- |\n".formatted(suite.name()));
+      var others = new StringBuilder();
+      askings.forEach(
+          (id, results) -> {
+            report.append(row("`%s`".formatted(id), results));
+            var failed = results.stream().filter(one -> !one.passed()).toList();
+            if (failed.isEmpty()) {
+              return;
+            }
+            others
+                .append("- `%s`: %s\n".formatted(id, failed.getFirst().asked()))
+                .append("  - expected: %s\n".formatted(failed.getFirst().expected()));
+            failed.stream()
+                .collect(
+                    Collectors.groupingBy(Result::came, LinkedHashMap::new, Collectors.counting()))
+                .entrySet()
+                .stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                .forEach(
+                    came ->
+                        others.append(
+                            "  - came in %d of %d: %s\n"
+                                .formatted(came.getValue(), results.size(), came.getKey())));
+          });
+      report
+          .append(others.isEmpty() ? "\nEvery asking passed.\n" : "\n### What else came\n\n")
+          .append(others);
     }
     return report.toString();
   }
