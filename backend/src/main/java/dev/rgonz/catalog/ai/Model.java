@@ -1,6 +1,9 @@
 package dev.rgonz.catalog.ai;
 
 import dev.rgonz.catalog.core.ApiException;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import io.micrometer.observation.ObservationRegistry;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -60,6 +63,7 @@ public class Model {
 
   private final String name;
   private final Duration timeout;
+  private final MeterRegistry metrics;
   private final Allowance allowance;
   private final JsonMapper json;
 
@@ -72,12 +76,20 @@ public class Model {
       @Value("${app.ai.model}") String name,
       @Value("${app.ai.timeout}") Duration timeout,
       ObservationRegistry observations,
+      MeterRegistry metrics,
       Allowance allowance,
       JsonMapper json) {
     this.name = name;
     this.timeout = timeout;
+    this.metrics = metrics;
     this.allowance = allowance;
     this.json = json;
+    if (!key.isBlank()) {
+      // Without a key nothing is spent, and what is never sent is never paid for.
+      Gauge.builder("ai.spent", allowance, spent -> spent.usedToday().doubleValue())
+          .description("What asking the model has come to today, reserved and spent, in US dollars")
+          .register(metrics);
+    }
     this.chat =
         key.isBlank()
             ? null
@@ -106,7 +118,7 @@ public class Model {
     }
     return allowance
         .spentFor(accountId)
-        .map(why -> new Availability(false, why, Allowance.renewsAt()))
+        .map(why -> new Availability(false, why.words, Allowance.renewsAt()))
         .orElse(new Availability(true, null, null));
   }
 
@@ -115,13 +127,21 @@ public class Model {
    * lets what asks the model say so before it does anything else.
    */
   public void refuseUnlessAvailable(Long accountId) {
-    var availability = availability(accountId);
-    if (availability.available()) {
-      return;
+    if (chat == null) {
+      throw noKey();
     }
-    throw availability.renewsAt() == null
-        ? ApiException.unavailable("AI_UNAVAILABLE", availability.reason())
-        : ApiException.allowanceSpent(availability.reason(), availability.renewsAt());
+    allowance
+        .spentFor(accountId)
+        .ifPresent(
+            why -> {
+              throw allowance.refused(why);
+            });
+  }
+
+  /** The refusal of a request for want of a key, which is counted as one. */
+  private ApiException noKey() {
+    metrics.counter("ai.refused", "reason", "NO_KEY").increment();
+    return ApiException.unavailable("AI_UNAVAILABLE", NO_KEY);
   }
 
   /**
@@ -133,7 +153,7 @@ public class Model {
    */
   public String ask(Question question) {
     if (chat == null) {
-      throw ApiException.unavailable("AI_UNAVAILABLE", NO_KEY);
+      throw noKey();
     }
     var given = json.writeValueAsString(question.given());
     // A token is never less than a byte, so the request's size in bytes is the most tokens it can
@@ -159,26 +179,46 @@ public class Model {
             .reasoningEffort("none")
             .outputSchema(question.answerSchema())
             .build();
+    var answer =
+        sent(
+            question.purpose(),
+            new Prompt(
+                List.of(new SystemMessage(question.instructions()), new UserMessage(given)),
+                options),
+            reservation);
+
+    return answer.getResult().getOutput().getText();
+  }
+
+  /**
+   * Sends one request to the model and answers with what it said. The request is timed under what
+   * it was for and how it ended, the tokens it used are counted, and its reservation becomes what
+   * it did cost.
+   */
+  private ChatResponse sent(String purpose, Prompt prompt, long reservation) {
+    var timing = Timer.start(metrics);
+    ChatResponse answer;
     try {
-      var answer =
-          chat.call(
-              new Prompt(
-                  List.of(new SystemMessage(question.instructions()), new UserMessage(given)),
-                  options));
-      var usage = answer.getMetadata().getUsage();
-      if (usage != null && usage.getPromptTokens() != null && usage.getPromptTokens() > 0) {
-        allowance.spent(
-            reservation,
-            usage.getPromptTokens(),
-            usage.getCompletionTokens() == null ? 0 : usage.getCompletionTokens());
+      answer = chat.call(prompt);
+      if (answer.getResult() == null) {
+        throw new IllegalStateException("The model's answer holds nothing that it said.");
       }
-      return answer.getResult().getOutput().getText();
     } catch (RuntimeException failure) {
+      timing.stop(metrics.timer("ai.call", "purpose", purpose, "outcome", "FAILURE"));
       // What kind of failure it was, and nothing of what was said to the model or by it. What the
       // request cost is not known, so what was reserved for it stays reserved.
       log.warn("The model did not answer: {}", failure.getClass().getSimpleName());
       throw ApiException.unavailable("AI_FAILED", "The model did not answer.");
     }
+    timing.stop(metrics.timer("ai.call", "purpose", purpose, "outcome", "SUCCESS"));
+    var usage = answer.getMetadata().getUsage();
+    if (usage != null && usage.getPromptTokens() != null && usage.getPromptTokens() > 0) {
+      long out = usage.getCompletionTokens() == null ? 0 : usage.getCompletionTokens();
+      allowance.spent(reservation, usage.getPromptTokens(), out);
+      metrics.counter("ai.tokens", "direction", "in").increment(usage.getPromptTokens());
+      metrics.counter("ai.tokens", "direction", "out").increment(out);
+    }
+    return answer;
   }
 
   /**
@@ -191,7 +231,7 @@ public class Model {
    */
   public Answer converse(Conversation conversation) {
     if (chat == null) {
-      throw ApiException.unavailable("AI_UNAVAILABLE", NO_KEY);
+      throw noKey();
     }
     var callbacks = conversation.tools().stream().map(this::callback).toList();
     long definitions =
@@ -233,20 +273,7 @@ public class Model {
               conversation.purpose(),
               size,
               conversation.mostOutputTokens());
-      ChatResponse response;
-      try {
-        response = chat.call(prompt);
-      } catch (RuntimeException failure) {
-        log.warn("The model did not answer: {}", failure.getClass().getSimpleName());
-        throw ApiException.unavailable("AI_FAILED", "The model did not answer.");
-      }
-      var usage = response.getMetadata().getUsage();
-      if (usage != null && usage.getPromptTokens() != null && usage.getPromptTokens() > 0) {
-        allowance.spent(
-            reservation,
-            usage.getPromptTokens(),
-            usage.getCompletionTokens() == null ? 0 : usage.getCompletionTokens());
-      }
+      var response = sent(conversation.purpose(), prompt, reservation);
       var said = response.getResult().getOutput();
       var text = said.getText() == null ? "" : said.getText();
       if (!said.hasToolCalls()) {
@@ -256,6 +283,7 @@ public class Model {
         return new Answer(text, called, true);
       }
       said.getToolCalls().forEach(call -> called.add(new Called(call.name(), call.arguments())));
+      metrics.counter("ai.tool.calls").increment(said.getToolCalls().size());
       messages =
           new ArrayList<>(toolCalling.executeToolCalls(prompt, response).conversationHistory());
     }

@@ -288,6 +288,14 @@ expect "with a key in Parameter Store, the API and the worker are given it" "yes
 expect "and the site answers, healthy" yes "$(healthy)"
 expect "and neither log holds the key" 0 \
   "$(docker compose logs --no-log-prefix backend worker 2>&1 | grep -cF a-key-for-this-check || true)"
+# An API that has a key says what asking the model has cost today. Nothing has asked the model
+# here, so that is the one metric of the model's there is.
+for _ in $(seq 1 30); do
+  grep -qF -- '-> Name: ai.spent' <<<"$(reported)" && break
+  sleep 1
+done
+expect "with a key, the agent is also sent what the model has cost today, and nothing else of the model's" \
+  "ai.spent" "$(sed -n 's/^ *-> Name: \(ai\..*\)$/\1/p' <<<"$(reported)" | sort -u | paste -sd ' ')"
 
 quietly in_the_database 'CREATE TABLE kept_by_the_check AS SELECT 7 AS it'
 backend="$(running)"

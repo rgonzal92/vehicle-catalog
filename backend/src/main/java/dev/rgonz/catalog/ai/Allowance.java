@@ -1,6 +1,7 @@
 package dev.rgonz.catalog.ai;
 
 import dev.rgonz.catalog.core.ApiException;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
@@ -45,8 +46,22 @@ class Allowance {
       WHERE day = (now() AT TIME ZONE 'UTC')::date
       """;
 
+  /** Which allowance is spent, and how a person is told so. */
+  enum Spent {
+    DAILY_ALLOWANCE("Today's allowance for the model is spent. It renews at 00:00 UTC."),
+    ACCOUNT_ALLOWANCE(
+        "This account's allowance for the model is spent for today. It renews at 00:00 UTC.");
+
+    final String words;
+
+    Spent(String words) {
+      this.words = words;
+    }
+  }
+
   private final JdbcClient jdbc;
   private final TransactionTemplate transactions;
+  private final MeterRegistry metrics;
   private final BigDecimal daily;
   private final BigDecimal dailyPerAccount;
   private final BigDecimal inputPrice;
@@ -55,6 +70,7 @@ class Allowance {
   Allowance(
       JdbcClient jdbc,
       TransactionTemplate transactions,
+      MeterRegistry metrics,
       @Value("${app.ai.allowance.daily}") BigDecimal daily,
       @Value("${app.ai.allowance.daily-per-account}") BigDecimal dailyPerAccount,
       @Value("${app.ai.price.input-per-million}") BigDecimal inputPrice,
@@ -64,6 +80,7 @@ class Allowance {
     // and not when a transaction around it does, which may last as long as the model takes.
     this.transactions = new TransactionTemplate(transactions.getTransactionManager());
     this.transactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+    this.metrics = metrics;
     this.daily = daily;
     this.dailyPerAccount = dailyPerAccount;
     this.inputPrice = inputPrice;
@@ -90,7 +107,7 @@ class Allowance {
           refusal(accountId, cost)
               .ifPresent(
                   why -> {
-                    throw ApiException.allowanceSpent(why, renewsAt());
+                    throw refused(why);
                   });
 
           return jdbc.sql(
@@ -121,7 +138,7 @@ class Allowance {
    * Why a request of an ordinary size could not be reserved for now, if it could not: which
    * allowance is spent.
    */
-  Optional<String> spentFor(Long accountId) {
+  Optional<Spent> spentFor(Long accountId) {
     return refusal(accountId, cost(ORDINARY_INPUT_BYTES, ORDINARY_OUTPUT_TOKENS));
   }
 
@@ -131,16 +148,26 @@ class Allowance {
   }
 
   /** Which allowance a request of this cost would pass, if it would pass one. */
-  private Optional<String> refusal(Long accountId, BigDecimal cost) {
+  private Optional<Spent> refusal(Long accountId, BigDecimal cost) {
     var used = jdbc.sql(USED).param("account", accountId).query(Used.class).single();
     if (used.total().add(cost).compareTo(daily) > 0) {
-      return Optional.of("Today's allowance for the model is spent. It renews at 00:00 UTC.");
+      return Optional.of(Spent.DAILY_ALLOWANCE);
     }
     if (accountId != null && used.own().add(cost).compareTo(dailyPerAccount) > 0) {
-      return Optional.of(
-          "This account's allowance for the model is spent for today. It renews at 00:00 UTC.");
+      return Optional.of(Spent.ACCOUNT_ALLOWANCE);
     }
     return Optional.empty();
+  }
+
+  /** The refusal of a request for an allowance that is spent, which is counted under which. */
+  ApiException refused(Spent why) {
+    metrics.counter("ai.refused", "reason", why.name()).increment();
+    return ApiException.allowanceSpent(why.words, renewsAt());
+  }
+
+  /** What the day has come to so far, reserved and spent, in US dollars. */
+  BigDecimal usedToday() {
+    return jdbc.sql(USED).param("account", null).query(Used.class).single().total();
   }
 
   /** What so many input and output tokens cost, in US dollars. */
