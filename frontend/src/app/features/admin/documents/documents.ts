@@ -1,6 +1,7 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpContext } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
+import { IN_THE_BACKGROUND } from '../../../core/api-error-interceptor';
 
 /** How far a document is: waiting to be read, being read, ready to be searched, or failed. */
 export type DocumentStatus = 'WAITING' | 'RUNNING' | 'READY' | 'FAILED';
@@ -19,6 +20,8 @@ export interface UploadedDocument {
   status: DocumentStatus;
   /** Why it failed, for one that did. */
   reason: string | null;
+  /** How many passages it was split into, which a ready one is searched by. */
+  passages: number;
 }
 
 /** The largest file a document may be, which the backend holds an upload to as well. */
@@ -38,9 +41,18 @@ export const DOCUMENT_STATUS_NAMES: Record<DocumentStatus, string> = {
 export class Documents {
   private readonly http = inject(HttpClient);
 
-  /** Every document, newest first. */
-  list(): Promise<UploadedDocument[]> {
-    return firstValueFrom(this.http.get<UploadedDocument[]>('/api/documents'));
+  /**
+   * Every document, newest first.
+   *
+   * @param unasked whether nobody is waiting for it, as when the page looks again by itself: a
+   *     failure is then shown to no one
+   */
+  list(unasked = false): Promise<UploadedDocument[]> {
+    return firstValueFrom(
+      this.http.get<UploadedDocument[]>('/api/documents', {
+        context: new HttpContext().set(IN_THE_BACKGROUND, unasked),
+      }),
+    );
   }
 
   /** Uploads one document, as a form with its file. */
@@ -57,6 +69,11 @@ export class Documents {
     form.set('modelYear', String(modelYear));
 
     return firstValueFrom(this.http.post<UploadedDocument>('/api/documents', form));
+  }
+
+  /** Gives a document that has failed to the worker once more. */
+  processAgain(id: number): Promise<UploadedDocument> {
+    return firstValueFrom(this.http.post<UploadedDocument>(`/api/documents/${id}/process`, null));
   }
 
   async delete(id: number): Promise<void> {

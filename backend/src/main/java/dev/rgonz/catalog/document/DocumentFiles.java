@@ -39,6 +39,11 @@ class DocumentFiles {
             RequestBody.fromBytes(file));
   }
 
+  /** The file under a key. */
+  byte[] read(String key) {
+    return s3().getObjectAsBytes(request -> request.bucket(bucket).key(key)).asByteArray();
+  }
+
   /** Removes the file under a key. One that is not there is none to remove. */
   void delete(String key) {
     s3().deleteObject(request -> request.bucket(bucket).key(key));

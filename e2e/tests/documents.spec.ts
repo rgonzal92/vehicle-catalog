@@ -1,7 +1,7 @@
 import { expect } from '@playwright/test';
 import { choose, expectAccessible, signIn, test, unique } from './support';
 
-test('an admin uploads a document, sees it listed as waiting, and deletes it', async ({ page }) => {
+test('an admin uploads a document, sees it become ready, and deletes it', async ({ page }) => {
   const title = unique('Launch notes');
   await signIn(page, 'admin');
   await page
@@ -27,8 +27,10 @@ test('an admin uploads a document, sees it listed as waiting, and deletes it', a
   await expect(row).toContainText('Compact SUV');
   await expect(row).toContainText('2026');
   await expect(row).toContainText('launch-notes.md');
-  await expect(row).toContainText('Waiting');
   await expect(form.getByLabel('Title')).toHaveValue('');
+  // The worker reads it, and the page looks again by itself until it has.
+  await expect(row).toContainText('Ready', { timeout: 30_000 });
+  await expect(row).toContainText('1 passage');
   await expectAccessible(page);
 
   // A file that is not what its name says is refused, and the page says why.

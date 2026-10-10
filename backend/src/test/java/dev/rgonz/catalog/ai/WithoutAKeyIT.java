@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.core.Role;
+import dev.rgonz.catalog.job.Worker;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.TestPropertySource;
 
 /**
@@ -15,6 +17,7 @@ import org.springframework.test.context.TestPropertySource;
 @TestPropertySource(properties = "app.ai.api-key=")
 class WithoutAKeyIT extends ApplicationIT {
   @Autowired io.micrometer.core.instrument.MeterRegistry meters;
+  @Autowired org.springframework.context.ApplicationContext application;
 
   @Test
   void theApplicationStartsAndSaysThatTheModelCannotBeAskedAndWhy() {
@@ -52,5 +55,38 @@ class WithoutAKeyIT extends ApplicationIT {
     assertThat(meters.find("ai.spent").gauge())
         .as("what is reported of a day's cost where nothing can be spent")
         .isNull();
+  }
+
+  @Test
+  void anUploadedDocumentEndsAsFailedForWantOfAKeyAndNothingIsSent() throws Exception {
+    seedLibraryAndCatalogs();
+    Worker.forgets(application);
+    ModelStandIn.forgets();
+    jdbc.sql("DELETE FROM document").update();
+    long line = jdbc.sql("SELECT min(id) FROM vehicle_line").query(Long.class).single();
+    var admin = signedInAs(Role.ADMIN, "ada");
+
+    assertThat(
+            mvc.post()
+                .uri("/api/documents")
+                .multipart()
+                .file(new MockMultipartFile("file", "notes.md", null, "A note.".getBytes()))
+                .param("title", "Notes")
+                .param("vehicleLineId", String.valueOf(line))
+                .param("modelYear", "2026")
+                .with(csrfToken())
+                .with(admin))
+        .hasStatus(201);
+    Worker.runs(application);
+
+    var listed = mvc.get().uri("/api/documents").with(admin).exchange();
+    assertThat(listed).bodyJson().extractingPath("$[0].status").isEqualTo("FAILED");
+    assertThat(listed)
+        .bodyJson()
+        .extractingPath("$[0].reason")
+        .isEqualTo("No key for the model is set.");
+    assertThat(ModelStandIn.embedded()).isEmpty();
+    jdbc.sql("DELETE FROM document").update();
+    Worker.forgets(application);
   }
 }

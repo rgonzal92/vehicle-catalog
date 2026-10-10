@@ -2,7 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MessageService } from 'primeng/api';
-import { DocumentsPage } from './documents-page';
+import { DocumentsPage, LOOKS_AGAIN_EVERY } from './documents-page';
 
 describe('DocumentsPage', () => {
   let backend: HttpTestingController;
@@ -21,6 +21,7 @@ describe('DocumentsPage', () => {
     uploadedAt: '2026-10-10T06:00:00Z',
     status: 'WAITING',
     reason: null,
+    passages: 0,
   };
 
   const words = (part: Element | null | undefined) =>
@@ -205,5 +206,67 @@ describe('DocumentsPage', () => {
     backend.expectOne('/api/documents').flush([notes]);
     await settle();
     expect(rows()).toHaveLength(1);
+  });
+
+  it('shows how many passages a ready document has, and has a failed one processed again', async () => {
+    await open([
+      { ...notes, status: 'READY', passages: 12 },
+      { ...notes, id: 8, title: 'Brochure', status: 'FAILED', reason: 'The model did not answer.' },
+    ]);
+    expect(rows().map((row) => row[5])).toEqual([
+      'Ready 12 passages',
+      'FailedThe model did not answer.',
+    ]);
+    expect(button('Process the document again: Launch notes')).toBeUndefined();
+
+    button('Process the document again: Brochure').click();
+    await settle();
+
+    backend
+      .expectOne({ method: 'POST', url: '/api/documents/8/process' })
+      .flush({ ...notes, id: 8, title: 'Brochure' });
+    await settle();
+    backend.expectOne('/api/documents').flush([{ ...notes, id: 8, title: 'Brochure' }]);
+    await settle();
+    expect(rows().map((row) => row[5])).toEqual(['Waiting']);
+  });
+
+  it('looks again while a document is waiting or being read, and no more once none is', async () => {
+    vi.useFakeTimers();
+    try {
+      const shown = async () => {
+        await vi.advanceTimersByTimeAsync(0);
+        fixture.detectChanges();
+      };
+      fixture = TestBed.createComponent(DocumentsPage);
+      element = fixture.nativeElement as HTMLElement;
+      fixture.detectChanges();
+      backend.expectOne('/api/documents').flush([notes]);
+      backend.expectOne('/api/vehicle-lines').flush([]);
+      backend
+        .expectOne('/api/reference')
+        .flush({ vehicleTypes: [], categories: [], modelYears: [] });
+      await shown();
+
+      await vi.advanceTimersByTimeAsync(LOOKS_AGAIN_EVERY);
+      backend.expectOne('/api/documents').flush([{ ...notes, status: 'RUNNING' }]);
+      await shown();
+      expect(rows().map((row) => row[5])).toEqual(['Running']);
+
+      // A look that fails is left for the next one, and the list stays as it was.
+      await vi.advanceTimersByTimeAsync(LOOKS_AGAIN_EVERY);
+      backend.expectOne('/api/documents').flush(null, { status: 502, statusText: 'Bad Gateway' });
+      await shown();
+      expect(rows().map((row) => row[5])).toEqual(['Running']);
+
+      await vi.advanceTimersByTimeAsync(LOOKS_AGAIN_EVERY);
+      backend.expectOne('/api/documents').flush([{ ...notes, status: 'READY', passages: 1 }]);
+      await shown();
+      expect(rows().map((row) => row[5])).toEqual(['Ready 1 passage']);
+
+      await vi.advanceTimersByTimeAsync(LOOKS_AGAIN_EVERY * 3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

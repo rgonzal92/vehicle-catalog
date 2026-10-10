@@ -308,6 +308,22 @@ bucket.
 What may be uploaded is limited, because the demo lets anyone be an admin: a `.md`, `.txt`, or
 `.pdf` file of at most 2 MB, and at most 20 documents in all.
 
+The worker makes an uploaded document one that can be searched. It reads the file's text, splits
+it into passages of about 400 tokens, and has OpenAI's embedding model, `text-embedding-3-small`,
+say what each passage means, as 1,536 numbers that the database keeps with the passage. The page
+shows how far a document is: waiting, running, ready with its number of passages, or failed with
+the reason. A file that cannot be read, has no text, or comes to more than 300 passages fails at
+once, and so does a document whose passages the model could not be asked about: for want of a
+key, or of what is left of the day's allowance. "Process again" gives a failed document to the
+worker once more.
+
+What a document costs is spent for the account that uploaded it, at the embedding model's price,
+US$0.02 for a million tokens as OpenAI lists it on 2026-10-10: a document of 300 passages comes
+to about a quarter of a cent. The model and its price are settings, `app.ai.embedding-model` and
+`app.ai.price.embedding-per-million`. Another embedding model gives a text other numbers, and
+perhaps more or fewer of them, so changing it means a migration for the table of passages and
+processing every document again.
+
 ## The language model
 
 The app asks a language model of OpenAI's, `gpt-6-luna`, to suggest things that a person then
@@ -440,8 +456,8 @@ It all goes to Amazon CloudWatch.
 | `catalog.approved` | how many catalogs were approved | nothing |
 | `catalog.rejected` | how many catalogs were rejected | nothing |
 | `catalog.merged` | how many working copies were updated from Approved | nothing |
-| `job.run` | how many jobs the worker handled and how long each took | `type`, of which there are four, and `outcome`: `SUCCESS` or `FAILURE` |
-| `ai.call` | how many requests the language model was sent and how long each took | `purpose`, of which there are three: `RULE_SUGGESTION`, `SUBMISSION_SUMMARY`, `ANALYST`, and `outcome`: `SUCCESS` or `FAILURE` |
+| `job.run` | how many jobs the worker handled and how long each took | `type`, of which there are five, and `outcome`: `SUCCESS` or `FAILURE` |
+| `ai.call` | how many requests the language model was sent and how long each took | `purpose`, of which there are four: `RULE_SUGGESTION`, `SUBMISSION_SUMMARY`, `ANALYST`, `DOCUMENT_EMBEDDING`, and `outcome`: `SUCCESS` or `FAILURE` |
 | `ai.tokens` | how many tokens the model was sent and answered with | `direction`: `in` or `out` |
 | `ai.tool.calls` | how many tool calls the analyst made | nothing |
 | `ai.refused` | how many requests to the model were refused before they were sent | `reason`, of which there are three: `DAILY_ALLOWANCE`, `ACCOUNT_ALLOWANCE`, `NO_KEY` |
@@ -450,8 +466,8 @@ It all goes to Amazon CloudWatch.
 | `disk_used_percent` | the share of the host's disk in use | nothing that varies |
 
 CloudWatch counts a metric once for every value of what it is told apart by, which makes up to
-thirty-seven of these, thirteen of them the language model's, and charges for each one beyond ten:
-up to twenty-seven, at about $0.30 a month each, which is at most about $8 a month. So the backend
+forty-one of these, fifteen of them the language model's, and charges for each one beyond ten:
+up to thirty-one, at about $0.30 a month each, which is at most about $9 a month. So the backend
 sends no metric that the alarm or the dashboard does not use: `Telemetry.java` in the backend
 turns down every other. A metric is there once it has first been sent, so the two times and the
 fourth outcome, a request that fails in the backend, appear when there has been one, and `job.run`

@@ -57,6 +57,13 @@ class DocumentController {
     return documents.add(people.idOf(caller), namedAs, bytes, title, vehicleLineId, modelYear);
   }
 
+  /** Gives a document that has failed to the worker once more. */
+  @PostMapping("/api/documents/{id}/process")
+  @RequiresRole(Role.ADMIN)
+  Listed processAgain(@PathVariable long id) {
+    return documents.processAgain(id);
+  }
+
   @DeleteMapping("/api/documents/{id}")
   @RequiresRole(Role.ADMIN)
   @ResponseStatus(HttpStatus.NO_CONTENT)

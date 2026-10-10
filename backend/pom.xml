@@ -34,6 +34,12 @@
 	<dependencies>
 		<!-- The model is reached with Spring AI's client for OpenAI. The beans are made in the
 			application itself, which starts without a key, so no starter is used. -->
+		<!-- Reads the text of an uploaded PDF. -->
+		<dependency>
+			<groupId>org.apache.pdfbox</groupId>
+			<artifactId>pdfbox</artifactId>
+			<version>3.0.8</version>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.ai</groupId>
 			<artifactId>spring-ai-openai</artifactId>

@@ -50,6 +50,8 @@ export function typeInWords(type: string): string {
 /** What the names in a job's subject are called on screen. Any other name is shown as it is. */
 const SUBJECT_NAMES: Record<string, string> = {
   catalogId: 'Catalog',
+  documentId: 'Document',
+  processing: 'reading',
   libraryRevision: 'library revision',
 };
 
