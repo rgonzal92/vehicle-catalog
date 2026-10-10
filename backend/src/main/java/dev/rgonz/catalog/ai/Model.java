@@ -50,7 +50,7 @@ public class Model {
   private static final String ACCOUNT = "accountId";
 
   /** What a tool answers with is cut at this many bytes, and says so. */
-  static final int LARGEST_TOOL_ANSWER_BYTES = 20_000;
+  public static final int LARGEST_TOOL_ANSWER_BYTES = 20_000;
 
   private static final String CUT =
       "\n[Cut off here: what was looked up is longer than can be given. Ask for less.]";

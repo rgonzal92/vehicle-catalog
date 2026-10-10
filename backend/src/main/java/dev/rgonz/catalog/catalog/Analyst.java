@@ -7,15 +7,19 @@ import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
 import dev.rgonz.catalog.catalog.Catalogs.CatalogView;
 import dev.rgonz.catalog.core.ApiException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.BiFunction;
+import java.util.function.Function;
+import java.util.stream.Stream;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Answers a person's questions about what the Approved catalogs offer. The model picks what to look
@@ -42,6 +46,9 @@ class Analyst {
   /** The most features one search answers with. */
   private static final int MOST_FEATURES = 25;
 
+  /** How many changes of each kind a comparison that is too long is given with. */
+  private static final int FIRST_CHANGES = 5;
+
   private static final Map<String, String> NO_SUCH_CATALOG =
       Map.of("error", "There is no such Approved catalog.");
 
@@ -49,7 +56,8 @@ class Analyst {
       """
       You answer questions about what the Approved vehicle catalogs of this application offer: \
       which trims a vehicle line has in a region, where a feature is standard, what a catalog \
-      holds.
+      holds, which rules name a feature, what changed between two versions, and how a vehicle \
+      line's model year came to its current version.
 
       Every fact you state comes from a tool. Look up what the question needs, and answer from \
       what the tools return and from nothing else. When the tools do not hold the answer, say so. \
@@ -68,12 +76,14 @@ class Analyst {
   private final Model model;
   private final Catalogs catalogs;
   private final JdbcClient jdbc;
+  private final JsonMapper json;
   private final List<Tool> tools;
 
-  Analyst(Model model, Catalogs catalogs, JdbcClient jdbc) {
+  Analyst(Model model, Catalogs catalogs, JdbcClient jdbc, JsonMapper json) {
     this.model = model;
     this.catalogs = catalogs;
     this.jdbc = jdbc;
+    this.json = json;
     this.tools =
         List.of(
             new Lookup(
@@ -136,7 +146,62 @@ class Analyst {
                   }
                 }
                 """,
-                this::availability));
+                this::availability),
+            new Lookup(
+                "rules_naming_feature",
+                "Lists the rules that name one feature in one Approved catalog, as its source or"
+                    + " as a target, each as a sentence: the catalog's own rules and the global"
+                    + " rules, which hold for every catalog.",
+                """
+                {
+                  "type": "object",
+                  "required": ["catalogId", "feature"],
+                  "properties": {
+                    "catalogId": {"type": "integer", "description": "An Approved catalog's id."},
+                    "feature": {"type": "string", "description": "The feature's code."}
+                  }
+                }
+                """,
+                this::rules),
+            new Lookup(
+                "list_versions",
+                "Lists every Approved version of the vehicle line and model year that one"
+                    + " Approved catalog belongs to, newest first: each version's catalog id,"
+                    + " number, name, who approved it, and when.",
+                """
+                {
+                  "type": "object",
+                  "required": ["catalogId"],
+                  "properties": {
+                    "catalogId": {
+                      "type": "integer",
+                      "description": "The id of any Approved version of that lineage."
+                    }
+                  }
+                }
+                """,
+                this::versions),
+            new Lookup(
+                "compare_versions",
+                "Says what changed from one Approved version to another of the same vehicle line"
+                    + " and model year: trims, regions, offerings, features, and rules that were"
+                    + " added or removed, cells whose availability changed (S is Standard, A is"
+                    + " Available, N is Not offered), and rules that say something else. A"
+                    + " comparison that is too long is given as its counts and its first changes.",
+                """
+                {
+                  "type": "object",
+                  "required": ["fromCatalogId", "toCatalogId"],
+                  "properties": {
+                    "fromCatalogId": {
+                      "type": "integer",
+                      "description": "The earlier version's catalog id, as list_versions gives it."
+                    },
+                    "toCatalogId": {"type": "integer", "description": "The later version's."}
+                  }
+                }
+                """,
+                this::comparison));
   }
 
   /** A tool by what it is called, what it takes, and how it answers for the person who asks. */
@@ -299,6 +364,112 @@ class Analyst {
     return new Available(code, offered);
   }
 
+  private Object rules(JsonNode asked, long accountId) {
+    var found = approved(asked.path("catalogId").asLong(-1), accountId);
+    if (found.isEmpty()) {
+      return NO_SUCH_CATALOG;
+    }
+    var catalog = found.get().snapshot();
+    var code = asked.path("feature").asString("").strip();
+    var feature =
+        catalog.featureRows().stream().filter(row -> row.code().equalsIgnoreCase(code)).findAny();
+    if (feature.isEmpty()) {
+      return Map.of("error", "This catalog has no feature of that code.");
+    }
+    var library = catalogs.library(catalog.catalogId());
+
+    // The catalog's names are those of its approval. A global rule may name what it does not have.
+    Function<Long, String> featureName =
+        id ->
+            catalog.featureRows().stream()
+                .filter(row -> row.id() == id)
+                .map(CatalogSnapshot.FeatureRow::name)
+                .findAny()
+                .orElseGet(() -> library.featureNames().getOrDefault(id, "a feature"));
+    Function<Long, String> trimName =
+        id ->
+            catalog.trims().stream()
+                .filter(trim -> trim.id() == id)
+                .map(CatalogSnapshot.Trim::name)
+                .findAny()
+                .orElse("a trim");
+    Function<String, String> regionName =
+        region ->
+            catalog.regions().stream()
+                .filter(one -> one.code().equals(region))
+                .map(CatalogSnapshot.Region::name)
+                .findAny()
+                .orElse(region);
+
+    // An exclusion is two rules that say the same, of which the first says it for both.
+    var said = new LinkedHashMap<String, RuleSaid>();
+    for (var rule : Stream.concat(catalog.rules().stream(), library.rules().stream()).toList()) {
+      if (rule.sourceFeatureId() == feature.get().id()
+          || rule.targetFeatureIds().contains(feature.get().id())) {
+        said.putIfAbsent(
+            rule.origin() + " " + (rule.pairKey() == null ? rule.key() : rule.pairKey()),
+            new RuleSaid(rule.origin().name(), rule.inWords(featureName, trimName, regionName)));
+      }
+    }
+
+    return new Rules(
+        catalog.catalogId(), feature.get().code(), feature.get().name(), said.values());
+  }
+
+  private Object versions(JsonNode asked, long accountId) {
+    var found = approved(asked.path("catalogId").asLong(-1), accountId);
+    if (found.isEmpty()) {
+      return NO_SUCH_CATALOG;
+    }
+
+    return new Versions(
+        found.get().vehicleLine(),
+        found.get().modelYear(),
+        catalogs.versions(found.get().snapshot().lineageId()));
+  }
+
+  private Object comparison(JsonNode asked, long accountId) {
+    var from = approved(asked.path("fromCatalogId").asLong(-1), accountId);
+    var to = approved(asked.path("toCatalogId").asLong(-1), accountId);
+    if (from.isEmpty() || to.isEmpty()) {
+      return NO_SUCH_CATALOG;
+    }
+    if (from.get().snapshot().lineageId() != to.get().snapshot().lineageId()) {
+      return Map.of("error", "The two are not versions of the same vehicle line and model year.");
+    }
+
+    return fitting(Diff.between(from.get().snapshot(), to.get().snapshot()));
+  }
+
+  /**
+   * A comparison as a tool answers with it: whole when a tool's answer holds it, and otherwise how
+   * many changes of each kind there are and the first of each, which it says.
+   */
+  Object fitting(Diff.Changes changes) {
+    var whole = json.valueToTree(changes);
+    if (json.writeValueAsBytes(whole).length <= Model.LARGEST_TOOL_ANSWER_BYTES) {
+      return whole;
+    }
+    var counts = new LinkedHashMap<String, Integer>();
+    var first = new LinkedHashMap<String, List<JsonNode>>();
+    for (var kind : whole.properties()) {
+      counts.put(kind.getKey(), kind.getValue().size());
+      var shown = new ArrayList<JsonNode>();
+      for (var change : kind.getValue()) {
+        if (shown.size() < FIRST_CHANGES) {
+          shown.add(change);
+        }
+      }
+      first.put(kind.getKey(), shown);
+    }
+
+    return new Shortened(
+        "The comparison is too long to give whole. These are how many changes of each kind there"
+            + " are, and the first %d of each.".formatted(FIRST_CHANGES),
+        counts,
+        first);
+  }
+
   /** How one feature is available on each trim that the catalog offers in one region. */
   private static InRegion inRegion(
       CatalogSnapshot catalog, long featureId, CatalogSnapshot.Region region) {
@@ -379,4 +550,21 @@ class Analyst {
       List<InRegion> regions) {}
 
   private record Available(String feature, List<Offered> catalogs) {}
+
+  /** A rule in words, and whether it is the catalog's own or a global one. */
+  private record RuleSaid(String origin, String rule) {}
+
+  private record Rules(long catalogId, String feature, String name, Collection<RuleSaid> rules) {}
+
+  private record Versions(
+      String vehicleLine, int modelYear, List<Catalogs.VersionSummary> versions) {}
+
+  /**
+   * A comparison that is too long to give whole.
+   *
+   * @param counts how many changes there are of each kind
+   * @param first the first changes of each kind
+   */
+  private record Shortened(
+      String note, Map<String, Integer> counts, Map<String, List<JsonNode>> first) {}
 }

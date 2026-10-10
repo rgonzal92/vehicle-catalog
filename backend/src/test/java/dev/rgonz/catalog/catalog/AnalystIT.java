@@ -10,6 +10,7 @@ import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import tools.jackson.databind.JsonNode;
@@ -22,6 +23,8 @@ import tools.jackson.databind.json.JsonMapper;
  */
 class AnalystIT extends WorkingCopyTests {
   private static final JsonMapper JSON = JsonMapper.builder().build();
+
+  @Autowired Analyst analyst;
 
   @BeforeEach
   void theSeed() throws Exception {
@@ -103,7 +106,13 @@ class AnalystIT extends WorkingCopyTests {
     assertThat(requests).hasSize(2);
     assertThat(texts(requests.getFirst().path("tools").findValues("name")))
         .containsExactlyInAnyOrder(
-            "list_lineages", "get_approved_catalog", "search_features", "feature_availability");
+            "list_lineages",
+            "get_approved_catalog",
+            "search_features",
+            "feature_availability",
+            "rules_naming_feature",
+            "list_versions",
+            "compare_versions");
     // The question is sent as data, in a message of the person's own.
     assertThat(requests.getFirst().path("messages").get(1).path("content").asString())
         .isEqualTo("{\"question\":\"Which trims does the Compact SUV have?\"}");
@@ -159,6 +168,14 @@ class AnalystIT extends WorkingCopyTests {
     var held = returned(ana(), "get_approved_catalog", Map.of("catalogId", catalog)).toString();
     var available =
         returned(ana(), "feature_availability", Map.of("feature", "SEAT_LEATHER")).toString();
+
+    var rules =
+        returned(
+                ana(),
+                "rules_naming_feature",
+                Map.of("catalogId", catalog, "feature", "SEAT_LEATHER"))
+            .toString();
+    assertThat(rules).contains("Ventilated Front Seats requires Leather Seats");
 
     for (var said : List.of(held, available)) {
       assertThat(said)
@@ -282,5 +299,183 @@ class AnalystIT extends WorkingCopyTests {
     assertThat(ask(ana(), List.of(question("A question?"), answer("An answer.")))).hasStatus(422);
     assertThat(ask(ana(), List.of())).hasStatus(422);
     assertThat(ModelStandIn.asked()).isEmpty();
+  }
+
+  private String nameOf(String featureCode) {
+    return jdbc.sql("SELECT name FROM feature WHERE code = ?")
+        .param(featureCode)
+        .query(String.class)
+        .single();
+  }
+
+  private List<String> rulesNaming(long catalog, String featureCode) {
+    var rules =
+        returned(
+                ana(), "rules_naming_feature", Map.of("catalogId", catalog, "feature", featureCode))
+            .path("rules");
+    var said = new ArrayList<String>();
+    rules.forEach(rule -> said.add(rule.toString()));
+    return said;
+  }
+
+  @Test
+  void theRulesThatNameAFeatureAreSaidInWordsTheCatalogsOwnAndTheGlobalOnes() {
+    long catalog = approved("COMPACT_SUV", 2026, 2);
+
+    assertThat(rulesNaming(catalog, "POWERTRAIN_HYBRID"))
+        .contains(
+            "{\"origin\":\"CATALOG\",\"rule\":\"%s requires %s\"}"
+                .formatted(nameOf("POWERTRAIN_HYBRID"), nameOf("BRAKE_REGENERATIVE")),
+            "{\"origin\":\"GLOBAL\",\"rule\":\"%s requires %s\"}"
+                .formatted(nameOf("POWERTRAIN_HYBRID"), nameOf("BATTERY_COOLING")));
+    // A rule is listed for a feature it names as a target too, with the scope it has.
+    assertThat(rulesNaming(catalog, "radio_digital"))
+        .contains(
+            "{\"origin\":\"CATALOG\",\"rule\":\"AM/FM Radio requires Digital Radio (in Europe)\"}");
+    // An exclusion is two rules that say the same, and is said once, as the first of them says it.
+    assertThat(rulesNaming(catalog, "SPARE_COMPACT"))
+        .filteredOn(rule -> rule.contains("excludes"))
+        .containsExactly(
+            "{\"origin\":\"CATALOG\",\"rule\":\"Compact Spare Tire excludes Tire Sealant and"
+                + " Inflator Kit\"}");
+    assertThat(
+            returned(
+                    ana(),
+                    "rules_naming_feature",
+                    Map.of("catalogId", catalog, "feature", "NO_SUCH_FEATURE"))
+                .toString())
+        .isEqualTo("{\"error\":\"This catalog has no feature of that code.\"}");
+  }
+
+  @Test
+  void aLineagesVersionsAreListedWithWhoApprovedEachAndWhen() {
+    long first = approved("COMPACT_SUV", 2026, 1);
+    long second = approved("COMPACT_SUV", 2026, 2);
+    var approver =
+        jdbc.sql(
+                "SELECT a.display_name FROM catalog c JOIN app_user a ON a.id = c.approved_by"
+                    + " WHERE c.id = ?")
+            .param(first)
+            .query(String.class)
+            .single();
+
+    var listed = returned(ana(), "list_versions", Map.of("catalogId", first));
+
+    assertThat(listed.toString())
+        .isEqualTo(
+            """
+            {"vehicleLine":"Compact SUV","modelYear":2026,"versions":[\
+            {"catalogId":%d,"versionNumber":2,"name":"Hybrid and autumn update",\
+            "approvedBy":"%s","approvedAt":"2025-11-03T15:30:00Z"},\
+            {"catalogId":%d,"versionNumber":1,"name":"Launch content",\
+            "approvedBy":"%s","approvedAt":"2025-06-16T14:00:00Z"}]}\
+            """
+                .formatted(second, approver, first, approver));
+  }
+
+  @Test
+  void whatChangedBetweenTwoVersionsIsWhatTheApprovedViewsComparisonShows() throws Exception {
+    long first = approved("COMPACT_SUV", 2026, 1);
+    long second = approved("COMPACT_SUV", 2026, 2);
+    var shown =
+        JSON.readTree(
+            mvc.get()
+                .uri("/api/catalogs/{id}/diff?against={other}", second, first)
+                .with(ana())
+                .exchange()
+                .getResponse()
+                .getContentAsString());
+
+    var compared =
+        returned(ana(), "compare_versions", Map.of("fromCatalogId", first, "toCatalogId", second));
+
+    assertThat(compared).isEqualTo(shown);
+    assertThat(compared.path("featureRowsAdded").findValuesAsString("code"))
+        .contains("POWERTRAIN_HYBRID");
+    assertThat(
+            returned(
+                    ana(),
+                    "compare_versions",
+                    Map.of(
+                        "fromCatalogId", second, "toCatalogId", approved("COMPACT_SUV", 2027, 1)))
+                .toString())
+        .isEqualTo(
+            "{\"error\":\"The two are not versions of the same vehicle line and model year.\"}");
+  }
+
+  @Test
+  void aComparisonTooLongForAToolsAnswerIsGivenAsItsCountsAndItsFirstChangesAndSaysSo() {
+    var cells = new ArrayList<Diff.CellChanged>();
+    for (long feature = 1; feature <= 300; feature++) {
+      cells.add(
+          new Diff.CellChanged(
+              feature,
+              "FEATURE_" + feature,
+              "Feature " + feature,
+              1,
+              "Sport",
+              "EU",
+              "Europe",
+              CatalogSnapshot.Availability.A,
+              CatalogSnapshot.Availability.S));
+    }
+    var changes =
+        new Diff.Changes(
+            List.of(new CatalogSnapshot.Trim(9, "Limited", 5)),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            cells,
+            List.of(),
+            List.of(),
+            List.of());
+
+    var given = JSON.valueToTree(analyst.fitting(changes));
+
+    assertThat(given.path("note").asString())
+        .startsWith("The comparison is too long to give whole.");
+    assertThat(given.path("counts").path("cellsChanged").asInt()).isEqualTo(300);
+    assertThat(given.path("counts").path("trimsAdded").asInt()).isEqualTo(1);
+    assertThat(given.path("first").path("cellsChanged").findValuesAsString("featureCode"))
+        .containsExactly("FEATURE_1", "FEATURE_2", "FEATURE_3", "FEATURE_4", "FEATURE_5");
+    assertThat(given.path("first").path("trimsAdded").findValuesAsString("name"))
+        .containsExactly("Limited");
+    assertThat(given.toString().length())
+        .isLessThan(dev.rgonz.catalog.ai.Model.LARGEST_TOOL_ANSWER_BYTES);
+  }
+
+  @Test
+  void noneOfTheToolsForRulesVersionsAndComparisonsAnswersForAWorkingCopy() {
+    long copy = workingCopy(ana(), "COMPACT_SUV", 2026);
+    long version = approved("COMPACT_SUV", 2026, 2);
+    var none = "{\"error\":\"There is no such Approved catalog.\"}";
+
+    assertThat(
+            returned(
+                    ana(),
+                    "rules_naming_feature",
+                    Map.of("catalogId", copy, "feature", "SEAT_LEATHER"))
+                .toString())
+        .isEqualTo(none);
+    assertThat(returned(ana(), "list_versions", Map.of("catalogId", copy)).toString())
+        .isEqualTo(none);
+    assertThat(
+            returned(
+                    ana(),
+                    "compare_versions",
+                    Map.of("fromCatalogId", version, "toCatalogId", copy))
+                .toString())
+        .isEqualTo(none);
+    assertThat(
+            returned(
+                    ana(),
+                    "compare_versions",
+                    Map.of("fromCatalogId", copy, "toCatalogId", version))
+                .toString())
+        .isEqualTo(none);
   }
 }
