@@ -51,6 +51,7 @@ const parts = [
     'export',
     'history',
     'shell',
+    'analyst',
   ],
 ];
 

@@ -25,6 +25,7 @@ describe('Shell', () => {
             children: [
               { path: 'dashboard', title: 'Dashboard · Vehicle Catalog', component: Page },
               { path: 'catalogs/:id', title: 'Catalog · Vehicle Catalog', component: Page },
+              { path: 'analyst', title: 'Analyst · Vehicle Catalog', component: Page },
               { path: 'admin/users', title: 'Users · Vehicle Catalog', component: Page },
             ],
           },
@@ -86,12 +87,13 @@ describe('Shell', () => {
   });
 
   it('offers an author the dashboard alone', async () => {
-    expect(links(await open('/dashboard'))).toEqual(['Dashboard']);
+    expect(links(await open('/dashboard'))).toEqual(['Dashboard', 'Analyst']);
   });
 
   it('offers an admin the admin pages too', async () => {
     expect(links(await open('/dashboard', ['admin', 'manager', 'author']))).toEqual([
       'Dashboard',
+      'Analyst',
       'Vehicle lines',
       'Trims',
       'Regions',
@@ -110,6 +112,10 @@ describe('Shell', () => {
 
   it('marks the dashboard on a page that is reached from it', async () => {
     expect(current(await open('/catalogs/41'))).toBe('Dashboard');
+  });
+
+  it('marks the analyst on its own page, and the dashboard no more', async () => {
+    expect(current(await open('/analyst'))).toBe('Analyst');
   });
 
   it('takes the title of each page that is opened, and moves focus to it', async () => {
@@ -145,7 +151,7 @@ describe('Shell', () => {
     button(frame, 'Collapse the sidebar').click();
 
     await vi.waitFor(() => expect(button(frame, 'Expand the sidebar')).not.toBeNull());
-    expect(links(frame)).toEqual(['Dashboard']);
+    expect(links(frame)).toEqual(['Dashboard', 'Analyst']);
     expect(localStorage.getItem('sidebar')).toBe('collapsed');
   });
 

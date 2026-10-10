@@ -27,11 +27,18 @@ public final class ModelStandIn {
   private ModelStandIn() {}
 
   /**
-   * What it does with the next request: answers, fails, or keeps the caller waiting. An answer says
-   * how many tokens the request was and how many it answered with.
+   * What it does with the next request: answers, asks for a tool, fails, or keeps the caller
+   * waiting. An answer says how many tokens the request was and how many it answered with.
+   *
+   * @param tool the tool it asks for, with the content as what it asks it with, or null
    */
   private record Answer(
-      int status, String content, long afterMillis, int inputTokens, int outputTokens) {}
+      int status,
+      String content,
+      String tool,
+      long afterMillis,
+      int inputTokens,
+      int outputTokens) {}
 
   private static HttpServer started() {
     try {
@@ -49,7 +56,7 @@ public final class ModelStandIn {
     ASKED.add(JSON.readTree(exchange.getRequestBody().readAllBytes()));
     var answer = ANSWERS.poll();
     if (answer == null) {
-      answer = new Answer(500, "No test said what the model answers here.", 0, 0, 0);
+      answer = new Answer(500, "No test said what the model answers here.", null, 0, 0, 0);
     }
     try {
       Thread.sleep(answer.afterMillis());
@@ -76,12 +83,10 @@ public final class ModelStandIn {
                             .add(
                                 JSON.createObjectNode()
                                     .put("index", 0)
-                                    .put("finish_reason", "stop")
-                                    .set(
-                                        "message",
-                                        JSON.createObjectNode()
-                                            .put("role", "assistant")
-                                            .put("content", answer.content())))))
+                                    .put(
+                                        "finish_reason",
+                                        answer.tool() == null ? "stop" : "tool_calls")
+                                    .set("message", message(answer)))))
             : "{\"error\": {\"message\": \"%s\", \"type\": \"server_error\"}}"
                 .formatted(answer.content());
     var bytes = body.getBytes(StandardCharsets.UTF_8);
@@ -90,6 +95,27 @@ public final class ModelStandIn {
     try (var out = exchange.getResponseBody()) {
       out.write(bytes);
     }
+  }
+
+  /** What the model says: words, or a tool for the application to use and what to ask it with. */
+  private static JsonNode message(Answer answer) {
+    var message = JSON.createObjectNode().put("role", "assistant");
+    if (answer.tool() == null) {
+      return message.put("content", answer.content());
+    }
+    message.putNull("content");
+    return message.set(
+        "tool_calls",
+        JSON.createArrayNode()
+            .add(
+                JSON.createObjectNode()
+                    .put("id", "call_" + ASKED.size())
+                    .put("type", "function")
+                    .set(
+                        "function",
+                        JSON.createObjectNode()
+                            .put("name", answer.tool())
+                            .put("arguments", answer.content()))));
   }
 
   /** Where the application finds it, as it would find OpenAI. */
@@ -104,17 +130,25 @@ public final class ModelStandIn {
 
   /** The model answers the next request with this content, having used so many tokens. */
   public static void says(String content, int inputTokens, int outputTokens) {
-    ANSWERS.add(new Answer(200, content, 0, inputTokens, outputTokens));
+    ANSWERS.add(new Answer(200, content, null, 0, inputTokens, outputTokens));
+  }
+
+  /**
+   * The model answers the next request by asking for a tool, with what it asks it as JSON, and says
+   * it used a thousand tokens.
+   */
+  public static void asksFor(String tool, String asked) {
+    ANSWERS.add(new Answer(200, asked, tool, 0, 900, 100));
   }
 
   /** The model answers the next request with an error. */
   public static void fails() {
-    ANSWERS.add(new Answer(500, "The model is not well.", 0, 0, 0));
+    ANSWERS.add(new Answer(500, "The model is not well.", null, 0, 0, 0));
   }
 
   /** The model keeps the next request waiting for longer than the application waits. */
   public static void keepsWaiting() {
-    ANSWERS.add(new Answer(200, "{}", 4000, 0, 0));
+    ANSWERS.add(new Answer(200, "{}", null, 4000, 0, 0));
   }
 
   /** The requests it was sent since it last forgot them, oldest first. */

@@ -185,6 +185,16 @@ _Avoid_: Rejected (a reviewer's decision, which needs a comment)
 A few lines the language model writes of what a submitted catalog changes against its base, for its reviewer to read beside the changes. It is checked against the changes and is never the record; it is pending while it is written and unavailable when there is none, with the reason.
 _Avoid_: AI review, description
 
+### Analyst
+
+**Analyst**:
+The page where anyone with a role asks, in their own words, what the Approved catalogs offer. The language model picks what to look up and words the answer; the application looks every fact up, in Approved versions only, and keeps nothing of the conversation.
+_Avoid_: Chatbot, assistant, AI search
+
+**Tool call**:
+One thing the language model had the application look up for an answer of the analyst's, by the tool's name and what the tool was asked. Each answer lists its tool calls.
+_Avoid_: Function call, query
+
 ### Jobs
 
 **Job**:
