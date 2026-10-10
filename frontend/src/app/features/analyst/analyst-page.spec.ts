@@ -26,12 +26,16 @@ describe('AnalystPage', () => {
     fixture.detectChanges();
   };
 
-  /** Opens the page with the model as the backend says it stands. */
-  async function open(availability: object = { available: true, reason: null }): Promise<void> {
+  /** Opens the page with the model as the backend says it stands, and with these documents. */
+  async function open(
+    availability: object = { available: true, reason: null },
+    subjects: object[] = [],
+  ): Promise<void> {
     fixture = TestBed.createComponent(AnalystPage);
     element = fixture.nativeElement as HTMLElement;
     fixture.detectChanges();
     backend.expectOne('/api/ai').flush(availability);
+    backend.expectOne('/api/analyst/documents').flush(subjects);
     await settle();
   }
 
@@ -105,7 +109,7 @@ describe('AnalystPage', () => {
         { by: 'PERSON', text: 'And in Europe?' },
       ],
     });
-    asked.flush({ answer: 'Three.', toolCalls: [], stopped: false });
+    asked.flush({ answer: 'Three.', toolCalls: [], stopped: false, citations: [] });
     await settle();
   });
 
@@ -157,6 +161,53 @@ describe('AnalystPage', () => {
     );
     expect(words(element.querySelector('[data-analyst-help]'))).toBe(
       "The analyst cannot be asked now. Today's allowance for the model is spent.",
+    );
+  });
+
+  it('offers no choice of documents when none were uploaded', async () => {
+    await open();
+
+    expect(element.querySelector('#analyst-documents')).toBeNull();
+  });
+
+  it('asks with the documents that were chosen, and lists what the answer cites', async () => {
+    await open({ available: true, reason: null }, [
+      { vehicleLineId: 3, vehicleLine: 'Compact SUV', modelYear: 2026, documents: 2 },
+    ]);
+    expect(element.querySelector('#analyst-documents')).not.toBeNull();
+    const page = fixture.componentInstance as unknown as {
+      choices(): { key: string; name: string }[];
+      documentsOf: { setValue(key: string): void };
+    };
+    expect(page.choices().map(({ name }) => name)).toEqual(['None', 'Compact SUV 2026']);
+    page.documentsOf.setValue(page.choices()[1].key);
+
+    const asked = await ask('When does the hybrid arrive?');
+    expect(asked.request.body).toEqual({
+      turns: [{ by: 'PERSON', text: 'When does the hybrid arrive?' }],
+      documentsOf: { vehicleLineId: 3, modelYear: 2026 },
+    });
+    asked.flush({
+      answer: 'The hybrid follows in the autumn [1].',
+      toolCalls: [{ tool: 'search_documents', arguments: '{"query":"hybrid"}' }],
+      stopped: false,
+      citations: [
+        {
+          number: 1,
+          documentId: 7,
+          title: 'Launch notes',
+          passage: 'The hybrid follows in the autumn. It comes to Europe first.',
+        },
+      ],
+    });
+    await settle();
+
+    const cited = element.querySelectorAll('[data-conversation] details');
+    expect(Array.from(cited, (one) => words(one.querySelector('summary')))).toEqual([
+      '[1] Launch notes',
+    ]);
+    expect(words(cited[0].querySelector('p'))).toBe(
+      'The hybrid follows in the autumn. It comes to Europe first.',
     );
   });
 });

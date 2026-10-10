@@ -390,6 +390,12 @@ public class Model {
         try {
           answer = tool.answer(json.readTree(asked), (Long) context.getContext().get(ACCOUNT));
         } catch (RuntimeException failure) {
+          // A tool that asks the model itself can be refused as any request is. That is said to
+          // the person, and not to the model as something that could not be looked up.
+          if (failure instanceof ApiException refused
+              && String.valueOf(refused.getBody().getProperties().get("code")).startsWith("AI_")) {
+            throw refused;
+          }
           log.warn("The tool {} could not answer: {}", tool.name(), failure.toString());
           answer = Map.of("error", "This could not be looked up.");
         }
