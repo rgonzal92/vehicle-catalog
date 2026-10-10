@@ -8,6 +8,11 @@ locals {
   host_name = "origin-catalog.rgonz.dev"
 
   origin_secret_name = "/vehicle-catalog/origin-secret"
+
+  # The parameters the host reads when it starts the stack, by their names under
+  # /vehicle-catalog/. They are the ones deploy/release.sh asks for, which a test holds this list
+  # to. The last is put there by hand, and the stack starts without it.
+  host_parameters = ["origin-secret", "database-password", "login-client-secret", "openai-api-key"]
 }
 
 data "aws_region" "current" {}
@@ -88,22 +93,47 @@ resource "aws_iam_role" "host" {
 }
 
 # Besides letting Systems Manager reach the host, this lets the host read Parameter Store, which
-# is where its secrets are.
-# ponytail: the policy is AWS's own and lets the host read every parameter the account has. The
-# account holds this app's parameters and no others; one that the host should not read calls for
-# a policy written here.
+# is where its secrets are. The policy is AWS's own and lets the host read every parameter the
+# account has, which the policy after it takes back.
 resource "aws_iam_role_policy_attachment" "host_systems_manager" {
   role       = aws_iam_role.host.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-# That policy and the ones written here are all its role has: to fetch the backend's images, to
-# change roles, to report to Amazon CloudWatch, to write backups, to work off the jobs, and to keep
-# the exported spreadsheets. An apply removes any other policy given to it, in a file here or by
-# hand.
+# Refuses the host every parameter but the ones it reads. What is denied stays denied whatever
+# another policy allows, AWS's own among them, so the one machine the internet reaches reads the
+# app's secrets and no other that the account comes to hold.
+resource "aws_iam_role_policy" "host_own_parameters" {
+  name = "own-parameters"
+  role = aws_iam_role.host.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "ReadNoOtherParameter"
+      Effect = "Deny"
+      Action = [
+        "ssm:GetParameter",
+        "ssm:GetParameterHistory",
+        "ssm:GetParameters",
+        "ssm:GetParametersByPath",
+      ]
+      NotResource = [
+        for name in local.host_parameters :
+        "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/vehicle-catalog/${name}"
+      ]
+    }]
+  })
+}
+
+# That policy and the ones written here are all its role has: to read its own parameters and no
+# other, to fetch the backend's images, to change roles, to report to Amazon CloudWatch, to write
+# backups, to work off the jobs, and to keep the exported spreadsheets. An apply removes any other
+# policy given to it, in a file here or by hand.
 resource "aws_iam_role_policies_exclusive" "host" {
   role_name = aws_iam_role.host.name
   policy_names = [
+    aws_iam_role_policy.host_own_parameters.name,
     aws_iam_role_policy.host_fetch_backend.name,
     aws_iam_role_policy.host_administer_roles.name,
     aws_iam_role_policy.host_report.name,

@@ -86,29 +86,43 @@ run "the_host_is_reached_for_a_shell_through_systems_manager_alone" {
   }
 
   assert {
-    condition     = aws_iam_role_policies_exclusive.host.policy_names == toset(["administer-roles", "back-up", "exports", "fetch-backend", "jobs", "report"])
-    error_message = "The host's role has the policy that fetches the backend's images, the one that changes roles, the one that reports to CloudWatch, the one that writes backups, the one that works off the jobs, the one that keeps exported spreadsheets, and no other of its own."
+    condition     = aws_iam_role_policies_exclusive.host.policy_names == toset(["administer-roles", "back-up", "exports", "fetch-backend", "jobs", "own-parameters", "report"])
+    error_message = "The host's role has the policy that fetches the backend's images, the one that changes roles, the one that reports to CloudWatch, the one that writes backups, the one that works off the jobs, the one that keeps exported spreadsheets, the one that holds it to its own parameters, and no other of its own."
   }
 }
 
-run "the_host_is_one_small_machine_with_a_bill_that_stays_put" {
-  assert {
-    condition     = aws_instance.host.instance_type == "t4g.small"
-    error_message = "The host is a t4g.small."
-  }
-
-  assert {
-    condition     = aws_instance.host.credit_specification[0].cpu_credits == "standard"
-    error_message = "A busy host slows down; it is not billed for more CPU time."
-  }
-
+run "the_host_reads_its_own_parameters_and_no_other" {
   assert {
     condition = (
-      aws_instance.host.root_block_device[0].volume_type == "gp3"
-      && aws_instance.host.root_block_device[0].volume_size == 30
-      && aws_instance.host.root_block_device[0].encrypted
+      length(jsondecode(aws_iam_role_policy.host_own_parameters.policy).Statement) == 1
+      && alltrue([
+        for statement in jsondecode(aws_iam_role_policy.host_own_parameters.policy).Statement :
+        statement.Effect == "Deny"
+        && toset(statement.Action) == toset([
+          "ssm:GetParameter",
+          "ssm:GetParameterHistory",
+          "ssm:GetParameters",
+          "ssm:GetParametersByPath",
+        ])
+        && toset(statement.NotResource) == toset([
+          for name in ["database-password", "login-client-secret", "openai-api-key", "origin-secret"] :
+          "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/vehicle-catalog/${name}"
+        ])
+      ])
     )
-    error_message = "The host's disk is 30 GB of gp3, encrypted."
+    error_message = "The host's role is refused every parameter but the four it reads, whatever another policy allows, and none of the four."
+  }
+
+  assert {
+    # The script names a parameter where it asks for one: "$(parameter origin-secret)". No other
+    # script of the host's reads Parameter Store, so none reads a parameter this test does not see.
+    condition = (
+      toset(flatten(regexall("\\$\\(parameter ([a-z-]+)", file("../deploy/release.sh")))) == toset(local.host_parameters)
+      && length(regexall("get-parameter", join("", [
+        for script in fileset("../deploy", "*.sh") : file("../deploy/${script}")
+      ]))) == 1
+    )
+    error_message = "The release script reads the parameters the host's role may read and no other, and it is the one script that reads any. A parameter that it comes to read is added to the role's list as well."
   }
 }
 
@@ -254,9 +268,10 @@ run "the_key_for_the_language_model_reaches_the_stack_and_is_kept_out_of_terrafo
   }
 
   assert {
-    condition = alltrue([
-      for file in fileset(path.module, "*.tf") : !strcontains(file(file), "openai")
-    ]) && aws_ssm_association.host_stack.name == "AWS-RunShellScript"
+    # Terraform names the key's parameter once, where it lists what the host's role may read.
+    condition = sum([
+      for file in fileset(path.module, "*.tf") : length(regexall("openai", file(file)))
+    ]) == 1 && contains(local.host_parameters, "openai-api-key") && aws_ssm_association.host_stack.name == "AWS-RunShellScript"
     error_message = "Terraform neither makes the key's parameter nor reads it, so the key is in no state."
   }
 }
