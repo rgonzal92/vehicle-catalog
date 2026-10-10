@@ -35,9 +35,10 @@ class AfterApprovalIT extends WorkingCopyTests {
   void anasSubmission() throws Exception {
     seedLibraryAndCatalogs();
     jdbc.sql("DELETE FROM notification").update();
-    Worker.forgets(application);
     copy = workingCopy(ana(), "COMPACT_SUV", 2026);
     assertThat(decide(ana(), "submit", "\"0\"")).hasStatusOk();
+    // A submit leaves a job of its own, for the catalog's summary, which is not what is tried here.
+    Worker.forgets(application);
   }
 
   /** Mia, a manager who is on record. */

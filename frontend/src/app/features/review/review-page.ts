@@ -13,6 +13,7 @@ import { FixedLists } from '../../core/fixed-lists';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
 import { Issue, MatrixChanges } from '../../shared/availability-matrix/matrix';
 import { CatalogChangesList } from '../../shared/catalog-changes';
+import { SummaryPanel } from './summary-panel';
 import { IssueCounts, IssueList } from '../../shared/issues';
 import { Loading, ReadFailed } from '../../shared/read-state';
 import { reasonOf } from '../../shared/reason-of';
@@ -38,6 +39,7 @@ import { reasonOf } from '../../shared/reason-of';
     Textarea,
     AvailabilityMatrix,
     CatalogChangesList,
+    SummaryPanel,
     IssueCounts,
     IssueList,
     Loading,
@@ -175,20 +177,23 @@ import { reasonOf } from '../../shared/reason-of';
             </a>
           </p>
         } @else {
-          <section class="surface max-w-5xl" aria-labelledby="changes">
-            <div class="surface-header">
-              <h2 id="changes" class="font-semibold">What it changes</h2>
-              <p class="text-sm text-muted-color">Against its base: {{ baseInWords(catalog) }}</p>
-            </div>
-            @if (changes(); as changed) {
-              <app-catalog-changes
-                class="py-4"
-                name="review"
-                none="This catalog changes nothing against its base."
-                [changes]="changed"
-              />
-            }
-          </section>
+          <div class="grid items-start gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+            <section class="surface" aria-labelledby="changes">
+              <div class="surface-header">
+                <h2 id="changes" class="font-semibold">What it changes</h2>
+                <p class="text-sm text-muted-color">Against its base: {{ baseInWords(catalog) }}</p>
+              </div>
+              @if (changes(); as changed) {
+                <app-catalog-changes
+                  class="py-4"
+                  name="review"
+                  none="This catalog changes nothing against its base."
+                  [changes]="changed"
+                />
+              }
+            </section>
+            <app-summary-panel [catalogId]="catalog.snapshot.catalogId" />
+          </div>
 
           <section class="surface" aria-labelledby="matrix">
             <div class="surface-header">

@@ -126,6 +126,15 @@ describe('ReviewPage', () => {
     }
     const element = fixture.nativeElement as HTMLElement;
     await vi.waitFor(() => expect(element.querySelector('h2, p, app-read-failed')).not.toBeNull());
+    // A Submitted catalog has a panel for its summary, which asks for it once it is shown.
+    if (element.querySelector('app-summary-panel')) {
+      backend.expectOne('/api/catalogs/41/summary').flush({
+        status: 'READY',
+        headline: 'One engine becomes standard',
+        bullets: [],
+        reason: null,
+      });
+    }
 
     return element;
   }

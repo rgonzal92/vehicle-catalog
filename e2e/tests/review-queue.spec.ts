@@ -114,3 +114,46 @@ test('an author cannot open the review of a catalog', async ({ page }) => {
     page.getByRole('region', { name: 'My catalogs' }).getByRole('row', { name }),
   ).toBeVisible();
 });
+
+test('a reviewer reads a summary of a submitted catalog beside what it changes', async ({
+  page,
+}) => {
+  await signIn(page, 'author');
+  const name = await createWorkingCopy(page, 'SUV', 'Compact SUV', '2026');
+  await page.getByRole('button', { name: 'Submit for review' }).click();
+  const submitting = page.getByRole('dialog', { name: 'Submit for review' });
+  await submitting.getByRole('button', { name: 'Submit', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Withdraw' })).toBeVisible();
+  await signOut(page);
+
+  await signIn(page, 'manager');
+  await page
+    .getByRole('region', { name: 'Review queue' })
+    .getByRole('row', { name })
+    .getByRole('link', { name: new RegExp(`^Review ${name} by `) })
+    .click();
+  const summary = page.getByRole('region', { name: 'Summary' });
+
+  // The worker has the model write it a moment after the submit. Here a stand-in answers for the
+  // model, with the same summary whatever the catalog changes.
+  await expect(summary.getByText('A summary from the stand-in')).toBeVisible({ timeout: 15_000 });
+  await expect(summary.getByText('It says what the catalog changes.')).toBeVisible();
+  await expect(summary.getByText('Written by a language model')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'What it changes' })).toBeVisible();
+  await expectAccessible(page);
+
+  // The panel while a summary is being written, and when there is none to be had.
+  const says = (status: string, reason: string | null) =>
+    page.route('**/api/catalogs/*/summary', (route) =>
+      route.fulfill({ json: { status, headline: null, bullets: [], reason } }),
+    );
+  await says('PENDING', null);
+  await page.reload();
+  await expect(summary.getByText('The summary is being written.')).toBeVisible();
+  await expectAccessible(page);
+  await page.unroute('**/api/catalogs/*/summary');
+  await says('UNAVAILABLE', 'The model did not answer.');
+  await page.reload();
+  await expect(summary.getByText('There is no summary. The model did not answer.')).toBeVisible();
+  await expectAccessible(page);
+});
