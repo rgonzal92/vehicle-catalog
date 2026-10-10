@@ -25,8 +25,14 @@ final class EvaluationReport {
    * The cases of one thing the model is asked for.
    *
    * @param passesWhen what makes a case one that passed, in a sentence or two
+   * @param alsoMeasured what else the run found out for these cases, in a paragraph, or nothing
    */
-  record Suite(String name, String passesWhen, List<Result> results) {}
+  record Suite(String name, String passesWhen, List<Result> results, String alsoMeasured) {
+
+    Suite(String name, String passesWhen, List<Result> results) {
+      this(name, passesWhen, results, null);
+    }
+  }
 
   /** The report, as the Markdown of {@code docs/ai-evaluation.md}. */
   static String of(LocalDate date, String model, BigDecimal cost, List<Suite> suites) {
@@ -55,6 +61,9 @@ final class EvaluationReport {
           .append(row("Worked on", suite.results().stream().filter(one -> !one.heldOut()).toList()))
           .append(row("Held out", suite.results().stream().filter(Result::heldOut).toList()));
       var failed = suite.results().stream().filter(one -> !one.passed()).toList();
+      if (suite.alsoMeasured() != null) {
+        report.append("\n").append(suite.alsoMeasured()).append("\n");
+      }
       report.append(failed.isEmpty() ? "\nNone failed.\n" : "\n### Failed\n\n");
       for (var one : failed) {
         report
