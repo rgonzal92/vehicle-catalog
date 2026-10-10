@@ -406,7 +406,9 @@ It all goes to Amazon CloudWatch.
   ```
 - **Its metrics** go to the same agent, which publishes them under the namespace
   `vehicle-catalog` together with two of the host's own. The dashboard `vehicle-catalog` shows
-  them. The API sends the first nine of these, and the worker sends `job.run` and no other.
+  them. The API sends the first nine of these and the five of the language model. The worker sends
+  `job.run` and, of the model's, `ai.call`, `ai.tokens`, and `ai.refused`: it calls no tools, and
+  the API says what the day has cost.
 
 | Metric | What it says | Told apart by |
 | --- | --- | --- |
@@ -419,18 +421,27 @@ It all goes to Amazon CloudWatch.
 | `catalog.approved` | how many catalogs were approved | nothing |
 | `catalog.rejected` | how many catalogs were rejected | nothing |
 | `catalog.merged` | how many working copies were updated from Approved | nothing |
-| `job.run` | how many jobs the worker handled and how long each took | `type`, of which there are three, and `outcome`: `SUCCESS` or `FAILURE` |
+| `job.run` | how many jobs the worker handled and how long each took | `type`, of which there are four, and `outcome`: `SUCCESS` or `FAILURE` |
+| `ai.call` | how many requests the language model was sent and how long each took | `purpose`, of which there are three: `RULE_SUGGESTION`, `SUBMISSION_SUMMARY`, `ANALYST`, and `outcome`: `SUCCESS` or `FAILURE` |
+| `ai.tokens` | how many tokens the model was sent and answered with | `direction`: `in` or `out` |
+| `ai.tool.calls` | how many tool calls the analyst made | nothing |
+| `ai.refused` | how many requests to the model were refused before they were sent | `reason`, of which there are three: `DAILY_ALLOWANCE`, `ACCOUNT_ALLOWANCE`, `NO_KEY` |
+| `ai.spent` | what asking the model has come to today, reserved and spent, in US dollars | nothing |
 | `mem_used_percent` | the share of the host's memory in use | nothing |
 | `disk_used_percent` | the share of the host's disk in use | nothing that varies |
 
 CloudWatch counts a metric once for every value of what it is told apart by, which makes up to
-twenty-two of these, and charges for each one beyond ten: up to twelve, at about $0.30 a month
-each. So the backend sends no metric that the alarm or the dashboard does not use: `Telemetry.java`
-in the backend turns down every other. A metric is there once it has first been sent, so the two
-times and the fourth outcome, a request that fails in the backend, appear when there has been one,
-and `job.run` counts once for each type of job that has been done and once more for each that has
-failed. The six that count catalogs are sent from the start, as zero in a minute when there was
-none.
+thirty-seven of these, thirteen of them the language model's, and charges for each one beyond ten:
+up to twenty-seven, at about $0.30 a month each, which is at most about $8 a month. So the backend
+sends no metric that the alarm or the dashboard does not use: `Telemetry.java` in the backend
+turns down every other. A metric is there once it has first been sent, so the two times and the
+fourth outcome, a request that fails in the backend, appear when there has been one, and `job.run`
+counts once for each type of job that has been done and once more for each that has failed. The
+six that count catalogs are sent from the start, as zero in a minute when there was none.
+
+The model's metrics are there once what they count has happened: a purpose that is never asked
+for, an outcome or a refusal that never occurs, costs nothing. `ai.spent` is sent from the start
+by an API that has a key for the model, and not at all by one that has none.
 
 The agent adds four labels of its own to each of the backend's metrics, and one of them is the
 version of the library that sent it. The alarm and the dashboard therefore find a metric by its

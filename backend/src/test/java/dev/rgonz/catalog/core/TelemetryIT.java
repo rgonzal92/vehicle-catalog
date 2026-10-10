@@ -80,8 +80,11 @@ class TelemetryIT extends ApplicationIT {
     get("/api/me");
 
     await().untilAsserted(() -> assertThat(counted("CLIENT_ERROR")).isPositive());
-    assertThat(meters.getMeters().stream().map(Meter::getId).map(Meter.Id::getName).distinct())
-        .containsExactlyInAnyOrder(
+    var kept = meters.getMeters().stream().map(Meter::getId).map(Meter.Id::getName).distinct();
+    // What the day's asking of the model has cost is reported from the start. The model's other
+    // metrics are there once what they count has happened, which other tests may have seen to.
+    assertThat(kept.toList())
+        .contains(
             "health",
             "http.server.requests",
             "jvm.heap.used",
@@ -90,7 +93,10 @@ class TelemetryIT extends ApplicationIT {
             "catalog.submit.refused",
             "catalog.approved",
             "catalog.rejected",
-            "catalog.merged");
+            "catalog.merged",
+            "ai.spent")
+        .filteredOn(name -> !name.startsWith("ai."))
+        .hasSize(9);
   }
 
   @Test

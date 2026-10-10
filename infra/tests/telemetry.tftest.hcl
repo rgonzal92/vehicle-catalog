@@ -149,7 +149,8 @@ run "a_backend_that_is_not_ready_or_says_nothing_sets_off_the_alarm" {
 
 run "every_metric_that_is_sent_is_looked_at" {
   assert {
-    # Tests in backend/ hold the API to the first nine and the worker to the last.
+    # Tests in backend/ hold the API to the first nine and the last five, and the worker to
+    # job.run and the model's requests, tokens, and refusals.
     condition = alltrue([
       for metric in [
         "health",
@@ -162,6 +163,11 @@ run "every_metric_that_is_sent_is_looked_at" {
         "catalog.rejected",
         "catalog.merged",
         "job.run",
+        "ai.call",
+        "ai.tokens",
+        "ai.tool.calls",
+        "ai.refused",
+        "ai.spent",
       ] :
       anytrue([
         for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
@@ -169,6 +175,15 @@ run "every_metric_that_is_sent_is_looked_at" {
       ])
     ])
     error_message = "The dashboard shows each of the backend's metrics, found in the app's namespace by its name."
+  }
+
+  assert {
+    condition = one([
+      for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+      widget.properties.annotations.horizontal[0].value
+      if strcontains(jsonencode(widget.properties.metrics), "MetricName=\\\"ai.spent\\\"")
+    ]) == 1
+    error_message = "What the model has cost today is drawn against the day's allowance of a dollar."
   }
 
   assert {

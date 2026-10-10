@@ -339,6 +339,88 @@ resource "aws_cloudwatch_dashboard" "backend" {
           ]
         }
       },
+      {
+        type = "metric", x = 12, y = 36, width = 12, height = 6
+        properties = {
+          title   = "Requests to the language model a minute, by what they were for and how they ended"
+          region  = data.aws_region.current.region
+          view    = "timeSeries"
+          period  = 60
+          stacked = true
+          metrics = [[{
+            expression = "SEARCH('${local.backend_metric} MetricName=\"ai.call\"', 'SampleCount', 60)"
+            id         = "asked"
+            label      = "$${PROP('Dim.purpose')} $${PROP('Dim.outcome')}"
+          }]]
+        }
+      },
+      {
+        type = "metric", x = 0, y = 42, width = 12, height = 6
+        properties = {
+          title  = "How long a request to the language model takes on average, by what it was for and how it ended"
+          region = data.aws_region.current.region
+          view   = "timeSeries"
+          period = 60
+          metrics = [[{
+            expression = "SEARCH('${local.backend_metric} MetricName=\"ai.call\"', 'Average', 60)"
+            id         = "answered"
+            label      = "$${PROP('Dim.purpose')} $${PROP('Dim.outcome')}"
+          }]]
+        }
+      },
+      {
+        type = "metric", x = 12, y = 42, width = 12, height = 6
+        properties = {
+          title  = "Tokens the language model was sent (in) and answered with (out), a minute"
+          region = data.aws_region.current.region
+          view   = "timeSeries"
+          period = 60
+          metrics = [[{
+            expression = "SEARCH('${local.backend_metric} MetricName=\"ai.tokens\"', 'Sum', 60)"
+            id         = "tokens"
+            label      = "$${PROP('Dim.direction')}"
+          }]]
+        }
+      },
+      {
+        type = "metric", x = 0, y = 48, width = 12, height = 6
+        properties = {
+          title  = "Tool calls of the analyst, and requests to the language model that were refused, a minute"
+          region = data.aws_region.current.region
+          view   = "timeSeries"
+          period = 60
+          metrics = [
+            [{
+              expression = "SEARCH('${local.backend_metric} MetricName=\"ai.tool.calls\"', 'Sum', 60)"
+              id         = "tools"
+              label      = "tool calls"
+            }],
+            [{
+              expression = "SEARCH('${local.backend_metric} MetricName=\"ai.refused\"', 'Sum', 60)"
+              id         = "refused"
+              label      = "refused: $${PROP('Dim.reason')}"
+            }],
+          ]
+        }
+      },
+      {
+        type = "metric", x = 12, y = 48, width = 12, height = 6
+        properties = {
+          title  = "What asking the language model has cost today, in US dollars, against the day's allowance"
+          region = data.aws_region.current.region
+          view   = "timeSeries"
+          period = 60
+          metrics = [[{
+            expression = "SEARCH('${local.backend_metric} MetricName=\"ai.spent\"', 'Maximum', 60)"
+            id         = "spent"
+            label      = "reserved and spent"
+          }]]
+          # The backend's own setting, app.ai.allowance.daily.
+          annotations = {
+            horizontal = [{ label = "the day's allowance", value = 1 }]
+          }
+        }
+      },
     ]
   })
 }

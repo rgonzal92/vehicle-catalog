@@ -23,8 +23,11 @@ import org.springframework.http.server.observation.ServerRequestObservationConte
  * is short. Of the API: whether it is ready, its requests by outcome, the memory its heap uses, how
  * long an edit and a copy of a catalog take, and how many catalogs were refused at their submit,
  * approved, rejected, and updated from Approved. Of the worker: how long each job took, by its type
- * and its outcome. Every other metric is turned down here, the many that the libraries offer among
- * them, so a new one is added to its list here and to the dashboard that shows it.
+ * and its outcome. Of both, what they ask the language model: its requests by what they were for
+ * and how they ended, the tokens in and out, and the requests that were refused; and of the API
+ * also the tool calls and what the day has cost. Every other metric is turned down here, the many
+ * that the libraries offer among them, so a new one is added to its list here and to the dashboard
+ * that shows it.
  */
 @Configuration(proxyBeanMethods = false)
 class Telemetry {
@@ -54,10 +57,19 @@ class Telemetry {
           "catalog.submit.refused",
           "catalog.approved",
           "catalog.rejected",
-          "catalog.merged");
+          "catalog.merged",
+          "ai.call",
+          "ai.tokens",
+          "ai.tool.calls",
+          "ai.refused",
+          "ai.spent");
 
-  /** What the worker reports of itself: how long each job took, and nothing else. */
-  private static final Set<String> OF_THE_WORKER = Set.of("job.run");
+  /**
+   * What the worker reports of itself: how long each job took, and of the model what a job asks of
+   * it. It calls no tools, and the API says what the day has cost.
+   */
+  private static final Set<String> OF_THE_WORKER =
+      Set.of("job.run", "ai.call", "ai.tokens", "ai.refused");
 
   @Bean
   MeterFilter onlyTheMetricsThatAreLookedAt(Environment environment) {

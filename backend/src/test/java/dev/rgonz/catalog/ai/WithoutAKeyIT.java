@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.core.Role;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
 
 /**
@@ -13,6 +14,8 @@ import org.springframework.test.context.TestPropertySource;
  */
 @TestPropertySource(properties = "app.ai.api-key=")
 class WithoutAKeyIT extends ApplicationIT {
+  @Autowired io.micrometer.core.instrument.MeterRegistry meters;
+
   @Test
   void theApplicationStartsAndSaysThatTheModelCannotBeAskedAndWhy() {
     var said = mvc.get().uri("/api/ai").with(signedInAs(Role.AUTHOR, "ana")).exchange();
@@ -43,5 +46,11 @@ class WithoutAKeyIT extends ApplicationIT {
         .extractingPath("$.code")
         .isEqualTo("AI_UNAVAILABLE");
     assertThat(ModelStandIn.asked()).isEmpty();
+    assertThat(meters.get("ai.refused").tag("reason", "NO_KEY").counter().count())
+        .as("refusals counted for want of a key")
+        .isEqualTo(1);
+    assertThat(meters.find("ai.spent").gauge())
+        .as("what is reported of a day's cost where nothing can be spent")
+        .isNull();
   }
 }
