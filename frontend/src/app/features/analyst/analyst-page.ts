@@ -56,8 +56,8 @@ interface ShownTurn extends AnalystTurn {
           </li>
         } @empty {
           <li class="text-muted-color">
-            Ask which trims a vehicle line has in a region, where a feature is standard, or what a
-            catalog holds.
+            Ask which trims a vehicle line has in a region, where a feature is standard, which rules
+            name a feature, or what changed between two versions.
           </li>
         }
         @if (asking()) {
