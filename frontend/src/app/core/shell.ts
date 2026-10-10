@@ -13,6 +13,7 @@ import { AngleDoubleLeft } from '@primeicons/angular/angle-double-left';
 import { AngleDoubleRight } from '@primeicons/angular/angle-double-right';
 import { Car } from '@primeicons/angular/car';
 import { Comments } from '@primeicons/angular/comments';
+import { File as FileIcon } from '@primeicons/angular/file';
 import { Globe } from '@primeicons/angular/globe';
 import { Home } from '@primeicons/angular/home';
 import { List } from '@primeicons/angular/list';
@@ -66,6 +67,7 @@ const SIDEBAR = 'sidebar';
     AngleDoubleRight,
     Car,
     Comments,
+    FileIcon,
     Globe,
     Home,
     List,
@@ -243,6 +245,20 @@ const SIDEBAR = 'sidebar';
                         >
                           <svg data-p-icon="users" />
                           <span>Users</span>
+                        </a>
+                      </p-sidebar-menu-item>
+                      <p-sidebar-menu-item>
+                        <a
+                          #documents="routerLinkActive"
+                          pSidebarMenuButton
+                          routerLink="/admin/documents"
+                          routerLinkActive
+                          ariaCurrentWhenActive="page"
+                          title="Documents"
+                          [isActive]="documents.isActive"
+                        >
+                          <svg data-p-icon="file" />
+                          <span>Documents</span>
                         </a>
                       </p-sidebar-menu-item>
                       <p-sidebar-menu-item>

@@ -128,8 +128,8 @@ resource "aws_iam_role_policy" "host_own_parameters" {
 
 # That policy and the ones written here are all its role has: to read its own parameters and no
 # other, to fetch the backend's images, to change roles, to report to Amazon CloudWatch, to write
-# backups, to work off the jobs, and to keep the exported spreadsheets. An apply removes any other
-# policy given to it, in a file here or by hand.
+# backups, to work off the jobs, and to keep the exported spreadsheets and the uploaded documents.
+# An apply removes any other policy given to it, in a file here or by hand.
 resource "aws_iam_role_policies_exclusive" "host" {
   role_name = aws_iam_role.host.name
   policy_names = [
@@ -140,6 +140,7 @@ resource "aws_iam_role_policies_exclusive" "host" {
     aws_iam_role_policy.host_back_up.name,
     aws_iam_role_policy.host_jobs.name,
     aws_iam_role_policy.host_exports.name,
+    aws_iam_role_policy.host_documents.name,
   ]
 }
 
@@ -226,12 +227,13 @@ resource "aws_ssm_parameter" "origin_secret" {
 
 locals {
   # What the stack on the host is told and need not be kept secret: who signs in and where, where
-  # the queue of the jobs is, and which bucket keeps the exported spreadsheets, in which region.
-  # The host keeps it in a file beside the stack's.
+  # the queue of the jobs is, and which buckets keep the exported spreadsheets and the uploaded
+  # documents, in which region. The host keeps it in a file beside the stack's.
   host_settings = join("\n", [
     local.login_settings,
     "JOBS_QUEUE_URL=${aws_sqs_queue.jobs.url}",
     "EXPORTS_BUCKET=${aws_s3_bucket.exports.bucket}",
+    "DOCUMENTS_BUCKET=${aws_s3_bucket.documents.bucket}",
     "AWS_REGION=${data.aws_region.current.region}",
   ])
 }

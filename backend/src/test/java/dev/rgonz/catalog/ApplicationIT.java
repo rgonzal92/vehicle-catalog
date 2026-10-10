@@ -154,6 +154,8 @@ public abstract class ApplicationIT {
 
   private static final String EXPORTS = "exports";
 
+  private static final String DOCUMENTS = "documents";
+
   static {
     DATABASE.start();
     LOGIN_SERVER.start();
@@ -168,6 +170,7 @@ public abstract class ApplicationIT {
             .forcePathStyle(true)
             .build();
     STORED.createBucket(bucket -> bucket.bucket(EXPORTS));
+    STORED.createBucket(bucket -> bucket.bucket(DOCUMENTS));
     try (var sqs =
         SqsClient.builder()
             .region(Region.US_EAST_1)
@@ -217,6 +220,8 @@ public abstract class ApplicationIT {
   static void storage(DynamicPropertyRegistry registry) {
     registry.add("app.exports.bucket", () -> EXPORTS);
     registry.add("app.exports.endpoint", ApplicationIT::storageUrl);
+    registry.add("app.documents.bucket", () -> DOCUMENTS);
+    registry.add("app.documents.endpoint", ApplicationIT::storageUrl);
   }
 
   private static String storageUrl() {
@@ -228,6 +233,23 @@ public abstract class ApplicationIT {
     return STORED.listObjectsV2(bucket -> bucket.bucket(EXPORTS)).contents().stream()
         .map(S3Object::key)
         .toList();
+  }
+
+  /** The keys of the files the bucket of uploaded documents holds. */
+  protected static List<String> documentFiles() {
+    return STORED.listObjectsV2(bucket -> bucket.bucket(DOCUMENTS)).contents().stream()
+        .map(S3Object::key)
+        .toList();
+  }
+
+  /** Takes a file out of the bucket of uploaded documents. */
+  protected static void removeDocumentFile(String key) {
+    STORED.deleteObject(file -> file.bucket(DOCUMENTS).key(key));
+  }
+
+  /** Puts a file into the bucket of uploaded documents, as an upload would have. */
+  protected static void documentFile(String key) {
+    STORED.putObject(file -> file.bucket(DOCUMENTS).key(key), RequestBody.fromString("a note"));
   }
 
   /** Puts a file into the bucket of exported spreadsheets, as an export would have. */

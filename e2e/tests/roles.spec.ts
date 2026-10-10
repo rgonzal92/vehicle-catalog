@@ -31,6 +31,7 @@ const demoAccounts = [
       'Feature library',
       'Global rules',
       'Users',
+      'Documents',
       'Jobs',
     ],
   },

@@ -1,13 +1,12 @@
 package dev.rgonz.catalog.catalog;
 
 import dev.rgonz.catalog.core.ApiException;
+import dev.rgonz.catalog.core.Storage;
 import jakarta.annotation.PreDestroy;
 import java.net.URI;
 import java.time.Duration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -90,15 +89,7 @@ class ExportFiles {
   private synchronized S3Client s3() {
     requireABucket();
     if (s3 == null) {
-      var builder = S3Client.builder();
-      if (!endpoint.isBlank()) {
-        builder
-            .endpointOverride(URI.create(endpoint))
-            .region(Region.US_EAST_1)
-            .credentialsProvider(NO_ONE_IN_PARTICULAR)
-            .forcePathStyle(true);
-      }
-      s3 = builder.build();
+      s3 = Storage.client(endpoint);
     }
     return s3;
   }
@@ -111,20 +102,13 @@ class ExportFiles {
         builder
             .endpointOverride(URI.create(endpoint))
             .region(Region.US_EAST_1)
-            .credentialsProvider(NO_ONE_IN_PARTICULAR)
+            .credentialsProvider(Storage.NO_ONE_IN_PARTICULAR)
             .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build());
       }
       presigner = builder.build();
     }
     return presigner;
   }
-
-  /**
-   * Who a stand-in is reached as. It asks for a name and checks none; Amazon S3 is reached as
-   * whoever the process runs as.
-   */
-  private static final StaticCredentialsProvider NO_ONE_IN_PARTICULAR =
-      StaticCredentialsProvider.create(AwsBasicCredentials.create("stand-in", "stand-in"));
 
   private void requireABucket() {
     if (bucket.isBlank()) {
