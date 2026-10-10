@@ -195,6 +195,12 @@ _Avoid_: Chatbot, assistant, AI search
 One thing the language model had the application look up for an answer of the analyst's, by the tool's name and what the tool was asked. Each answer lists its tool calls.
 _Avoid_: Function call, query
 
+### Documents
+
+**Document**:
+A note an admin uploads about one vehicle line's model year: a file of text, Markdown, or PDF, with a title. It is kept until it is deleted or the demo is reset.
+_Avoid_: Attachment, upload, file (the file is what a document was uploaded as)
+
 ### Jobs
 
 **Job**:

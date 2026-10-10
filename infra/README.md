@@ -297,6 +297,17 @@ The demo reset empties the bucket with everything else that visitors left.
 aws s3 ls s3://rgonz-vehicle-catalog-exports/
 ```
 
+## Uploaded documents
+
+An admin uploads notes about a vehicle line's model year on the page Documents. A document's file
+goes to the bucket `rgonz-vehicle-catalog-documents`, under the document's id, and its row to the
+database. Nothing can make the bucket or a file in it public, and no link to a file is handed out.
+A file stays until its document is deleted. The demo reset removes every document and empties the
+bucket.
+
+What may be uploaded is limited, because the demo lets anyone be an admin: a `.md`, `.txt`, or
+`.pdf` file of at most 2 MB, and at most 20 documents in all.
+
 ## The language model
 
 The app asks a language model of OpenAI's, `gpt-6-luna`, to suggest things that a person then

@@ -106,6 +106,13 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'admin/documents',
+        title: 'Documents · Vehicle Catalog',
+        canActivate: [holding('admin')],
+        loadComponent: () =>
+          import('./features/admin/documents/documents-page').then((page) => page.DocumentsPage),
+      },
+      {
         path: 'admin/users',
         title: 'Users · Vehicle Catalog',
         canActivate: [holding('admin')],

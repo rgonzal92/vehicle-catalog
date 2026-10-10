@@ -376,6 +376,28 @@ class DemoResetIT extends ApplicationIT {
   }
 
   @Test
+  void itLeavesNoDocumentAndNoFileOfOne() {
+    long document =
+        jdbc.sql(
+                """
+                INSERT INTO document
+                    (title, vehicle_line_id, model_year, file_name, kind, size_bytes, uploaded_by)
+                VALUES ('A note', (SELECT min(id) FROM vehicle_line), 2026, 'a-note.md', 'MD', 6,
+                        :person)
+                RETURNING id
+                """)
+            .param("person", person("author"))
+            .query(Long.class)
+            .single();
+    documentFile(String.valueOf(document));
+
+    reset.run();
+
+    assertThat(count("document")).isZero();
+    assertThat(documentFiles()).isEmpty();
+  }
+
+  @Test
   void withTheWorkerStoppedItLeavesTheSameAndTheWorkerThenOnlyChecksTheSeededCatalogs() {
     Worker.forgets(context);
     var seeded = content();

@@ -146,7 +146,12 @@ resource "aws_iam_role_policy" "plan" {
           "s3:ListBucket",
           "s3:ListTagsForResource",
         ]
-        Resource = [aws_s3_bucket.frontend.arn, aws_s3_bucket.backups.arn, aws_s3_bucket.exports.arn]
+        Resource = [
+          aws_s3_bucket.frontend.arn,
+          aws_s3_bucket.backups.arn,
+          aws_s3_bucket.exports.arn,
+          aws_s3_bucket.documents.arn,
+        ]
       },
       {
         # How each of the jobs' two queues is set up. What is on a queue is not read.

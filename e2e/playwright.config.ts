@@ -25,6 +25,7 @@ const parts = [
     'vehicle-lines',
     'users',
     'jobs',
+    'documents',
     'sign-out',
     'seeded-catalogs',
   ],

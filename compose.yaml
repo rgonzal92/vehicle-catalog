@@ -147,6 +147,10 @@ services:
       # follows from outside this stack.
       EXPORTS_BUCKET: exports
       EXPORTS_ENDPOINT: http://localhost:8094
+      # Where uploaded documents are kept. The API and the worker reach them from inside this
+      # stack, and nothing else does.
+      DOCUMENTS_BUCKET: documents
+      DOCUMENTS_ENDPOINT: http://storage:9090
     ports:
       - "127.0.0.1:8090:8080"
     # Ready means startup has finished, which includes filling an empty library.
@@ -189,12 +193,13 @@ services:
       timeout: 3s
       retries: 12
 
-  # Stands in for Amazon S3 and keeps the one bucket of exported spreadsheets. The worker writes a
-  # file there, and a browser reads it through a link the API hands out, so it is published.
+  # Stands in for Amazon S3 and keeps two buckets: the exported spreadsheets and the uploaded
+  # documents. The worker writes a spreadsheet there, and a browser reads it through a link the
+  # API hands out, so it is published.
   storage:
     image: adobe/s3mock:5.2.3
     environment:
-      COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS: exports
+      COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS: exports,documents
     ports:
       - "127.0.0.1:8094:9090"
 
