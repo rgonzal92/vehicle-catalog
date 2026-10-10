@@ -284,6 +284,60 @@
     "expected": null
   },
   {
+    "id": "tow-package-content",
+    "heldOut": false,
+    "sentence": "The Tow Package includes the trailer hitch receiver, the 7-pin trailer wiring connector, and heavy-duty cooling.",
+    "expected": {
+      "kind": "INCLUDES",
+      "source": "PACKAGE_TOW",
+      "targets": [
+        "TOW_HITCH_RECEIVER",
+        "WIRING_TRAILER_7_PIN",
+        "COOLING_HEAVY_DUTY"
+      ],
+      "trims": null,
+      "regions": null
+    }
+  },
+  {
+    "id": "lane-keep-needs-two",
+    "heldOut": false,
+    "sentence": "Lane keep assist needs lane departure warning and electric power steering.",
+    "expected": {
+      "kind": "REQUIRES",
+      "source": "ADAS_LANE_KEEP",
+      "targets": [
+        "ADAS_LANE_DEPARTURE",
+        "STEERING_ELECTRIC"
+      ],
+      "trims": null,
+      "regions": null
+    }
+  },
+  {
+    "id": "surround-view-on-touring-needs-two",
+    "heldOut": false,
+    "sentence": "On Touring, the surround view camera requires front parking sensors and rear parking sensors.",
+    "expected": {
+      "kind": "REQUIRES",
+      "source": "ADAS_SURROUND_VIEW",
+      "targets": [
+        "SENSORS_PARKING_FRONT",
+        "SENSORS_PARKING_REAR"
+      ],
+      "trims": [
+        "Touring"
+      ],
+      "regions": null
+    }
+  },
+  {
+    "id": "no-rule-two-sources",
+    "heldOut": false,
+    "sentence": "Heated rear seats need heated front seats, and the memory driver seat needs the power driver seat.",
+    "expected": null
+  },
+  {
     "id": "heated-wheel-needs-leather-wheel",
     "heldOut": true,
     "sentence": "The heated steering wheel requires the leather-wrapped steering wheel.",
@@ -425,6 +479,27 @@
     "id": "no-rule-a-feature-it-does-not-have",
     "heldOut": true,
     "sentence": "A heated windshield requires heated mirrors.",
+    "expected": null
+  },
+  {
+    "id": "hill-descent-needs-two",
+    "heldOut": true,
+    "sentence": "Hill descent control requires hill start assist and all-wheel drive.",
+    "expected": {
+      "kind": "REQUIRES",
+      "source": "BRAKE_HILL_DESCENT",
+      "targets": [
+        "BRAKE_HILL_START",
+        "DRIVE_AWD"
+      ],
+      "trims": null,
+      "regions": null
+    }
+  },
+  {
+    "id": "no-rule-two-sources-held-out",
+    "heldOut": true,
+    "sentence": "The power liftgate needs power door locks, and rain-sensing wipers need automatic high beams.",
     "expected": null
   }
 ]

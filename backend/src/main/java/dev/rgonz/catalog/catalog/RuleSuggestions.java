@@ -7,7 +7,6 @@ import dev.rgonz.catalog.core.ApiException;
 import dev.rgonz.catalog.library.RuleKind;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -45,10 +44,14 @@ class RuleSuggestions {
       - EXCLUDES: the source and the one target cannot be on the same vehicle.
 
       Answer with the rule the sentence means. Name features by their codes, trims by their names, \
-      and regions by their codes, exactly as the lists have them, and name nothing the lists do \
-      not have. Give trims as null when the sentence names no trim, and regions as null when it \
-      names no region. When the sentence does not say exactly one rule, or cannot be told apart \
-      between features of the lists, set saysOneRule to false and leave the rest empty.
+      and regions by their codes, exactly as the lists have them. Give trims as null when the \
+      sentence names no trim, and regions as null when it names no region.
+
+      Set saysOneRule to false and leave the rest empty when the sentence does not say exactly \
+      one rule, when it names a feature, a trim, or a region that the lists do not have, or when \
+      what it names cannot be told apart between features of the lists. Never leave out what the \
+      sentence names, and never put something else in its place: a rule for more or for less \
+      than the sentence says is wrong.
       """;
 
   private static final String ANSWER =
@@ -125,20 +128,28 @@ class RuleSuggestions {
     return rule(catalogId, catalog, answer);
   }
 
-  /** What the model is given: the sentence, and what the catalog has for a rule to name. */
-  private static Map<String, Object> given(String sentence, CatalogSnapshot catalog) {
-    return Map.of(
-        "sentence",
+  /**
+   * What the model is given: the sentence, and what the catalog has for a rule to name. It is given
+   * in this order every time, the sentence first. The order is part of what the model reads: with
+   * the sentence after the lists it refused sentences that say one rule. These are records because
+   * a map made with {@code Map.of} is ordered anew each time the application starts.
+   */
+  private record Given(
+      String sentence, List<Feature> features, List<String> trims, List<Region> regions) {
+    record Feature(String code, String name, String kind) {}
+
+    record Region(String code, String name) {}
+  }
+
+  private static Given given(String sentence, CatalogSnapshot catalog) {
+    return new Given(
         sentence,
-        "features",
         catalog.featureRows().stream()
-            .map(row -> Map.of("code", row.code(), "name", row.name(), "kind", row.kind().name()))
+            .map(row -> new Given.Feature(row.code(), row.name(), row.kind().name()))
             .toList(),
-        "trims",
         catalog.trims().stream().map(CatalogSnapshot.Trim::name).toList(),
-        "regions",
         catalog.regions().stream()
-            .map(region -> Map.of("code", region.code(), "name", region.name()))
+            .map(region -> new Given.Region(region.code(), region.name()))
             .toList());
   }
 

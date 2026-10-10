@@ -121,6 +121,25 @@ class RuleSuggestionsIT extends WorkingCopyTests {
     assertThat(given.required("regions").toString()).contains("\"code\":\"EU\"");
   }
 
+  @Test
+  void theModelIsSentTheSentenceFirstAndEachPartInTheSameOrderEveryTime() {
+    ModelStandIn.says(rule("REQUIRES", "SEAT_LEATHER", null, null, "AUDIO_PREMIUM"));
+
+    suggest(ana(), copy, "Leather seats need premium audio.");
+
+    // The order is part of what the model reads: with the sentence after the lists it refused
+    // sentences that say one rule. A map made with Map.of is ordered anew each time the
+    // application starts, so nothing of this is one.
+    var given =
+        text(ModelStandIn.asked().getFirst().required("messages").get(1).required("content"));
+    assertThat(given)
+        .startsWith("{\"sentence\":\"Leather seats need premium audio.\",\"features\":[");
+    assertThat(given)
+        .contains("{\"code\":\"SEAT_LEATHER\",\"name\":\"Leather Seats\",\"kind\":\"FEATURE\"}");
+    assertThat(given).containsSubsequence("\"features\":[", "],\"trims\":[", "],\"regions\":[");
+    assertThat(given).contains("{\"code\":\"EU\",\"name\":\"Europe\"}");
+  }
+
   /** A message's content, which is sent as text or as a list of parts of text. */
   private static String text(tools.jackson.databind.JsonNode content) {
     return content.isString() ? content.asString() : content.get(0).required("text").asString();
