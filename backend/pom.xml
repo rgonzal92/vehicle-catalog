@@ -29,8 +29,16 @@
 	<properties>
 		<java.version>25</java.version>
 		<aws-sdk.version>2.55.11</aws-sdk.version>
+		<spring-ai.version>2.0.1</spring-ai.version>
 	</properties>
 	<dependencies>
+		<!-- The model is reached with Spring AI's client for OpenAI. The beans are made in the
+			application itself, which starts without a key, so no starter is used. -->
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-openai</artifactId>
+			<version>${spring-ai.version}</version>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator</artifactId>

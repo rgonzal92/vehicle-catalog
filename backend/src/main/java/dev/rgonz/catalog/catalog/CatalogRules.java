@@ -40,6 +40,38 @@ class CatalogRules {
 
   /** Adds a rule, or for an exclusion a pair for each target. It records each as a change. */
   void add(long catalogId, long actorId, RuleContent given) {
+    for (var rule : whatToAdd(catalogId, given)) {
+      var pairKey = rule.kind() == RuleKind.EXCLUDES ? UUID.randomUUID() : null;
+      var key = insert(catalogId, rule, pairKey);
+      if (pairKey != null) {
+        insert(
+            catalogId,
+            rule.naming(rule.targetFeatureIds().getFirst(), rule.sourceFeatureId()),
+            pairKey);
+      }
+      record(catalogId, actorId, "RULE_ADDED", null, inWords(catalogId, key));
+    }
+  }
+
+  /**
+   * Why the content cannot be added as a rule, or null when it can. Nothing is added: this is what
+   * a suggested rule is held to before anyone is shown it.
+   */
+  String refusalOf(long catalogId, RuleContent given) {
+    try {
+      whatToAdd(catalogId, given);
+      return null;
+    } catch (ApiException refused) {
+      return refused.getBody().getDetail();
+    }
+  }
+
+  /**
+   * The rules to add for the content, which is one, or for an exclusion one for each target. It
+   * refuses content that may not be added: what a rule may not name, more rules than a catalog has,
+   * and a rule that is there already.
+   */
+  private List<RuleContent> whatToAdd(long catalogId, RuleContent given) {
     checkWhatARuleNames(catalogId, given);
     var forward =
         given.kind() == RuleKind.EXCLUDES
@@ -56,16 +88,8 @@ class CatalogRules {
       if (!sayingTheSame(catalogId, rule).isEmpty()) {
         throw ApiException.invalid(ALREADY_THERE);
       }
-      var pairKey = rule.kind() == RuleKind.EXCLUDES ? UUID.randomUUID() : null;
-      var key = insert(catalogId, rule, pairKey);
-      if (pairKey != null) {
-        insert(
-            catalogId,
-            rule.naming(rule.targetFeatureIds().getFirst(), rule.sourceFeatureId()),
-            pairKey);
-      }
-      record(catalogId, actorId, "RULE_ADDED", null, inWords(catalogId, key));
     }
+    return forward;
   }
 
   /**
