@@ -239,4 +239,110 @@ class EvaluationCasesIT extends EvaluationRuns {
       assertThat(answered(one, copy).passed()).as("with the working copy's own trim").isFalse();
     }
   }
+
+  private static DocumentCases.Case documentCase(String id) {
+    return DocumentCases.all().cases().stream()
+        .filter(one -> one.id().equals(id))
+        .findFirst()
+        .orElseThrow();
+  }
+
+  @Test
+  void thereAreAtLeastTwelveQuestionsAboutDocumentsAThirdHeldOutAndEachNamesNotesThatAreThere() {
+    var kept = DocumentCases.all();
+    var titles = kept.documents().stream().map(DocumentCases.Note::title).toList();
+
+    assertThat(kept.cases()).hasSizeGreaterThanOrEqualTo(12);
+    assertThat(kept.cases()).extracting(DocumentCases.Case::id).doesNotHaveDuplicates();
+    assertThat(kept.cases().stream().filter(DocumentCases.Case::heldOut).count() * 3)
+        .isEqualTo(kept.cases().size());
+    assertThat(titles).doesNotHaveDuplicates();
+    for (var one : kept.cases()) {
+      assertThat(titles).as("the notes %s names", one.id()).containsAll(one.cites());
+      assertThat(titles).as("the notes %s forbids", one.id()).containsAll(one.mustNotCite());
+      // What an answer has to cite is a note of the vehicle line and model year it is asked of,
+      // and what it must not cite is a note of another.
+      for (var note : kept.documents()) {
+        var ofTheSame =
+            note.vehicleLine().equals(one.vehicleLine()) && note.modelYear() == one.modelYear();
+        if (one.cites().contains(note.title())) {
+          assertThat(ofTheSame)
+              .as("%s is asked of what %s is about", one.id(), note.title())
+              .isTrue();
+        }
+        if (one.mustNotCite().contains(note.title())) {
+          assertThat(ofTheSame)
+              .as("%s is asked of what %s is about", one.id(), note.title())
+              .isFalse();
+        }
+      }
+    }
+    // Some ask what the chosen documents do not cover, and some what a catalog offers.
+    assertThat(kept.cases())
+        .filteredOn(one -> one.cites().isEmpty() && one.tools().isEmpty())
+        .isNotEmpty();
+    assertThat(kept.cases()).filteredOn(one -> !one.tools().isEmpty()).isNotEmpty();
+  }
+
+  @Test
+  void aQuestionAboutDocumentsPassesOnlyWhenItsAnswerCitesWhatIsExpectedAndNothingForbidden() {
+    theNotesAreReady();
+    var hybrid = documentCase("why-the-hybrid-came-later");
+
+    // The stand-in searches with words of the launch notes, and marks the first passage it is
+    // given, which is theirs.
+    ModelStandIn.asksFor(
+        "search_documents",
+        "{\"query\": \"The hybrid powertrain was not part of the launch content.\"}");
+    ModelStandIn.says("The battery plant reached full output only in September [1].");
+    var right = answeredFromDocuments(hybrid);
+    assertThat(right.passed()).as(right.came()).isTrue();
+    assertThat(right.came())
+        .startsWith("cited Compact SUV 2026: launch notes; called search_documents;");
+
+    // Without a mark there is no citation, so what is expected is not cited.
+    ModelStandIn.says("The battery plant reached full output only in September.");
+    assertThat(answeredFromDocuments(hybrid).passed()).as("without the citation").isFalse();
+
+    // An answer cannot cite a note of another model year, since none is ever found for it. One
+    // that did would fail.
+    var citingAnotherYear =
+        JSON.readTree(
+            """
+            {
+              "answer": "Asia was added [1] [2].",
+              "toolCalls": [{"tool": "search_documents", "arguments": "{}"}],
+              "citations": [
+                {"number": 1, "title": "Compact SUV 2026: launch notes"},
+                {"number": 2, "title": "Compact SUV 2027: carryover notes"}
+              ]
+            }
+            """);
+    assertThat(DocumentCases.judge(hybrid, citingAnotherYear).passed()).isFalse();
+  }
+
+  @Test
+  void aQuestionThatExpectsNothingCitedFailsWhenAnythingIsAndOneAboutACatalogNeedsItsTool() {
+    theNotesAreReady();
+    var notCovered = documentCase("not-covered-at-all");
+    var offered = documentCase("what-the-catalog-offers");
+
+    ModelStandIn.asksFor("search_documents", "{\"query\": \"towing capacity\"}");
+    ModelStandIn.says("The documents do not cover that.");
+    var admitted = answeredFromDocuments(notCovered);
+    assertThat(admitted.passed()).as(admitted.came()).isTrue();
+
+    ModelStandIn.asksFor(
+        "search_documents", "{\"query\": \"The panoramic roof is kept to the Touring trim.\"}");
+    ModelStandIn.says("It can tow a great deal [1].");
+    assertThat(answeredFromDocuments(notCovered).passed()).as("with a citation").isFalse();
+
+    ModelStandIn.asksFor("feature_availability", "{\"feature\": \"NAVIGATION\"}");
+    ModelStandIn.says("Navigation is not offered on Sport in Europe.");
+    var lookedUp = answeredFromDocuments(offered);
+    assertThat(lookedUp.passed()).as(lookedUp.came()).isTrue();
+
+    ModelStandIn.says("Navigation is not offered on Sport in Europe.");
+    assertThat(answeredFromDocuments(offered).passed()).as("without the catalog's tool").isFalse();
+  }
 }

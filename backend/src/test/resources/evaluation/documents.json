@@ -1,0 +1,256 @@
+{
+  "documents": [
+    {
+      "title": "Compact SUV 2026: launch notes",
+      "file": "compact-suv-2026-launch-notes.md",
+      "vehicleLine": "COMPACT_SUV",
+      "modelYear": 2026
+    },
+    {
+      "title": "Compact SUV 2026: supplier notes",
+      "file": "compact-suv-2026-supplier-notes.md",
+      "vehicleLine": "COMPACT_SUV",
+      "modelYear": 2026
+    },
+    {
+      "title": "Compact SUV 2027: carryover notes",
+      "file": "compact-suv-2027-carryover-notes.md",
+      "vehicleLine": "COMPACT_SUV",
+      "modelYear": 2027
+    },
+    {
+      "title": "Sedan 2027: launch notes",
+      "file": "sedan-2027-launch-notes.md",
+      "vehicleLine": "SEDAN",
+      "modelYear": 2027
+    }
+  ],
+  "cases": [
+    {
+      "id": "why-the-hybrid-came-later",
+      "heldOut": false,
+      "vehicleLine": "COMPACT_SUV",
+      "modelYear": 2026,
+      "question": "Why did the hybrid arrive only with the autumn update?",
+      "cites": [
+        "Compact SUV 2026: launch notes"
+      ],
+      "mustNotCite": [
+        "Compact SUV 2027: carryover notes",
+        "Sedan 2027: launch notes"
+      ],
+      "tools": []
+    },
+    {
+      "id": "why-off-road-is-not-in-europe",
+      "heldOut": false,
+      "vehicleLine": "COMPACT_SUV",
+      "modelYear": 2026,
+      "question": "Why is the Off-Road trim not sold in Europe?",
+      "cites": [
+        "Compact SUV 2026: launch notes"
+      ],
+      "mustNotCite": [
+        "Compact SUV 2027: carryover notes",
+        "Sedan 2027: launch notes"
+      ],
+      "tools": []
+    },
+    {
+      "id": "who-makes-the-premium-audio",
+      "heldOut": false,
+      "vehicleLine": "COMPACT_SUV",
+      "modelYear": 2026,
+      "question": "Which company makes the premium audio system?",
+      "cites": [
+        "Compact SUV 2026: supplier notes"
+      ],
+      "mustNotCite": [
+        "Compact SUV 2027: carryover notes",
+        "Sedan 2027: launch notes"
+      ],
+      "tools": []
+    },
+    {
+      "id": "why-asia-was-added",
+      "heldOut": false,
+      "vehicleLine": "COMPACT_SUV",
+      "modelYear": 2027,
+      "question": "Why was Asia added as a region?",
+      "cites": [
+        "Compact SUV 2027: carryover notes"
+      ],
+      "mustNotCite": [
+        "Compact SUV 2026: launch notes",
+        "Compact SUV 2026: supplier notes",
+        "Sedan 2027: launch notes"
+      ],
+      "tools": []
+    },
+    {
+      "id": "battery-supplier-of-2027",
+      "heldOut": false,
+      "vehicleLine": "COMPACT_SUV",
+      "modelYear": 2027,
+      "question": "Who supplies the hybrid's battery pack?",
+      "cites": [
+        "Compact SUV 2027: carryover notes"
+      ],
+      "mustNotCite": [
+        "Compact SUV 2026: launch notes",
+        "Compact SUV 2026: supplier notes",
+        "Sedan 2027: launch notes"
+      ],
+      "tools": []
+    },
+    {
+      "id": "battery-supplier-of-2026",
+      "heldOut": false,
+      "vehicleLine": "COMPACT_SUV",
+      "modelYear": 2026,
+      "question": "Who supplies the hybrid's battery pack?",
+      "cites": [
+        "Compact SUV 2026: supplier notes"
+      ],
+      "mustNotCite": [
+        "Compact SUV 2027: carryover notes",
+        "Sedan 2027: launch notes"
+      ],
+      "tools": []
+    },
+    {
+      "id": "why-europe-gets-luxury",
+      "heldOut": false,
+      "vehicleLine": "SEDAN",
+      "modelYear": 2027,
+      "question": "Why does Europe get the Luxury trim and not the Touring?",
+      "cites": [
+        "Sedan 2027: launch notes"
+      ],
+      "mustNotCite": [
+        "Compact SUV 2026: launch notes",
+        "Compact SUV 2026: supplier notes",
+        "Compact SUV 2027: carryover notes"
+      ],
+      "tools": []
+    },
+    {
+      "id": "not-covered-in-this-year",
+      "heldOut": false,
+      "vehicleLine": "COMPACT_SUV",
+      "modelYear": 2026,
+      "question": "Why was Asia added as a region?",
+      "cites": [],
+      "mustNotCite": [
+        "Compact SUV 2027: carryover notes",
+        "Sedan 2027: launch notes"
+      ],
+      "tools": []
+    },
+    {
+      "id": "not-covered-at-all",
+      "heldOut": false,
+      "vehicleLine": "COMPACT_SUV",
+      "modelYear": 2026,
+      "question": "How much can it tow?",
+      "cites": [],
+      "mustNotCite": [
+        "Compact SUV 2027: carryover notes",
+        "Sedan 2027: launch notes"
+      ],
+      "tools": []
+    },
+    {
+      "id": "what-the-catalog-offers",
+      "heldOut": false,
+      "vehicleLine": "COMPACT_SUV",
+      "modelYear": 2026,
+      "question": "Is navigation standard on the Sport trim in Europe?",
+      "cites": [],
+      "mustNotCite": [
+        "Compact SUV 2027: carryover notes",
+        "Sedan 2027: launch notes"
+      ],
+      "tools": [
+        "feature_availability"
+      ]
+    },
+    {
+      "id": "why-the-panoramic-roof-is-on-touring",
+      "heldOut": true,
+      "vehicleLine": "COMPACT_SUV",
+      "modelYear": 2026,
+      "question": "Why is the panoramic roof only on the Touring trim?",
+      "cites": [
+        "Compact SUV 2026: launch notes"
+      ],
+      "mustNotCite": [
+        "Compact SUV 2027: carryover notes",
+        "Sedan 2027: launch notes"
+      ],
+      "tools": []
+    },
+    {
+      "id": "why-sport-is-not-in-asia",
+      "heldOut": true,
+      "vehicleLine": "COMPACT_SUV",
+      "modelYear": 2027,
+      "question": "Why is the Sport trim not offered in Asia?",
+      "cites": [
+        "Compact SUV 2027: carryover notes"
+      ],
+      "mustNotCite": [
+        "Compact SUV 2026: launch notes",
+        "Compact SUV 2026: supplier notes",
+        "Sedan 2027: launch notes"
+      ],
+      "tools": []
+    },
+    {
+      "id": "who-makes-the-massaging-seats",
+      "heldOut": true,
+      "vehicleLine": "SEDAN",
+      "modelYear": 2027,
+      "question": "Which company supplies the massaging front seats?",
+      "cites": [
+        "Sedan 2027: launch notes"
+      ],
+      "mustNotCite": [
+        "Compact SUV 2026: launch notes",
+        "Compact SUV 2026: supplier notes",
+        "Compact SUV 2027: carryover notes"
+      ],
+      "tools": []
+    },
+    {
+      "id": "not-covered-for-the-sedan",
+      "heldOut": true,
+      "vehicleLine": "SEDAN",
+      "modelYear": 2027,
+      "question": "Why did the hybrid arrive only with the autumn update?",
+      "cites": [],
+      "mustNotCite": [
+        "Compact SUV 2026: launch notes",
+        "Compact SUV 2026: supplier notes",
+        "Compact SUV 2027: carryover notes"
+      ],
+      "tools": []
+    },
+    {
+      "id": "what-the-sedan-offers",
+      "heldOut": true,
+      "vehicleLine": "SEDAN",
+      "modelYear": 2027,
+      "question": "Which trims does the Sedan have in Asia?",
+      "cites": [],
+      "mustNotCite": [
+        "Compact SUV 2026: launch notes",
+        "Compact SUV 2026: supplier notes",
+        "Compact SUV 2027: carryover notes"
+      ],
+      "tools": [
+        "get_approved_catalog"
+      ]
+    }
+  ]
+}

@@ -2,6 +2,7 @@ package dev.rgonz.catalog.catalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.catalog.EvaluationReport.Result;
 import dev.rgonz.catalog.core.Role;
 import dev.rgonz.catalog.job.Worker;
@@ -11,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -127,6 +129,56 @@ abstract class EvaluationRuns extends WorkingCopyTests {
                 "{\"trimIds\": [%d]}".formatted(trim(AnalystCases.TRIM_OF_THE_WORKING_COPY))))
         .hasStatusOk();
     return copy;
+  }
+
+  /**
+   * Uploads the notes the questions about documents are asked of, and has the worker make each
+   * ready to be searched. It starts from no documents.
+   */
+  protected void theNotesAreReady() {
+    jdbc.sql("DELETE FROM document").update();
+    documentFiles().forEach(ApplicationIT::removeDocumentFile);
+    for (var note : DocumentCases.all().documents()) {
+      assertThat(
+              mvc.post()
+                  .uri("/api/documents")
+                  .multipart()
+                  .file(new MockMultipartFile("file", note.file(), null, note.bytes()))
+                  .param("title", note.title())
+                  .param("vehicleLineId", String.valueOf(line(note.vehicleLine())))
+                  .param("modelYear", String.valueOf(note.modelYear()))
+                  .with(csrfToken())
+                  .with(signedInAs(Role.ADMIN, "ada")))
+          .as("the upload of %s", note.file())
+          .hasStatus(201);
+    }
+    // The worker takes ten jobs a turn, and the runs before this one can have left jobs of their
+    // own waiting ahead of the notes'.
+    for (int turn = 0; turn < 5 && count("document WHERE status <> 'READY'") > 0; turn++) {
+      Worker.runs(application);
+    }
+    assertThat(count("document WHERE status <> 'READY'")).as("notes that are not ready").isZero();
+  }
+
+  /** The analyst's answer to a question about the notes, asked by Ana with its notes chosen. */
+  protected Result answeredFromDocuments(DocumentCases.Case one) {
+    return DocumentCases.judge(
+        one,
+        body(
+            edit(
+                ana(),
+                mvc.post().uri("/api/analyst"),
+                null,
+                JSON.writeValueAsString(
+                    Map.of(
+                        "turns",
+                        List.of(Map.of("by", "PERSON", "text", one.question())),
+                        "documentsOf",
+                        Map.of(
+                            "vehicleLineId",
+                            line(one.vehicleLine()),
+                            "modelYear",
+                            one.modelYear()))))));
   }
 
   /** The analyst's answer to the case's question, asked by Ana, who owns the working copy. */
