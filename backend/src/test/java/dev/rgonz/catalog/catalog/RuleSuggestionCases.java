@@ -23,8 +23,8 @@ final class RuleSuggestionCases {
   static final String PASSES_WHEN =
       "A case passes when the suggested rule equals the expected one in its kind, its source, its"
           + " targets, its trims, and its regions, or when no rule is suggested where none is"
-          + " expected. An exclusion says the same whichever of its two features is its source."
-          + " Nothing is judged by a model.";
+          + " expected and the person is told the reason the case names. An exclusion says the"
+          + " same whichever of its two features is its source. Nothing is judged by a model.";
 
   private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -75,9 +75,21 @@ final class RuleSuggestionCases {
    * One sentence and what it should give.
    *
    * @param heldOut whether it is one of those that are not looked at while the prompt is changed
-   * @param expected the rule, or null when the sentence does not say one rule
+   * @param expected the rule, or null when the sentence is to get none
+   * @param why why there is no rule, by the name of the reason whose words the person is to be
+   *     told, or null when any will do
    */
-  record Case(String id, boolean heldOut, String sentence, Rule expected) {}
+  record Case(String id, boolean heldOut, String sentence, Rule expected, String why) {}
+
+  /**
+   * Whether a refusal tells the person the reason a case names. The application's own word that the
+   * catalog lacks what the model named tells the same as the model's.
+   */
+  private static boolean tells(String refusal, RuleSuggestions.NoRule why) {
+    return why.told.equals(refusal)
+        || why == RuleSuggestions.NoRule.NOT_IN_THE_CATALOG
+            && refusal.startsWith("The suggestion names");
+  }
 
   /** Every case, as the repository keeps them. */
   static List<Case> all() {
@@ -122,18 +134,26 @@ final class RuleSuggestionCases {
               suggestion.path("allRegions").asBoolean() ? null : regions);
     }
 
+    var refusal =
+        answered
+            .path("refusal")
+            .asString(answered.path("detail").asString("nothing was said of why"));
+    var expected = "no rule";
+    if (one.expected() != null) {
+      expected = one.expected().toString();
+    } else if (one.why() != null) {
+      expected = "no rule: " + RuleSuggestions.NoRule.valueOf(one.why()).told;
+    }
+
     return new Result(
         one.id(),
         one.heldOut(),
-        one.expected() == null ? came == null : one.expected().saysTheSameAs(came),
+        one.expected() == null
+            ? came == null
+                && (one.why() == null || tells(refusal, RuleSuggestions.NoRule.valueOf(one.why())))
+            : one.expected().saysTheSameAs(came),
         "\"%s\"".formatted(one.sentence()),
-        one.expected() == null ? "no rule" : one.expected().toString(),
-        came == null
-            ? "no rule: %s"
-                .formatted(
-                    answered
-                        .path("refusal")
-                        .asString(answered.path("detail").asString("nothing was said of why")))
-            : came.toString());
+        expected,
+        came == null ? "no rule: %s".formatted(refusal) : came.toString());
   }
 }

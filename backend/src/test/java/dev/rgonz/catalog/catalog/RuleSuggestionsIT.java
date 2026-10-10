@@ -204,6 +204,32 @@ class RuleSuggestionsIT extends WorkingCopyTests {
             ApplicationIT.<String>read(suggest(ana(), copy, "What is the weather?"), "$.refusal"))
         .isEqualTo("The sentence does not say one rule.");
 
+    // The model says why there is no rule, and the person is told in the application's words.
+    var told =
+        Map.of(
+            "\"NOT_ONE_RULE\"",
+            "The sentence does not say one rule.",
+            // What the catalog lacks and what could be two of its features are told as one.
+            "\"NOT_IN_THE_CATALOG\"",
+            "The sentence names a feature, a trim, or a region that this catalog does not have"
+                + " by that name. Name each as the catalog does.",
+            "\"CANNOT_TELL_APART\"",
+            "The sentence names a feature, a trim, or a region that this catalog does not have"
+                + " by that name. Name each as the catalog does.",
+            // A reason that is none of them, or none at all, is told as a sentence of no one rule.
+            "\"BECAUSE\"",
+            "The sentence does not say one rule.",
+            "null",
+            "The sentence does not say one rule.");
+    for (var why : told.keySet()) {
+      ModelStandIn.says(
+          "{\"saysOneRule\": false, \"why\": %s, \"kind\": null, \"source\": null,".formatted(why)
+              + " \"targets\": [], \"trims\": null, \"regions\": null}");
+      assertThat(ApplicationIT.<String>read(suggest(ana(), copy, "a sentence"), "$.refusal"))
+          .as(why)
+          .isEqualTo(told.get(why));
+    }
+
     for (var said : List.of("not JSON at all", "{\"saysOneRule\": true, \"kind\": \"REPLACES\"}")) {
       ModelStandIn.says(said);
       assertThat(ApplicationIT.<String>read(suggest(ana(), copy, "a sentence"), "$.refusal"))
