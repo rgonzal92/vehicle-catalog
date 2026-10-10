@@ -9,18 +9,18 @@ import org.junit.jupiter.api.Test;
  */
 class DatabaseIT extends ApplicationIT {
   @Test
-  void itIsTheHostsPostgresqlAndHasPgvectorToCreate() {
+  void itIsTheHostsPostgresqlWithPgvector() {
     assertThat(jdbc.sql("SHOW server_version").query(String.class).single()).startsWith("18.6");
     assertThat(
             jdbc.sql("SELECT default_version FROM pg_available_extensions WHERE name = 'vector'")
                 .query(String.class)
                 .single())
         .isEqualTo("0.8.7");
-    // Nothing creates it yet: the migration that first keeps a meaning does.
+    // The migration that first keeps a meaning has created it.
     assertThat(
             jdbc.sql("SELECT count(*) FROM pg_extension WHERE extname = 'vector'")
                 .query(Long.class)
                 .single())
-        .isZero();
+        .isEqualTo(1);
   }
 }

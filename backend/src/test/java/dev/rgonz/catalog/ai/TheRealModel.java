@@ -22,6 +22,7 @@ public class TheRealModel {
   @Primary
   Model theRealModel(
       @Value("${app.ai.model}") String name,
+      @Value("${app.ai.embedding-model}") String embeddingName,
       ObservationRegistry observations,
       MeterRegistry metrics,
       Allowance allowance,
@@ -30,6 +31,7 @@ public class TheRealModel {
         Objects.requireNonNullElse(System.getenv("OPENAI_API_KEY"), ""),
         "https://api.openai.com/v1",
         name,
+        embeddingName,
         Duration.ofSeconds(20),
         observations,
         metrics,

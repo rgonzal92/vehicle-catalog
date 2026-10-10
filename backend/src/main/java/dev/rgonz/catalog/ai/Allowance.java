@@ -66,6 +66,7 @@ class Allowance {
   private final BigDecimal dailyPerAccount;
   private final BigDecimal inputPrice;
   private final BigDecimal outputPrice;
+  private final BigDecimal embeddingPrice;
 
   Allowance(
       JdbcClient jdbc,
@@ -74,7 +75,8 @@ class Allowance {
       @Value("${app.ai.allowance.daily}") BigDecimal daily,
       @Value("${app.ai.allowance.daily-per-account}") BigDecimal dailyPerAccount,
       @Value("${app.ai.price.input-per-million}") BigDecimal inputPrice,
-      @Value("${app.ai.price.output-per-million}") BigDecimal outputPrice) {
+      @Value("${app.ai.price.output-per-million}") BigDecimal outputPrice,
+      @Value("${app.ai.price.embedding-per-million}") BigDecimal embeddingPrice) {
     this.jdbc = jdbc;
     // A transaction of its own, so that the turn it takes ends when the reservation is written
     // and not when a transaction around it does, which may last as long as the model takes.
@@ -85,6 +87,7 @@ class Allowance {
     this.dailyPerAccount = dailyPerAccount;
     this.inputPrice = inputPrice;
     this.outputPrice = outputPrice;
+    this.embeddingPrice = embeddingPrice;
   }
 
   /**
@@ -97,8 +100,21 @@ class Allowance {
    * @throws ApiException when the day's allowance or the account's would be passed
    */
   long reserve(Long accountId, String purpose, long inputBytes, int mostOutputTokens) {
-    var cost = cost(inputBytes, mostOutputTokens);
+    return reserve(accountId, purpose, cost(inputBytes, mostOutputTokens));
+  }
 
+  /**
+   * Reserves the most a request to the embedding model can cost, which answers with numbers and is
+   * paid for by what it is sent alone.
+   *
+   * @param inputBytes the size of the texts, which is at least as many bytes as it is tokens
+   * @throws ApiException when the day's allowance or the account's would be passed
+   */
+  long reserveForMeanings(Long accountId, String purpose, long inputBytes) {
+    return reserve(accountId, purpose, costOfMeanings(inputBytes));
+  }
+
+  private long reserve(Long accountId, String purpose, BigDecimal cost) {
     return transactions.execute(
         reserving -> {
           // Held until this transaction ends, so that what the day comes to is read and added to
@@ -126,10 +142,19 @@ class Allowance {
 
   /** Makes a reservation what its request did cost, by the tokens that were used. */
   void spent(long reservation, long inputTokens, long outputTokens) {
+    spent(reservation, cost(inputTokens, outputTokens));
+  }
+
+  /** Makes a reservation what its request to the embedding model did cost. */
+  void spentOnMeanings(long reservation, long tokens) {
+    spent(reservation, costOfMeanings(tokens));
+  }
+
+  private void spent(long reservation, BigDecimal cost) {
     transactions.executeWithoutResult(
         recording ->
             jdbc.sql("UPDATE ai_spend SET spent = :spent WHERE id = :id")
-                .param("spent", cost(inputTokens, outputTokens))
+                .param("spent", cost)
                 .param("id", reservation)
                 .update());
   }
@@ -176,6 +201,11 @@ class Allowance {
         .multiply(BigDecimal.valueOf(inputTokens))
         .add(outputPrice.multiply(BigDecimal.valueOf(outputTokens)))
         .divide(MILLION, 8, RoundingMode.UP);
+  }
+
+  /** What so many tokens sent to the embedding model cost, in US dollars. */
+  private BigDecimal costOfMeanings(long tokens) {
+    return embeddingPrice.multiply(BigDecimal.valueOf(tokens)).divide(MILLION, 8, RoundingMode.UP);
   }
 
   private record Used(BigDecimal total, BigDecimal own) {}

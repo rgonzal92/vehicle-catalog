@@ -1,5 +1,14 @@
 import { DatePipe } from '@angular/common';
-import { Component, computed, ElementRef, inject, OnInit, signal, viewChild } from '@angular/core';
+import {
+  Component,
+  computed,
+  DestroyRef,
+  ElementRef,
+  inject,
+  OnInit,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Button } from 'primeng/button';
 import { Dialog } from 'primeng/dialog';
@@ -21,10 +30,14 @@ import {
   UploadedDocument,
 } from './documents';
 
+/** How often the page looks again while a document is waiting or being read, in milliseconds. */
+export const LOOKS_AGAIN_EVERY = 3000;
+
 /**
- * Where an admin uploads notes about a vehicle line's model year, sees the ones there are, and
- * deletes them. A document is a file of text, Markdown, or PDF, and what may be uploaded is
- * limited: the form says how.
+ * Where an admin uploads notes about a vehicle line's model year, sees the ones there are and how
+ * far the worker is with each, and deletes them. A document is a file of text, Markdown, or PDF,
+ * and what may be uploaded is limited: the form says how. While a document is waiting or being
+ * read, the page looks again every few seconds.
  */
 @Component({
   imports: [
@@ -142,11 +155,28 @@ import {
                     [severity]="severityOf(document.status)"
                     [value]="statusName(document.status)"
                   />
+                  @if (document.status === 'READY') {
+                    <p class="mt-1 text-sm text-muted-color">
+                      {{ document.passages }}
+                      {{ document.passages === 1 ? 'passage' : 'passages' }}
+                    </p>
+                  }
                   @if (document.reason) {
                     <p class="mt-1 text-sm">{{ document.reason }}</p>
                   }
                 </td>
                 <td class="text-right whitespace-nowrap">
+                  @if (document.status === 'FAILED') {
+                    <p-button
+                      label="Process again"
+                      severity="secondary"
+                      size="small"
+                      [text]="true"
+                      [ariaLabel]="'Process the document again: ' + document.title"
+                      [loading]="processing() === document.id"
+                      (onClick)="processAgain(document)"
+                    />
+                  }
                   <p-button
                     label="Delete"
                     severity="secondary"
@@ -227,6 +257,12 @@ export class DocumentsPage implements OnInit {
   protected readonly deletingNow = signal(false);
   protected readonly deletionRefusal = signal('');
 
+  /** The document that is being given to the worker again, by its id. */
+  protected readonly processing = signal<number | null>(null);
+
+  /** The next look the page takes by itself, while one is due. */
+  private nextLook: ReturnType<typeof setTimeout> | undefined;
+
   protected readonly form = inject(FormBuilder).group({
     title: ['', [Validators.required, Validators.maxLength(LONGEST_DOCUMENT_TITLE)]],
     vehicleLineId: [null as number | null, Validators.required],
@@ -238,19 +274,51 @@ export class DocumentsPage implements OnInit {
     this.vehicleLines.lines().filter((line) => line.active),
   );
 
+  constructor() {
+    inject(DestroyRef).onDestroy(() => clearTimeout(this.nextLook));
+  }
+
   ngOnInit(): void {
     void this.load();
     // A failure to read either list has already been shown as a message.
     void Promise.all([this.vehicleLines.load(), this.fixedLists.load()]).catch(() => undefined);
   }
 
-  protected async load(): Promise<void> {
-    this.failed.set(false);
-    try {
-      this.documents.set(await this.service.list());
-    } catch {
-      this.failed.set(true);
+  /**
+   * Reads the documents. While one is waiting or being read, it reads them again shortly, and
+   * what goes wrong with a look nobody asked for is left for the next one.
+   */
+  protected async load(unasked = false): Promise<void> {
+    clearTimeout(this.nextLook);
+    if (!unasked) {
+      this.failed.set(false);
     }
+    try {
+      this.documents.set(await this.service.list(unasked));
+    } catch {
+      if (!unasked) {
+        this.failed.set(true);
+        return;
+      }
+    }
+    if (this.documents()?.some(({ status }) => status === 'WAITING' || status === 'RUNNING')) {
+      this.nextLook = setTimeout(() => void this.load(true), LOOKS_AGAIN_EVERY);
+    }
+  }
+
+  protected async processAgain(document: UploadedDocument): Promise<void> {
+    if (this.processing() !== null) {
+      return;
+    }
+    this.processing.set(document.id);
+    try {
+      await this.service.processAgain(document.id);
+    } catch (error) {
+      this.refusal.set(reasonOf(error));
+    } finally {
+      this.processing.set(null);
+    }
+    await this.load();
   }
 
   /** Takes the file that was chosen, and calls the document by its name until it has a title. */

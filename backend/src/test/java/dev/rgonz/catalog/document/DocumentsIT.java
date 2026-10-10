@@ -4,10 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.core.Role;
+import dev.rgonz.catalog.job.Worker;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationContext;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -24,6 +28,8 @@ class DocumentsIT extends ApplicationIT {
   private static final byte[] A_NOTE =
       "# Launch notes\n\nThe hybrid follows in the autumn.\n".getBytes(StandardCharsets.UTF_8);
 
+  @Autowired ApplicationContext application;
+
   private long suv;
 
   @BeforeEach
@@ -32,6 +38,13 @@ class DocumentsIT extends ApplicationIT {
     jdbc.sql("DELETE FROM document").update();
     documentFiles().forEach(DocumentsIT::forget);
     suv = line("COMPACT_SUV");
+  }
+
+  /** An upload leaves a job for the worker, which is no part of what these tests are about. */
+  @AfterEach
+  void noJobs() {
+    jdbc.sql("DELETE FROM document").update();
+    Worker.forgets(application);
   }
 
   private static void forget(String key) {

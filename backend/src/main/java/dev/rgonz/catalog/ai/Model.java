@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -22,9 +23,15 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.embedding.Embedding;
+import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.ai.embedding.EmbeddingRequest;
+import org.springframework.ai.embedding.EmbeddingResponse;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.openai.OpenAiEmbeddingModel;
+import org.springframework.ai.openai.OpenAiEmbeddingOptions;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.beans.factory.annotation.Value;
@@ -61,7 +68,11 @@ public class Model {
   /** The model, or null when there is no key to ask it with. */
   private final ChatModel chat;
 
+  /** The model that says what a text means, or null when there is no key to ask it with. */
+  private final EmbeddingModel embedding;
+
   private final String name;
+  private final String embeddingName;
   private final Duration timeout;
   private final MeterRegistry metrics;
   private final Allowance allowance;
@@ -74,14 +85,28 @@ public class Model {
       @Value("${app.ai.api-key}") String key,
       @Value("${app.ai.base-url}") String baseUrl,
       @Value("${app.ai.model}") String name,
+      @Value("${app.ai.embedding-model}") String embeddingName,
       @Value("${app.ai.timeout}") Duration timeout,
       ObservationRegistry observations,
       MeterRegistry metrics,
       Allowance allowance,
       JsonMapper json) {
     this.name = name;
+    this.embeddingName = embeddingName;
     this.timeout = timeout;
     this.metrics = metrics;
+    this.embedding =
+        key.isBlank()
+            ? null
+            : new OpenAiEmbeddingModel(
+                OpenAiEmbeddingOptions.builder()
+                    .apiKey(key)
+                    .baseUrl(baseUrl)
+                    .model(embeddingName)
+                    .timeout(timeout)
+                    .maxRetries(0)
+                    .build(),
+                observations);
     this.allowance = allowance;
     this.json = json;
     if (!key.isBlank()) {
@@ -136,6 +161,56 @@ public class Model {
             why -> {
               throw allowance.refused(why);
             });
+  }
+
+  /**
+   * What each text means, as the numbers the embedding model gives it, in the order of the texts.
+   * It is one request, reserved against the allowance first by what is sent, since that is all it
+   * is paid for by, and timed and counted as every request is.
+   *
+   * @param accountId whose request it is, or null for one of the application's own
+   * @param purpose what it is for, as the record of spending names it
+   * @throws ApiException when the model cannot be asked, when the allowance does not cover the
+   *     request, and when the model failed or was too slow
+   */
+  public List<float[]> meaningsOf(Long accountId, String purpose, List<String> texts) {
+    if (embedding == null) {
+      throw noKey();
+    }
+    long size = FRAMING_BYTES + texts.stream().mapToLong(text -> bytes(text)).sum();
+    long reservation = allowance.reserveForMeanings(accountId, purpose, size);
+
+    var timing = Timer.start(metrics);
+    EmbeddingResponse answer;
+    try {
+      answer =
+          embedding.call(
+              new EmbeddingRequest(
+                  texts,
+                  OpenAiEmbeddingOptions.builder()
+                      .model(embeddingName)
+                      .timeout(timeout)
+                      .maxRetries(0)
+                      .build()));
+      if (answer.getResults().size() != texts.size()) {
+        throw new IllegalStateException("The model answered for another number of texts.");
+      }
+    } catch (RuntimeException failure) {
+      timing.stop(metrics.timer("ai.call", "purpose", purpose, "outcome", "FAILURE"));
+      log.warn("The embedding model did not answer: {}", failure.getClass().getSimpleName());
+      throw ApiException.unavailable("AI_FAILED", "The model did not answer.");
+    }
+    timing.stop(metrics.timer("ai.call", "purpose", purpose, "outcome", "SUCCESS"));
+    var usage = answer.getMetadata().getUsage();
+    if (usage != null && usage.getPromptTokens() != null && usage.getPromptTokens() > 0) {
+      allowance.spentOnMeanings(reservation, usage.getPromptTokens());
+      metrics.counter("ai.tokens", "direction", "in").increment(usage.getPromptTokens());
+    }
+
+    return answer.getResults().stream()
+        .sorted(Comparator.comparing(Embedding::getIndex))
+        .map(Embedding::getOutput)
+        .toList();
   }
 
   /** The refusal of a request for want of a key, which is counted as one. */

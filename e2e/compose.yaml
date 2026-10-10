@@ -9,6 +9,7 @@ services:
         condition: service_healthy
     volumes:
       - ./e2e/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./e2e/embedding.json:/etc/caddy/embedding.json:ro
       - ./frontend/dist/vehicle-catalog/browser:/srv:ro
     ports:
       - "127.0.0.1:8092:8080"

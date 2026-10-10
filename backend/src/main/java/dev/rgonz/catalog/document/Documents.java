@@ -2,6 +2,8 @@ package dev.rgonz.catalog.document;
 
 import dev.rgonz.catalog.core.ApiException;
 import dev.rgonz.catalog.core.ResetCleanup;
+import dev.rgonz.catalog.job.JobType;
+import dev.rgonz.catalog.job.Jobs;
 import dev.rgonz.catalog.reference.FixedLists;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -10,6 +12,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,23 +31,36 @@ class Documents implements ResetCleanup {
 
   private static final byte[] HOW_A_PDF_STARTS = "%PDF-".getBytes(StandardCharsets.US_ASCII);
 
+  /**
+   * A document as the list shows it. One whose job has failed for good while it waited or ran has
+   * failed too: nothing will read it until it is given to the worker again.
+   */
   private static final String LISTED =
       """
       SELECT d.id, d.title, d.vehicle_line_id, v.name AS vehicle_line, d.model_year, d.file_name,
-             d.size_bytes, u.display_name AS uploaded_by, d.uploaded_at, d.status, d.reason
+             d.size_bytes, u.display_name AS uploaded_by, d.uploaded_at,
+             CASE WHEN d.status IN ('WAITING', 'RUNNING') AND j.status = 'FAILED'
+                  THEN 'FAILED' ELSE d.status END AS status,
+             CASE WHEN d.status IN ('WAITING', 'RUNNING') AND j.status = 'FAILED'
+                  THEN 'The job that reads it has failed. The page Jobs has what it last said.'
+                  ELSE d.reason END AS reason,
+             (SELECT count(*) FROM document_passage p WHERE p.document_id = d.id) AS passages
       FROM document d
       JOIN vehicle_line v ON v.id = d.vehicle_line_id
       JOIN app_user u ON u.id = d.uploaded_by
+      LEFT JOIN job j ON j.dedupe_key = 'document-' || d.id || '-' || d.processings
       """;
 
   private final JdbcClient jdbc;
   private final DocumentFiles files;
   private final FixedLists fixedLists;
+  private final Jobs jobs;
 
-  Documents(JdbcClient jdbc, DocumentFiles files, FixedLists fixedLists) {
+  Documents(JdbcClient jdbc, DocumentFiles files, FixedLists fixedLists, Jobs jobs) {
     this.jdbc = jdbc;
     this.files = files;
     this.fixedLists = fixedLists;
+    this.jobs = jobs;
   }
 
   /** What a file is, which its name says: the three kinds a document may be. */
@@ -62,8 +79,9 @@ class Documents implements ResetCleanup {
   /**
    * A document as the list shows it.
    *
-   * @param status WAITING until the worker has read it
+   * @param status WAITING until the worker has it, RUNNING while it does, and then READY or FAILED
    * @param reason why it failed, for one that did
+   * @param passages how many passages it was split into, which a ready one is searched by
    */
   record Listed(
       long id,
@@ -76,7 +94,8 @@ class Documents implements ResetCleanup {
       String uploadedBy,
       Instant uploadedAt,
       String status,
-      String reason) {}
+      String reason,
+      int passages) {}
 
   /** Every document, newest first. */
   List<Listed> all() {
@@ -150,8 +169,49 @@ class Documents implements ResetCleanup {
             .query(Long.class)
             .single();
     files.put(String.valueOf(id), file, kind.contentType);
+    giveToTheWorker(id, 0);
 
-    return jdbc.sql(LISTED + "WHERE d.id = :id").param("id", id).query(Listed.class).single();
+    return find(id).orElseThrow();
+  }
+
+  /**
+   * Gives a document that has failed to the worker once more, with a job of its own.
+   *
+   * @throws ApiException when there is no such document, or it has not failed
+   */
+  @Transactional
+  Listed processAgain(long id) {
+    var document = find(id).orElseThrow(ApiException::notFound);
+    if (!document.status().equals("FAILED")) {
+      throw ApiException.conflict(
+          "NOT_FAILED", "Only a document that has failed is processed again.");
+    }
+    int processing =
+        jdbc.sql(
+                """
+                UPDATE document
+                SET processings = processings + 1, status = 'WAITING', reason = NULL
+                WHERE id = :id
+                RETURNING processings
+                """)
+            .param("id", id)
+            .query(Integer.class)
+            .single();
+    giveToTheWorker(id, processing);
+
+    return find(id).orElseThrow();
+  }
+
+  private Optional<Listed> find(long id) {
+    return jdbc.sql(LISTED + "WHERE d.id = :id").param("id", id).query(Listed.class).optional();
+  }
+
+  /** Leaves the job that reads a document, with the change that calls for it. */
+  private void giveToTheWorker(long id, int processing) {
+    jobs.queue(
+        JobType.PROCESS_DOCUMENT,
+        "document-%d-%d".formatted(id, processing),
+        Map.of(DocumentProcessing.DOCUMENT, id, DocumentProcessing.PROCESSING, processing));
   }
 
   /** Removes a document: its row, and its file. A file that cannot be removed keeps the row. */

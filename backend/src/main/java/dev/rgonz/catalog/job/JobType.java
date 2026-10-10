@@ -9,5 +9,7 @@ public enum JobType {
   /** What follows a request for a catalog as a spreadsheet: the file is built and kept. */
   EXPORT,
   /** What follows a submit: the language model writes a summary of what the catalog changes. */
-  SUMMARISE_SUBMISSION
+  SUMMARISE_SUBMISSION,
+  /** What follows an upload: the document is read, split into passages, and made searchable. */
+  PROCESS_DOCUMENT
 }

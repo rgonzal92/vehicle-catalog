@@ -21,8 +21,14 @@
 # be listed, and once it has them it answers in words. Whatever else it is asked, it answers with
 # one thing that holds an answer to each: that Leather Seats require Premium Audio, on every trim
 # and in every region, and a summary that names no feature and no trim.
+#
+# Asked what a text means, it answers with the same 1,536 numbers whatever the text, from
+# embedding.json, in the packed form the backend's client asks for. It answers for one text, so a
+# document of the browser tests is one passage long.
 :8090 {
 	header Content-Type application/json
+
+	respond /v1/embeddings {file./etc/caddy/embedding.json} 200
 
 	@hasWhatAToolReturned expression `{http.request.body}.contains('"tool_call_id"')`
 	@mayUseTools expression `{http.request.body}.contains('"tools"')`
