@@ -79,7 +79,8 @@ final class RuleSuggestionCases {
    * @param why why there is no rule, by the name of the reason whose words the person is to be
    *     told, or null when any will do
    */
-  record Case(String id, boolean heldOut, String sentence, Rule expected, String why) {}
+  record Case(String id, boolean heldOut, String sentence, Rule expected, String why)
+      implements EvaluationReport.ACase {}
 
   /**
    * Whether a refusal tells the person the reason a case names. The application's own word that the

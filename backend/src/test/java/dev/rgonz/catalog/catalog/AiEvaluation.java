@@ -14,6 +14,8 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledIfSystemProperty;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Import;
@@ -24,6 +26,10 @@ import org.springframework.context.annotation.Import;
  * costs money and needs a key: it runs with {@code ./mvnw verify -Pevaluation} and {@code
  * OPENAI_API_KEY} in the environment, and never as part of the build, which runs no class of this
  * name.
+ *
+ * <p>One asking does not show a failure that comes and goes. With {@code -Dask=} and the names of
+ * cases, it asks only those, as often as {@code -Dtimes=} says, and writes how often each passed to
+ * a file of the build's and not to the report.
  */
 @Import(TheRealModel.class)
 class AiEvaluation extends EvaluationRuns {
@@ -38,12 +44,41 @@ class AiEvaluation extends EvaluationRuns {
 
   @Autowired Model model;
 
-  @Test
-  void measuresTheModelAndWritesTheReport() throws Exception {
+  private void startsWithAKeyAndNothingSpent() {
     assertThat(System.getenv("OPENAI_API_KEY"))
         .as("OPENAI_API_KEY in the environment, which asking the real model needs")
         .isNotBlank();
     jdbc.sql("DELETE FROM ai_spend").update();
+  }
+
+  private BigDecimal spent() {
+    return jdbc.sql("SELECT coalesce(sum(coalesce(spent, reserved)), 0) FROM ai_spend")
+        .query(BigDecimal.class)
+        .single()
+        .stripTrailingZeros();
+  }
+
+  @Test
+  @EnabledIfSystemProperty(named = "ask", matches = ".+")
+  void asksTheCasesNamedOftenAndWritesHowOftenEachPassed() throws Exception {
+    startsWithAKeyAndNothingSpent();
+    var suites =
+        askedOften(
+            List.of(System.getProperty("ask").split(",")),
+            Integer.parseInt(System.getProperty("times", "10")));
+
+    Files.writeString(
+        Path.of(EvaluationReport.ASKED_OFTEN),
+        EvaluationReport.ofAskedOften(LocalDate.now(ZoneOffset.UTC), modelName, spent(), suites));
+  }
+
+  @Test
+  @DisabledIfSystemProperty(named = "ask", matches = ".+")
+  void measuresTheModelAndWritesTheReport() throws Exception {
+    assertThat(System.getProperty("times"))
+        .as("-Dtimes, which says how often the cases of -Dask are asked and needs it")
+        .isNull();
+    startsWithAKeyAndNothingSpent();
     var suites = new ArrayList<Suite>();
 
     seedLibraryAndCatalogs();
@@ -78,14 +113,8 @@ class AiEvaluation extends EvaluationRuns {
             aboutDocuments.stream().map(this::answeredFromDocuments).toList(),
             howAlikeTheClosestPassagesAre(aboutDocuments)));
 
-    var cost =
-        jdbc.sql("SELECT coalesce(sum(coalesce(spent, reserved)), 0) FROM ai_spend")
-            .query(BigDecimal.class)
-            .single();
     Files.writeString(
-        REPORT,
-        EvaluationReport.of(
-            LocalDate.now(ZoneOffset.UTC), modelName, cost.stripTrailingZeros(), suites));
+        REPORT, EvaluationReport.of(LocalDate.now(ZoneOffset.UTC), modelName, spent(), suites));
   }
 
   /**

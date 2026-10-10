@@ -47,7 +47,8 @@ final class AnalystCases {
       boolean ofAWorkingCopy,
       List<String> tools,
       List<List<String>> facts,
-      List<String> absent) {
+      List<String> absent)
+      implements EvaluationReport.ACase {
 
     /** The question as it is asked, of this working copy. */
     String asked(long copy) {

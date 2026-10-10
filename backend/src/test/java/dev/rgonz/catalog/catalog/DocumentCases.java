@@ -63,7 +63,8 @@ final class DocumentCases {
       String question,
       List<String> cites,
       List<String> mustNotCite,
-      List<String> tools) {}
+      List<String> tools)
+      implements EvaluationReport.ACase {}
 
   /** The notes and the cases, as the repository keeps them. */
   record Kept(List<Note> documents, List<Case> cases) {}

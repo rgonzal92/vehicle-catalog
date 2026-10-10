@@ -1,8 +1,11 @@
 package dev.rgonz.catalog.catalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.rgonz.catalog.ai.ModelStandIn;
+import dev.rgonz.catalog.catalog.EvaluationReport.ACase;
+import dev.rgonz.catalog.catalog.EvaluationReport.Result;
 import dev.rgonz.catalog.catalog.EvaluationReport.Suite;
 import dev.rgonz.catalog.catalog.RuleSuggestionCases.Rule;
 import dev.rgonz.catalog.job.Worker;
@@ -208,6 +211,79 @@ class EvaluationCasesIT extends EvaluationRuns {
     var named = suggested(copy, limited);
     assertThat(named.passed()).as(named.came()).isTrue();
     assertThat(named.came()).contains("names the trim Limited");
+  }
+
+  /** The ids of the cases of a set that prompts are worked on with. */
+  private static List<String> workedOn(List<? extends ACase> cases) {
+    return cases.stream().filter(one -> !one.heldOut()).map(ACase::id).toList();
+  }
+
+  @Test
+  void aCaseAskedThreeTimesOfAModelThatIsWrongOnceIsSaidToPassTwoOfThreeWithWhatElseCame()
+      throws Exception {
+    var leather = RuleSuggestionCases.all().getFirst();
+    ModelStandIn.says(saying(leather.expected()));
+    ModelStandIn.says(
+        saying(new Rule("REQUIRES", "SEAT_LEATHER", List.of("NAVIGATION"), null, null)));
+    ModelStandIn.says(saying(leather.expected()));
+
+    var said =
+        EvaluationReport.ofAskedOften(
+            LocalDate.of(2026, 10, 10),
+            "a-model",
+            new BigDecimal("0.0123"),
+            askedOften(List.of(leather.id()), 3));
+
+    assertThat(ModelStandIn.asked()).hasSize(3);
+    assertThat(said)
+        .contains(
+            "- Run on 2026-10-10 with `a-model`.",
+            "- The askings cost US$0.0123 by the table of spending.",
+            """
+            ## Rule suggestions
+
+            | Case | Passed | Of |
+            | --- | --- | --- |
+            | `leather-needs-premium-audio` | 2 | 3 |
+
+            ### What else came
+
+            - `leather-needs-premium-audio`: "Leather seats need premium audio."
+              - expected: REQUIRES SEAT_LEATHER -> AUDIO_PREMIUM; trims: every one; regions: every one
+              - came in 1 of 3: REQUIRES SEAT_LEATHER -> NAVIGATION; trims: every one; regions: every one
+            """);
+  }
+
+  @Test
+  void aSetsNameAsksEachOfItsWorkedOnCasesAndAHeldOutCaseOrAnUnknownNameIsRefusedUnasked()
+      throws Exception {
+    // The stand-in was told nothing to say, so no asking passes: it is which cases were asked
+    // that is looked at.
+    var suites = askedOften(List.of("rule-suggestions", "analyst", "documents"), 1);
+
+    assertThat(suites)
+        .extracting(Suite::name)
+        .containsExactly("Rule suggestions", "The analyst", "Answers from documents");
+    assertThat(suites.get(0).results())
+        .extracting(Result::id)
+        .containsExactlyElementsOf(workedOn(RuleSuggestionCases.all()));
+    assertThat(suites.get(1).results())
+        .extracting(Result::id)
+        .containsExactlyElementsOf(workedOn(AnalystCases.all()));
+    assertThat(suites.get(2).results())
+        .extracting(Result::id)
+        .containsExactlyElementsOf(workedOn(DocumentCases.all().cases()));
+    assertThat(EvaluationReport.ofAskedOften(LocalDate.EPOCH, "a-model", BigDecimal.ZERO, suites))
+        .contains("| `trims-in-asia` | 0 | 1 |", "came in 1 of 1: no answer: ");
+
+    ModelStandIn.forgets();
+    assertThatThrownBy(
+            () -> askedOften(List.of("leather-needs-premium-audio", "no-rule-a-question"), 3))
+        .hasMessageContaining("no-rule-a-question is held out");
+    assertThatThrownBy(() -> askedOften(List.of("documents", "navigation-standard-on-sport"), 3))
+        .hasMessageContaining("navigation-standard-on-sport")
+        .hasMessageContaining("summaries are asked once");
+    assertThat(ModelStandIn.asked()).as("what was asked of the model").isEmpty();
   }
 
   @Test
