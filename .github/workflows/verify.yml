@@ -82,17 +82,18 @@ jobs:
           # Empty on pull requests from forks and from Dependabot; the build passes without it.
           PRIMEUI_LICENSE_KEY: ${{ secrets.PRIMEUI_LICENSE_KEY }}
 
-  # The browser tests, in two halves that run at the same time, each on a machine of its own with
+  # The browser tests, in three parts that run at the same time, each on a machine of its own with
   # a stack and a database of its own. One machine does not get through them sooner with more
-  # workers: its processors are shared with the stack, and the browsers go short.
+  # workers: its processors are shared with the stack, and the browsers go short. Which tests a
+  # part runs is in e2e/playwright.config.ts, shared out so that the parts take about as long.
   browser-tests:
-    name: browser tests, half ${{ matrix.half }} of 2
+    name: browser tests, part ${{ matrix.part }} of 3
     runs-on: ubuntu-latest
     strategy:
-      # A half that fails does not stop the other, whose report is wanted all the same.
+      # A part that fails does not stop the others, whose reports are wanted all the same.
       fail-fast: false
       matrix:
-        half: [1, 2]
+        part: [1, 2, 3]
     defaults:
       run:
         working-directory: e2e
@@ -121,15 +122,18 @@ jobs:
       - name: Install
         run: npm ci --prefix ../frontend && npm ci
       - name: Install the browser
-        run: npx playwright install --with-deps chromium
+        # Without the system's packages that Playwright can add for it: this machine has what
+        # Chromium needs, and the rest were nine packages of fonts for other scripts, fetched from
+        # Ubuntu's mirror on every run, which took from ten seconds to four minutes.
+        run: npx playwright install chromium
       - name: Lint
         run: npm run format:check && npm run lint && npm run typecheck
       - name: Browser tests
         # The database lives only for this run, so its password is made up on the spot.
         run: CATALOG_DB_PASSWORD="$(openssl rand -hex 16)" npm run e2e
         env:
-          # Which part of the suite this machine runs, as Playwright counts them.
-          SHARD: ${{ matrix.half }}/2
+          # Which part of the suite this machine runs.
+          PART: ${{ matrix.part }}/3
           # Empty on pull requests from forks and from Dependabot; the build passes without it.
           PRIMEUI_LICENSE_KEY: ${{ secrets.PRIMEUI_LICENSE_KEY }}
       - name: Gather the images to keep
@@ -139,18 +143,18 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
-          name: playwright-report-half-${{ matrix.half }}
+          name: playwright-report-part-${{ matrix.part }}
           path: e2e/playwright-report
           retention-days: 7
 
-  # What a merge and a deploy wait for: both halves of the browser tests. It runs whatever became
+  # What a merge and a deploy wait for: every part of the browser tests. It runs whatever became
   # of them, because a check that is skipped counts as one that passed.
   e2e:
     needs: browser-tests
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Both halves passed
+      - name: Every part passed
         run: test "$RESULT" = success
         env:
           RESULT: ${{ needs.browser-tests.result }}
