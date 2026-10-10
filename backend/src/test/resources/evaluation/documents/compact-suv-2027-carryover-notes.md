@@ -17,7 +17,8 @@ From model year 2027 the battery pack of the hybrid is supplied by Kestrel Cells
 the supplier of 2026 ended with that model year, and Kestrel Cells builds the pack in Rayong, next
 to the car.
 
-## Paint
+## New for 2027
 
-Dark Green Metallic becomes available on every trim for 2027. In 2026 the paint shop could mix it
-for one shift a week only.
+Pearl White joins the paints for 2027, since the paint shop in Rayong has a booth for pearl
+finishes. Traffic Jam Assist is new as well: it was held back a year so that it could be tested
+on the roads the car is now sold on.

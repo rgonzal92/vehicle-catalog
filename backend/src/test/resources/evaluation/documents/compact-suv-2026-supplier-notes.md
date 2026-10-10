@@ -15,4 +15,5 @@ supplies the battery cooling system, which is why the two are always ordered tog
 ## Wireless charging
 
 The wireless phone charging pad was redesigned before launch after phones slid off it in testing.
-The redesigned pad has a raised rubber edge, and it fits the center console of every trim.
+The redesigned pad has a raised rubber edge, and it is the one fitted wherever the catalog offers
+wireless charging.
