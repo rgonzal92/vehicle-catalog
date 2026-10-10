@@ -201,6 +201,14 @@ _Avoid_: Function call, query
 A note an admin uploads about one vehicle line's model year: a file of text, Markdown, or PDF, with a title. It is kept until it is deleted or the demo is reset.
 _Avoid_: Attachment, upload, file (the file is what a document was uploaded as)
 
+**Passage**:
+A piece of a document's text, short enough to be about one thing, kept with what it means so that it is found by a question about the same thing.
+_Avoid_: Chunk, snippet, excerpt
+
+**Citation**:
+A passage that an answer of the analyst's took from, which the answer marks with the passage's number and lists with its document's title.
+_Avoid_: Source, reference, footnote
+
 ### Jobs
 
 **Job**:

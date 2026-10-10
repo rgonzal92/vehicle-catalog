@@ -324,6 +324,14 @@ to about a quarter of a cent. The model and its price are settings, `app.ai.embe
 perhaps more or fewer of them, so changing it means a migration for the table of passages and
 processing every document again.
 
+On the page Analyst, someone can choose a vehicle line's model year that has a ready document. The
+model can then search those documents, and no others: which ones is the person's choice, held to
+in the database's query, and nothing the model says changes it. A search asks the embedding model
+once what its words mean, and returns the six passages closest to that. A passage less alike than
+`app.documents.least-likeness` is not returned, so a question the documents have nothing on finds
+nothing. An answer marks what it took from a passage, and lists the passage with its document's
+title.
+
 ## The language model
 
 The app asks a language model of OpenAI's, `gpt-6-luna`, to suggest things that a person then
@@ -457,7 +465,7 @@ It all goes to Amazon CloudWatch.
 | `catalog.rejected` | how many catalogs were rejected | nothing |
 | `catalog.merged` | how many working copies were updated from Approved | nothing |
 | `job.run` | how many jobs the worker handled and how long each took | `type`, of which there are five, and `outcome`: `SUCCESS` or `FAILURE` |
-| `ai.call` | how many requests the language model was sent and how long each took | `purpose`, of which there are four: `RULE_SUGGESTION`, `SUBMISSION_SUMMARY`, `ANALYST`, `DOCUMENT_EMBEDDING`, and `outcome`: `SUCCESS` or `FAILURE` |
+| `ai.call` | how many requests the language model was sent and how long each took | `purpose`, of which there are five: `RULE_SUGGESTION`, `SUBMISSION_SUMMARY`, `ANALYST`, `DOCUMENT_EMBEDDING`, `QUESTION_EMBEDDING`, and `outcome`: `SUCCESS` or `FAILURE` |
 | `ai.tokens` | how many tokens the model was sent and answered with | `direction`: `in` or `out` |
 | `ai.tool.calls` | how many tool calls the analyst made | nothing |
 | `ai.refused` | how many requests to the model were refused before they were sent | `reason`, of which there are three: `DAILY_ALLOWANCE`, `ACCOUNT_ALLOWANCE`, `NO_KEY` |
@@ -466,13 +474,13 @@ It all goes to Amazon CloudWatch.
 | `disk_used_percent` | the share of the host's disk in use | nothing that varies |
 
 CloudWatch counts a metric once for every value of what it is told apart by, which makes up to
-forty-one of these, fifteen of them the language model's, and charges for each one beyond ten:
-up to thirty-one, at about $0.30 a month each, which is at most about $9 a month. So the backend
-sends no metric that the alarm or the dashboard does not use: `Telemetry.java` in the backend
-turns down every other. A metric is there once it has first been sent, so the two times and the
-fourth outcome, a request that fails in the backend, appear when there has been one, and `job.run`
-counts once for each type of job that has been done and once more for each that has failed. The
-six that count catalogs are sent from the start, as zero in a minute when there was none.
+forty-three of these, seventeen of them the language model's, and charges for each one beyond ten:
+up to thirty-three, at about $0.30 a month each, which is at most about $10 a month. So the backend
+sends no metric that the alarm or the dashboard does not use: `Telemetry.java` in the backend turns
+down every other. A metric is there once it has first been sent, so the two times and the fourth
+outcome, a request that fails in the backend, appear when there has been one, and `job.run` counts
+once for each type of job that has been done and once more for each that has failed. The six that
+count catalogs are sent from the start, as zero in a minute when there was none.
 
 The model's metrics are there once what they count has happened: a purpose that is never asked
 for, an outcome or a refusal that never occurs, costs nothing. `ai.spent` is sent from the start

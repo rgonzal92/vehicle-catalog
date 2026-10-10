@@ -181,4 +181,24 @@ class ConversationIT extends ApplicationIT {
             });
     assertThat(ModelStandIn.asked()).hasSize(1);
   }
+
+  @Test
+  void aToolThatIsRefusedTheModelItselfIsNoAnswerForTheModelButARefusalForThePerson() {
+    ModelStandIn.asksFor("look_up", "{}");
+    ModelStandIn.says("Never said.");
+
+    assertThatThrownBy(
+            () ->
+                answerWith(
+                    tool(
+                        "look_up",
+                        _ -> {
+                          throw ApiException.allowanceSpent(
+                              "Today's allowance for the model is spent.", Allowance.renewsAt());
+                        })))
+        .isInstanceOfSatisfying(
+            ApiException.class,
+            refused -> assertThat(refused.getStatusCode().value()).isEqualTo(429));
+    assertThat(ModelStandIn.asked()).hasSize(1);
+  }
 }
