@@ -102,8 +102,9 @@ class RuleSuggestionsIT extends WorkingCopyTests {
     assertThat(asked).hasSize(1);
     var request = asked.getFirst();
     assertThat(request.required("model").asString()).isEqualTo("gpt-6-luna");
-    assertThat(request.required("max_completion_tokens").asInt()).isEqualTo(300);
-    assertThat(request.required("reasoning_effort").asString()).isEqualTo("none");
+    // The model reasons before it answers, within the limit on what it may say.
+    assertThat(request.required("max_completion_tokens").asInt()).isEqualTo(1000);
+    assertThat(request.required("reasoning_effort").asString()).isEqualTo("medium");
     assertThat(request.required("response_format").required("type").asString())
         .isEqualTo("json_schema");
     var messages = request.required("messages");

@@ -3,7 +3,7 @@
 Cases with known answers, run against the real model. They are kept in `backend/src/test/resources/evaluation/`. A third of each set is held out: those cases are not looked at while a prompt is changed, and are reported apart, so that they say how the prompt does on sentences it was not written for.
 
 - Run on 2026-10-10 with `gpt-6-luna`.
-- The run cost US$0.03092162 by the table of spending, of the dollar a day may cost.
+- The run cost US$0.03295946 by the table of spending, of the dollar a day may cost.
 - To run it again, with `OPENAI_API_KEY` in the environment: `./mvnw verify -Pevaluation` in `backend/`. It writes this file, and is no part of the build or of the pipeline.
 - One asking does not show a failure that comes and goes. To ask chosen cases several times each, add `-Dask=` with their ids and `-Dtimes=` with how often, which is ten times when it is left out. Commas go between ids, and `rule-suggestions`, `analyst`, or `documents` in the place of an id asks every case of that set that is worked on. Such a run asks no held-out case, leaves this file as it is, and writes `backend/target/ai-evaluation-asked-often.md`.
 
