@@ -83,7 +83,8 @@ public abstract class ApplicationIT {
   protected static final String CLIENT_ID = "catalog-test";
 
   @ServiceConnection
-  static final PostgreSQLContainer DATABASE = new PostgreSQLContainer("postgres:18.6");
+  static final PostgreSQLContainer DATABASE =
+      new PostgreSQLContainer("pgvector/pgvector:0.8.7-pg18-trixie");
 
   /**
    * Signing in as "author", "manager", or "admin" yields the claims Amazon Cognito would send for
