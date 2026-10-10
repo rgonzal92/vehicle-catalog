@@ -79,6 +79,10 @@ interface ShownTurn extends AnalystTurn {
           <li class="text-muted-color">
             Ask which trims a vehicle line has in a region, where a feature is standard, which rules
             name a feature, or what changed between two versions.
+            @if (subjects().length) {
+              Choose a vehicle line's model year under "Documents of" to ask what its notes say as
+              well.
+            }
           </li>
         }
         @if (asking()) {

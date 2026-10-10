@@ -324,6 +324,15 @@ to about a quarter of a cent. The model and its price are settings, `app.ai.embe
 perhaps more or fewer of them, so changing it means a migration for the table of passages and
 processing every document again.
 
+The demo starts with three notes, so that there is something to ask about without uploading:
+about Compact SUV 2026, Compact SUV 2027, and Sedan 2027. They are made up, they are in
+`backend/src/main/resources/seed/documents/`, and they state nothing about a catalog that the
+seeded catalog does not offer. The app uploads them as the demo's admin when it starts and finds
+no documents, and each demo reset removes every document and puts these three back. The worker
+makes them ready as it does any upload, which costs under a hundredth of a cent a day. They count
+towards the 20 documents there can be, and an admin can delete them. `app.documents.seeded=false`
+turns this off.
+
 On the page Analyst, someone can choose a vehicle line's model year that has a ready document. The
 model can then search those documents, and no others: which ones is the person's choice, held to
 in the database's query, and nothing the model says changes it. A search asks the embedding model

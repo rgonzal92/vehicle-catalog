@@ -76,3 +76,38 @@ test('someone chooses whose documents are searched and reads an answer that cite
   await expect(cited).toContainText('The hybrid follows in the autumn. It comes to Europe first.');
   await expectAccessible(page);
 });
+
+test('someone asks about a document the demo starts with and reads its citation', async ({
+  page,
+}) => {
+  await signIn(page, 'author');
+  // The worker makes the notes the demo starts with ready shortly after the stack has started.
+  await expect
+    .poll(
+      async () => {
+        const listed = await page.request.get('/api/analyst/documents');
+        const subjects = (await listed.json()) as { vehicleLine: string; modelYear: number }[];
+        return subjects.map((one) => `${one.vehicleLine} ${one.modelYear}`);
+      },
+      { timeout: 60_000 },
+    )
+    .toEqual(expect.arrayContaining(['Compact SUV 2026', 'Compact SUV 2027', 'Sedan 2027']));
+
+  await page
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link', { name: 'Analyst' })
+    .click();
+  const conversation = page.getByRole('region', { name: 'Conversation' });
+  await expect(conversation).toContainText(
+    'Choose a vehicle line\'s model year under "Documents of"',
+  );
+  await choose(conversation, 'Documents of', 'Compact SUV 2026');
+  await page.getByLabel('Your question').fill('Why did the hybrid come later?');
+  await page.getByRole('button', { name: 'Ask' }).click();
+
+  const cited = conversation.getByRole('list', { name: 'Documents cited' }).getByRole('listitem');
+  await cited.getByText('[1] Compact SUV 2026: product notes').click();
+  await expect(cited.first()).toContainText(
+    'The hybrid powertrain was not part of the launch content.',
+  );
+});

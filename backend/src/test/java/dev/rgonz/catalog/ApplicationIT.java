@@ -68,6 +68,8 @@ import software.amazon.awssdk.services.sqs.model.QueueAttributeName;
       "app.demo-reset.cron=-",
       // A stand-in answers for the model, which is not waited for as long as the real one is.
       "app.ai.api-key=a-key-for-the-tests",
+      // The tests upload the documents they are about. The demo's own are for the tests of those.
+      "app.documents.seeded=false",
       "app.ai.timeout=2s",
       "spring.security.oauth2.client.registration.cognito.client-id=" + ApplicationIT.CLIENT_ID,
       "spring.security.oauth2.client.registration.cognito.client-secret=test-secret"
