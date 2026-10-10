@@ -152,7 +152,11 @@ abstract class EvaluationRuns extends WorkingCopyTests {
           .as("the upload of %s", note.file())
           .hasStatus(201);
     }
-    Worker.runs(application);
+    // The worker takes ten jobs a turn, and the runs before this one can have left jobs of their
+    // own waiting ahead of the notes'.
+    for (int turn = 0; turn < 5 && count("document WHERE status <> 'READY'") > 0; turn++) {
+      Worker.runs(application);
+    }
     assertThat(count("document WHERE status <> 'READY'")).as("notes that are not ready").isZero();
   }
 

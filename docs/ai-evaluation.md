@@ -3,7 +3,7 @@
 Cases with known answers, run against the real model. They are kept in `backend/src/test/resources/evaluation/`. A third of each set is held out: those cases are not looked at while a prompt is changed, and are reported apart, so that they say how the prompt does on sentences it was not written for.
 
 - Run on 2026-10-10 with `gpt-6-luna`.
-- The run cost US$0.0183068 by the table of spending, of the dollar a day may cost.
+- The run cost US$0.02724964 by the table of spending, of the dollar a day may cost.
 - To run it again, with `OPENAI_API_KEY` in the environment: `./mvnw verify -Pevaluation` in `backend/`. It writes this file, and is no part of the build or of the pipeline.
 
 ## Rule suggestions
@@ -34,7 +34,24 @@ A case passes when the tools it names were called, when the answer holds every f
 
 | Cases | Passed | Of |
 | --- | --- | --- |
-| Worked on | 8 | 8 |
+| Worked on | 7 | 8 |
 | Held out | 4 | 4 |
+
+### Failed
+
+- `where-a-feature-is-found` (worked on): "Is there a feature for massaging seats, and which vehicle line offers it?"
+  - expected: calls search_features, feature_availability; holds Massaging Front Seats or SEAT_MASSAGE_FRONT, Sedan; does not hold anything in particular
+  - came: called search_features; answered: The feature library has no match for “massaging seats,” so I can’t determine whether it is offered or which vehicle line offers it.
+
+## Answers from documents
+
+A case passes when the answer cites every document the case expects and none it forbids, such as the note of another model year, and when the tools it names were called. A case that expects no document passes only when nothing is cited: that is a question the chosen documents do not cover, or one about what a catalog offers, which is looked up and not read from a note. Nothing is judged by a model.
+
+| Cases | Passed | Of |
+| --- | --- | --- |
+| Worked on | 10 | 10 |
+| Held out | 5 | 5 |
+
+How alike the closest passage of the chosen notes is to a question, from 0 to 1, for the cases that are worked on: 0.36 to 0.61 where the notes answer the question, and 0.18 to 0.25 where they do not. A search returns no passage that is less alike than 0.30.
 
 None failed.
