@@ -138,7 +138,7 @@ test('a reviewer reads a summary of a submitted catalog beside what it changes',
   // model, with the same summary whatever the catalog changes.
   await expect(summary.getByText('A summary from the stand-in')).toBeVisible({ timeout: 15_000 });
   await expect(summary.getByText('It says what the catalog changes.')).toBeVisible();
-  await expect(summary.getByText(/^Written by a language model/)).toBeVisible();
+  await expect(summary.getByText('Written by a language model')).toBeVisible();
   await expect(page.getByRole('region', { name: 'What it changes' })).toBeVisible();
   await expectAccessible(page);
 
