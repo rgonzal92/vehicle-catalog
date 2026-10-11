@@ -375,7 +375,7 @@ class AnalystIT extends WorkingCopyTests {
   }
 
   @Test
-  void aLineagesVersionsAreListedWithWhoApprovedEachAndWhen() {
+  void aLineagesVersionsAreListedWithWhenEachWasApprovedAndTheModelIsSentNoOnesName() {
     long first = approved("COMPACT_SUV", 2026, 1);
     long second = approved("COMPACT_SUV", 2026, 2);
     var approver =
@@ -385,6 +385,7 @@ class AnalystIT extends WorkingCopyTests {
             .param(first)
             .query(String.class)
             .single();
+    assertThat(approver).isEqualTo("Demo Manager");
 
     var listed = returned(ana(), "list_versions", Map.of("catalogId", first));
 
@@ -393,11 +394,25 @@ class AnalystIT extends WorkingCopyTests {
             """
             {"vehicleLine":"Compact SUV","modelYear":2026,"versions":[\
             {"catalogId":%d,"versionNumber":2,"name":"Hybrid and autumn update",\
-            "approvedBy":"%s","approvedAt":"2025-11-03T15:30:00Z"},\
+            "approvedAt":"2025-11-03T15:30:00Z"},\
             {"catalogId":%d,"versionNumber":1,"name":"Launch content",\
-            "approvedBy":"%s","approvedAt":"2025-06-16T14:00:00Z"}]}\
+            "approvedAt":"2025-06-16T14:00:00Z"}]}\
             """
-                .formatted(second, approver, first, approver));
+                .formatted(second, first));
+    // Nothing the model was sent holds who approved: not the tool's answer, and nothing else.
+    var sent = ModelStandIn.asked();
+    assertThat(sent).hasSize(2);
+    assertThat(sent.toString()).doesNotContain(approver);
+    // The model is told what the tool gives, and that it is not told who approved.
+    for (var tool : sent.getFirst().path("tools")) {
+      if (tool.findValue("name").asString().equals("list_versions")) {
+        assertThat(tool.findValue("description").asString())
+            .contains("catalog id", "number", "name", "when it was approved")
+            .doesNotContain("who");
+      }
+    }
+    assertThat(sent.getFirst().path("messages").get(0).path("content").asString())
+        .contains("You are not told who approved a version");
   }
 
   @Test

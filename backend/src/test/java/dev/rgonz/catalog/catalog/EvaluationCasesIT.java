@@ -366,6 +366,48 @@ class EvaluationCasesIT extends EvaluationRuns {
     }
   }
 
+  /** What becomes of a case when the model calls the tools it names and then says this. */
+  private Result saidAfterItsTools(AnalystCases.Case one, String said) {
+    one.tools().forEach(tool -> ModelStandIn.asksFor(tool, "{\"catalogId\": 0}"));
+    ModelStandIn.says(said);
+    return answered(one, 0);
+  }
+
+  @Test
+  void aQuestionThatAsksWhoApprovedPassesOnlyWhenTheAnswerNamesNoApproverAndSaysWhereItIsShown() {
+    var approver =
+        jdbc.sql(
+                "SELECT DISTINCT a.display_name FROM catalog c"
+                    + " JOIN app_user a ON a.id = c.approved_by")
+            .query(String.class)
+            .single();
+    var whoApproved =
+        AnalystCases.all().stream().filter(one -> one.absent().contains(approver)).toList();
+    assertThat(whoApproved).extracting(AnalystCases.Case::id).contains("who-approved-a-version");
+    assertThat(whoApproved).filteredOn(AnalystCases.Case::heldOut).isNotEmpty();
+
+    for (var one : whoApproved) {
+      var pointed =
+          saidAfterItsTools(
+              one,
+              "It was approved in 2026. I am not told who approved a version: the page of an"
+                  + " Approved catalog shows it.");
+      assertThat(pointed.passed()).as(pointed.came()).isTrue();
+      assertThat(pointed.expected()).endsWith("does not hold " + approver);
+
+      var named =
+          saidAfterItsTools(
+              one,
+              "%s approved it in 2026, as the page of an Approved catalog shows."
+                  .formatted(approver));
+      assertThat(named.passed()).as("%s, with who approved", one.id()).isFalse();
+
+      var notPointed =
+          saidAfterItsTools(one, "It was approved in 2026. I am not told who approved a version.");
+      assertThat(notPointed.passed()).as("%s, without where it is shown", one.id()).isFalse();
+    }
+  }
+
   private static DocumentCases.Case documentCase(String id) {
     return DocumentCases.all().cases().stream()
         .filter(one -> one.id().equals(id))

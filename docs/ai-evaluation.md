@@ -2,8 +2,8 @@
 
 Cases with known answers, run against the real model. They are kept in `backend/src/test/resources/evaluation/`. A third of each set is held out: those cases are not looked at while a prompt is changed, and are reported apart, so that they say how the prompt does on sentences it was not written for.
 
-- Run on 2026-10-10 with `gpt-6-luna`.
-- The run cost US$0.03295946 by the table of spending, of the dollar a day may cost.
+- Run on 2026-10-11 with `gpt-6-luna`.
+- The run cost US$0.03029732 by the table of spending, of the dollar a day may cost.
 - To run it again, with `OPENAI_API_KEY` in the environment: `./mvnw verify -Pevaluation` in `backend/`. It writes this file, and is no part of the build or of the pipeline.
 - One asking does not show a failure that comes and goes. To ask chosen cases several times each, add `-Dask=` with their ids and `-Dtimes=` with how often, which is ten times when it is left out. Commas go between ids, and `rule-suggestions`, `analyst`, or `documents` in the place of an id asks every case of that set that is worked on. Such a run asks no held-out case, leaves this file as it is, and writes `backend/target/ai-evaluation-asked-often.md`.
 
@@ -31,12 +31,12 @@ None failed.
 
 ## The analyst
 
-A case passes when the tools it names were called, when the answer holds every fact it requires, and when the answer holds nothing it names as a working copy's. The working copy of such a case has a trim, Performance, that no Approved catalog has. Words are looked for whatever their case, and nothing is judged by a model.
+A case passes when the tools it names were called, when the answer holds every fact it requires, and when the answer holds nothing the case forbids. A case that asks for what a working copy holds forbids what that working copy alone has: a trim, Performance, that no Approved catalog has. A case that asks who approved a version forbids the name of the person who did, which the model is not told, and requires the word page, since the answer is to say that the page of an Approved catalog shows it. Words are looked for whatever their case, and nothing is judged by a model.
 
 | Cases | Passed | Of |
 | --- | --- | --- |
-| Worked on | 8 | 8 |
-| Held out | 4 | 4 |
+| Worked on | 10 | 10 |
+| Held out | 5 | 5 |
 
 None failed.
 

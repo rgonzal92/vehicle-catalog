@@ -13,15 +13,19 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * The questions the analyst is asked to measure the model, about the seeded Approved catalogs, each
  * with the tools that have to be called for it and the facts its answer has to hold. Some ask for
- * what a working copy holds, and pass when the answer holds none of it. Nothing is judged by a
- * model: an answer is searched for words.
+ * what a working copy holds, and pass when the answer holds none of it. Some ask who approved a
+ * version, which the model is not told, and pass when the answer does not name that person and says
+ * that a page shows it. Nothing is judged by a model: an answer is searched for words.
  */
 final class AnalystCases {
   static final String PASSES_WHEN =
       "A case passes when the tools it names were called, when the answer holds every fact it"
-          + " requires, and when the answer holds nothing it names as a working copy's. The working"
-          + " copy of such a case has a trim, Performance, that no Approved catalog has. Words are"
-          + " looked for whatever their case, and nothing is judged by a model.";
+          + " requires, and when the answer holds nothing the case forbids. A case that asks for"
+          + " what a working copy holds forbids what that working copy alone has: a trim,"
+          + " Performance, that no Approved catalog has. A case that asks who approved a version"
+          + " forbids the name of the person who did, which the model is not told, and requires"
+          + " the word page, since the answer is to say that the page of an Approved catalog shows"
+          + " it. Words are looked for whatever their case, and nothing is judged by a model.";
 
   /** The trim that the working copy of a case has and that no seeded Approved catalog has. */
   static final String TRIM_OF_THE_WORKING_COPY = "Performance";
