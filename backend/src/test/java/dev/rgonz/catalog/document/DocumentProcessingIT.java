@@ -8,10 +8,14 @@ import dev.rgonz.catalog.ai.ModelStandIn;
 import dev.rgonz.catalog.core.Role;
 import dev.rgonz.catalog.job.Worker;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterEach;
@@ -220,6 +224,49 @@ class DocumentProcessingIT extends ApplicationIT {
                 .list())
         .as("each job is done, since another try would end the same way")
         .containsExactly("SUCCEEDED after 1");
+  }
+
+  @Test
+  void whileAPdfsReadingGoesOnPastItsTimeTheWorkerDoesTheJobQueuedAfterIt() throws Exception {
+    var over = new CountDownLatch(1);
+    var ended = new AtomicBoolean();
+    processing.text =
+        (kind, file) ->
+            kind == Documents.Kind.PDF
+                ? DocumentText.within(
+                    Duration.ofSeconds(1),
+                    () -> {
+                      try {
+                        return DocumentTextTest.goesOnUntil(over);
+                      } finally {
+                        ended.set(true);
+                      }
+                    })
+                : DocumentText.of(kind, file);
+    try {
+      long slow = upload("slow.pdf", Pdfs.of(List.of("Launch notes")));
+      // Apart and with a time to be done in, so that a worker that waits for the reading fails.
+      CompletableFuture.runAsync(() -> Worker.runs(application)).get(10, TimeUnit.SECONDS);
+      assertThat(listed(slow)).isEqualTo("FAILED: It took too long to read., 0 passages");
+
+      long note = upload("The hybrid follows in the autumn.");
+      Worker.runs(application);
+
+      assertThat(listed(note)).isEqualTo("READY, 1 passages");
+      assertThat(ended).as("the reading has ended").isFalse();
+      assertThat(
+              jdbc.sql(
+                      """
+                      SELECT DISTINCT status || ' after ' || attempts FROM job
+                      WHERE type = 'PROCESS_DOCUMENT'
+                      """)
+                  .query(String.class)
+                  .list())
+          .containsExactly("SUCCEEDED after 1");
+    } finally {
+      over.countDown();
+      processing.text = DocumentText::of;
+    }
   }
 
   @Test

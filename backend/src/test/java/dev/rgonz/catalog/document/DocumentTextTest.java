@@ -5,8 +5,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.rgonz.catalog.document.Documents.Kind;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
 /** Checks that the text of an uploaded file is read, and what becomes of a file that cannot be. */
@@ -99,5 +104,59 @@ class DocumentTextTest {
     assertThat(pdf.length).isBetween(1_500_000, 2 * 1024 * 1024);
     assertThat(text.length()).isBetween(400_000, DocumentText.MOST_TEXT);
     assertThat(text).contains("Page 140, line 48:");
+  }
+
+  /** A reading that goes on until its test is over, whatever it is told. */
+  static String goesOnUntil(CountDownLatch over) {
+    while (true) {
+      try {
+        over.await();
+        return "";
+      } catch (InterruptedException toldToStop) {
+        // It does not stop.
+      }
+    }
+  }
+
+  /**
+   * What asking for a text within a time comes to: the text, or why there is none. It is asked
+   * apart and given two seconds, so that a reading that is waited for fails its test.
+   */
+  private static String asked(Duration longest, Callable<String> text) throws Exception {
+    return CompletableFuture.supplyAsync(
+            () -> {
+              try {
+                return DocumentText.within(longest, text);
+              } catch (DocumentText.Unreadable why) {
+                return "Unreadable: " + why.getMessage();
+              }
+            })
+        .get(2, TimeUnit.SECONDS);
+  }
+
+  @Test
+  void aReadingThatNeverEndsFailsOnceItsTimeIsOverAndIsNotWaitedFor() throws Exception {
+    var over = new CountDownLatch(1);
+    try {
+      assertThat(asked(Duration.ofSeconds(1), () -> goesOnUntil(over)))
+          .isEqualTo("Unreadable: It took too long to read.");
+    } finally {
+      over.countDown();
+    }
+  }
+
+  @Test
+  void aPdfWaitsForAReadingThatWasLeftBehindAndIsReadOnceThatHasEnded() throws Exception {
+    var over = new CountDownLatch(1);
+    try {
+      assertThat(asked(Duration.ofMillis(200), () -> goesOnUntil(over)))
+          .isEqualTo("Unreadable: It took too long to read.");
+
+      assertThat(asked(Duration.ofMillis(200), () -> "Launch notes"))
+          .isEqualTo("Unreadable: It waited too long for another PDF to be read.");
+    } finally {
+      over.countDown();
+    }
+    assertThat(asked(Duration.ofSeconds(1), () -> "Launch notes")).isEqualTo("Launch notes");
   }
 }
