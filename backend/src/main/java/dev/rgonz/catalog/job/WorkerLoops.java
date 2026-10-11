@@ -17,8 +17,12 @@ import org.springframework.stereotype.Component;
 @Profile("worker")
 @TalksToTheQueue
 class WorkerLoops {
-  /** The longest SQS lets a receiver wait for a message. */
-  private static final Duration LONGEST_WAIT = Duration.ofSeconds(20);
+  /**
+   * How long one wait on the queue lasts. A worker that is told to stop ends the wait it is in and
+   * starts no other, so it stops within this long, and Docker gives it ten seconds. A job that is
+   * running then has what is left of them. Each wait is a request to SQS, so it is no shorter.
+   */
+  private static final Duration WAIT = Duration.ofSeconds(2);
 
   private final Publisher publisher;
   private final Consumer consumer;
@@ -53,9 +57,12 @@ class WorkerLoops {
     consumer.sweepTheDeadLetterQueue();
   }
 
-  /** Waits on the queue without a pause: a message is handled as soon as it arrives. */
+  /**
+   * Waits on the queue, one wait after another without a pause: a message is handled as soon as it
+   * arrives.
+   */
   @Scheduled(fixedDelayString = "PT0.01S")
   void consume() {
-    consumer.receive(LONGEST_WAIT);
+    consumer.receive(WAIT);
   }
 }
