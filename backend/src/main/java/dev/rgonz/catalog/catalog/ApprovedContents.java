@@ -17,6 +17,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -76,6 +77,14 @@ class ApprovedContents implements HealthIndicator, ResetCleanup {
   private final LongAdder misses = new LongAdder();
   private final LongAdder fallbacks = new LongAdder();
   private final AtomicBoolean down = new AtomicBoolean();
+
+  /**
+   * What the reads of a version wait their turn on, so that one of them at a time asks the database
+   * for it. Two versions may share one, and then wait for each other, which costs a little time and
+   * nothing else.
+   */
+  private final Object[] oneAtATime = Stream.generate(Object::new).limit(64).toArray();
+
   private volatile long leftAloneUntil;
 
   ApprovedContents(
@@ -94,7 +103,9 @@ class ApprovedContents implements HealthIndicator, ResetCleanup {
 
   /**
    * An Approved version's contents: from the cache when it holds them, and otherwise from the
-   * database, after which the cache is given them.
+   * database, after which the cache is given them. Reads of one version that the cache does not
+   * hold ask the database for it one at a time, so those that arrive together ask it once: the
+   * others wait, and then find in the cache what the first one read.
    *
    * @param fromDatabase reads the contents from the database
    */
@@ -102,9 +113,36 @@ class ApprovedContents implements HealthIndicator, ResetCleanup {
     if (cache == null) {
       return fromDatabase.get();
     }
-    if (leftAlone()) {
+    try {
+      var kept = kept(catalogId);
+      if (kept == null) {
+        synchronized (oneAtATime[(int) (catalogId % oneAtATime.length)]) {
+          kept = kept(catalogId);
+          if (kept == null) {
+            misses.increment();
+            var contents = fromDatabase.get();
+            keep(catalogId, contents);
+            return contents;
+          }
+        }
+      }
+      hits.increment();
+      return kept;
+    } catch (Unanswered unanswered) {
       fallbacks.increment();
       return fromDatabase.get();
+    }
+  }
+
+  /**
+   * What the cache holds for the version, or null when it holds nothing for it. What it holds and
+   * cannot be read counts as nothing, and is replaced by whoever reads the version next.
+   *
+   * @throws Unanswered when the cache does not answer, or is being left alone
+   */
+  private Contents kept(long catalogId) throws Unanswered {
+    if (leftAlone()) {
+      throw new Unanswered();
     }
     String kept;
     try {
@@ -112,22 +150,13 @@ class ApprovedContents implements HealthIndicator, ResetCleanup {
       answers();
     } catch (RuntimeException unanswered) {
       doesNotAnswer(unanswered);
-      fallbacks.increment();
-      return fromDatabase.get();
+      throw new Unanswered();
     }
-    if (kept != null) {
-      try {
-        var contents = JSON.readValue(kept, Contents.class);
-        hits.increment();
-        return contents;
-      } catch (JacksonException unreadable) {
-        // What cannot be read counts as not there, and is replaced.
-      }
+    try {
+      return kept == null ? null : JSON.readValue(kept, Contents.class);
+    } catch (JacksonException unreadable) {
+      return null;
     }
-    misses.increment();
-    var contents = fromDatabase.get();
-    keep(catalogId, contents);
-    return contents;
   }
 
   /** Gives the cache an Approved version's contents, which is left undone when it cannot be. */
@@ -214,4 +243,11 @@ class ApprovedContents implements HealthIndicator, ResetCleanup {
 
   /** Reads of Approved versions' contents, by how the cache answered them. */
   record Counts(long hits, long misses, long fallbacks) {}
+
+  /** Says that the cache did not answer. It is no error, and carries no trace of where it arose. */
+  private static final class Unanswered extends Exception {
+    Unanswered() {
+      super(null, null, false, false);
+    }
+  }
 }

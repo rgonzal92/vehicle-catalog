@@ -153,8 +153,9 @@ services:
       # stack, and nothing else does.
       DOCUMENTS_BUCKET: documents
       DOCUMENTS_ENDPOINT: http://storage:9090
-      # Where the cache is, and the password it asks for, which here is the database's.
-      CACHE_HOST: cache
+      # Where the cache is, and the password it asks for, which here is the database's. Set
+      # CACHE_HOST to nothing to run the app without a cache, as `CACHE_HOST= docker compose up`.
+      CACHE_HOST: ${CACHE_HOST-cache}
       CACHE_PASSWORD: >-
         ${CATALOG_DB_PASSWORD:?Set CATALOG_DB_PASSWORD in a local .env file}
     ports:
@@ -236,6 +237,10 @@ services:
       - "no"
       - --requirepass
       - ${CATALOG_DB_PASSWORD:?Set CATALOG_DB_PASSWORD in a local .env file}
+    # What `docker compose exec cache redis-cli` gives as the password, so that it need not be
+    # typed.
+    environment:
+      REDISCLI_AUTH: ${CATALOG_DB_PASSWORD:?Set CATALOG_DB_PASSWORD in a local .env file}
     tmpfs:
       - /data
 

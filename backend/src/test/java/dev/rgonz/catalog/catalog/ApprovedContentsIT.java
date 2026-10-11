@@ -8,7 +8,11 @@ import dev.rgonz.catalog.core.Role;
 import dev.rgonz.catalog.job.Worker;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -90,6 +94,32 @@ class ApprovedContentsIT extends WorkingCopyTests {
     assertThat(cache.getExpire(ApprovedContents.KEY + approved, TimeUnit.SECONDS))
         .as("seconds until the entry is gone: a day from when it was put there")
         .isBetween(86_390L, 86_400L);
+  }
+
+  @Test
+  void readsOfOneVersionThatArriveTogetherAskTheDatabaseForItOnce() throws Exception {
+    var go = new CountDownLatch(1);
+    List<Future<Map<String, Object>>> answers;
+    try (var readers = Executors.newFixedThreadPool(20)) {
+      answers =
+          IntStream.range(0, 20)
+              .mapToObj(
+                  reader ->
+                      readers.submit(
+                          () -> {
+                            go.await();
+                            return snapshot(open(ana(), approved));
+                          }))
+              .toList();
+      go.countDown();
+    }
+
+    assertThat(counted())
+        .as("hits, misses, fallbacks: one read asked the database, and the others waited for it")
+        .containsExactly(19L, 1L, 0L);
+    for (var answer : answers) {
+      assertThat(answer.get()).isEqualTo(answers.getFirst().get());
+    }
   }
 
   @Test
