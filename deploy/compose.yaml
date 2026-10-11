@@ -1,6 +1,6 @@
 # What runs on the host: Caddy, which the distribution reaches; the backend, which Caddy passes the
-# API's requests to; the worker, which does the jobs the backend leaves it; and the database, which
-# nothing outside this stack reaches. The secrets come
+# API's requests to; the worker, which does the jobs the backend leaves it; and the database and
+# the cache, which nothing outside this stack reaches. The secrets come
 # from a file beside this one that only root can read, written from Parameter Store whenever the
 # stack is started. What the backend is told about signing in comes from settings.env, which
 # Terraform writes from what it knows of the login provider. What the backend reports of itself
@@ -40,6 +40,9 @@ services:
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?The secret the backend shows the login provider is not set}
       # The key for the language model, which there may be none of: the app then says so.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Where the cache is, and the password it asks for.
+      CACHE_HOST: cache
+      CACHE_PASSWORD: ${CACHE_PASSWORD:?The cache's password is not set}
       # The log is written as JSON, one object to a line, with the trace id a line belongs to.
       LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
       # Where the agent listens: for metrics on one port of the host, for traces on another.
@@ -98,6 +101,9 @@ services:
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?The secret the backend shows the login provider is not set}
       # The key for the language model, which there may be none of: the app then says so.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Where the cache is, and the password it asks for.
+      CACHE_HOST: cache
+      CACHE_PASSWORD: ${CACHE_PASSWORD:?The cache's password is not set}
       LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
       # Its traces go to the agent, as the API's do, and so does its one metric: how long each job
       # took.
@@ -147,6 +153,30 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
+
+  # Redis, which keeps values in memory by a key: what can be read from the database again, and
+  # is read sooner from here. It may hold 64 MB of them, and past that drops the ones used longest
+  # ago. It keeps nothing on disk, asks for a password, and listens on no port of the host. The API
+  # and the worker do not wait for it: they run whether it does or not.
+  cache:
+    image: redis:8.10.2-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --maxmemory
+      - 64mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --requirepass
+      - ${CACHE_PASSWORD:?The cache's password is not set}
+    # The image names a volume for what Redis would keep. It is given memory in its place, into
+    # which nothing is written.
+    tmpfs:
+      - /data
 
 volumes:
   caddy-data:

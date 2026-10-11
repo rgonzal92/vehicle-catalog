@@ -2,7 +2,7 @@ name: vehicle-catalog
 
 # Local development stack. The frontend dev server at http://localhost:4200 proxies /api to the
 # backend's published port, the login server stands in for Amazon Cognito, the queue for Amazon SQS,
-# and the storage for Amazon S3.
+# and the storage for Amazon S3. The cache is the one the host runs.
 services:
   db:
     # PostgreSQL 18.6 as its own image has it, on the same release of Debian, with pgvector added.
@@ -153,6 +153,10 @@ services:
       # stack, and nothing else does.
       DOCUMENTS_BUCKET: documents
       DOCUMENTS_ENDPOINT: http://storage:9090
+      # Where the cache is, and the password it asks for, which here is the database's.
+      CACHE_HOST: cache
+      CACHE_PASSWORD: >-
+        ${CATALOG_DB_PASSWORD:?Set CATALOG_DB_PASSWORD in a local .env file}
     ports:
       - "127.0.0.1:8090:8080"
     # Ready means startup has finished, which includes filling an empty library.
@@ -214,6 +218,26 @@ services:
     configs:
       - source: queue
         target: /opt/elasticmq.conf
+
+  # Redis, set up as on the host: it may hold 64 MB of values, drops the ones used longest ago
+  # past that, keeps nothing on disk, and asks for a password. Here that is the database's, so
+  # that there is one password to set. The API and the worker do not wait for it.
+  cache:
+    image: redis:8.10.2-alpine
+    command:
+      - redis-server
+      - --maxmemory
+      - 64mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --requirepass
+      - ${CATALOG_DB_PASSWORD:?Set CATALOG_DB_PASSWORD in a local .env file}
+    tmpfs:
+      - /data
 
 configs:
   queue:

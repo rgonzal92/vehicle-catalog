@@ -105,12 +105,12 @@ run "the_host_reads_its_own_parameters_and_no_other" {
           "ssm:GetParametersByPath",
         ])
         && toset(statement.NotResource) == toset([
-          for name in ["database-password", "login-client-secret", "openai-api-key", "origin-secret"] :
+          for name in ["cache-password", "database-password", "login-client-secret", "openai-api-key", "origin-secret"] :
           "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/vehicle-catalog/${name}"
         ])
       ])
     )
-    error_message = "The host's role is refused every parameter but the four it reads, whatever another policy allows, and none of the four."
+    error_message = "The host's role is refused every parameter but the five it reads, whatever another policy allows, and none of the five."
   }
 
   assert {
@@ -150,7 +150,7 @@ run "the_host_runs_the_stack_the_repository_holds" {
   assert {
     condition = strcontains(
       aws_ssm_association.host_stack.parameters.commands,
-      "the distribution's at ${aws_ssm_parameter.origin_secret.version}, the\n# login provider's at ${aws_ssm_parameter.login_client_secret.version}.",
+      "the distribution's at ${aws_ssm_parameter.origin_secret.version}, the\n# login provider's at ${aws_ssm_parameter.login_client_secret.version}, the cache's at ${aws_ssm_parameter.cache_password.version}.",
     )
     error_message = "What the host runs names each secret's version, so that a new secret has the host start its stack anew."
   }
@@ -189,8 +189,72 @@ run "the_plan_role_reads_the_secrets_terraform_keeps_and_no_other_parameter" {
     condition = toset(flatten([
       for statement in jsondecode(aws_iam_role_policy.plan.policy).Statement : statement.Resource
       if contains(statement.Action, "ssm:GetParameter")
-    ])) == toset([aws_ssm_parameter.origin_secret.arn, aws_ssm_parameter.login_client_secret.arn])
-    error_message = "The plan role reads the two parameters Terraform manages and no other."
+    ])) == toset([aws_ssm_parameter.origin_secret.arn, aws_ssm_parameter.login_client_secret.arn, aws_ssm_parameter.cache_password.arn])
+    error_message = "The plan role reads the three parameters Terraform manages and no other."
+  }
+}
+
+run "the_cache_runs_within_its_limit_keeps_nothing_and_is_waited_for_by_no_one" {
+  variables {
+    stack = yamldecode(file("../deploy/compose.yaml")).services
+    # What the cache is started with: each setting, and what it is set to after it.
+    started = yamldecode(file("../deploy/compose.yaml")).services.cache.command
+  }
+
+  assert {
+    condition = (
+      var.stack.cache.image == "redis:8.10.2-alpine"
+      && var.started[index(var.started, "--maxmemory") + 1] == "64mb"
+      && var.started[index(var.started, "--maxmemory-policy") + 1] == "allkeys-lru"
+    )
+    error_message = "The cache may hold 64 MB, and past that drops what was used longest ago."
+  }
+
+  assert {
+    condition = (
+      var.started[index(var.started, "--save") + 1] == ""
+      && var.started[index(var.started, "--appendonly") + 1] == "no"
+      && !can(var.stack.cache.volumes)
+      && var.stack.cache.tmpfs == ["/data"]
+    )
+    error_message = "The cache keeps nothing on disk: it saves at no time, keeps no log of what it was told, and has no volume."
+  }
+
+  assert {
+    condition     = !can(var.stack.cache.ports)
+    error_message = "The cache listens on no port of the host."
+  }
+
+  assert {
+    condition = alltrue([
+      for service in ["backend", "worker"] :
+      !contains(keys(var.stack[service].depends_on), "cache")
+      && var.stack[service].environment.CACHE_HOST == "cache"
+      && var.stack[service].environment.CACHE_PASSWORD == "$${CACHE_PASSWORD:?The cache's password is not set}"
+    ])
+    error_message = "The API and the worker are told where the cache is and what its password is, and neither waits for it."
+  }
+
+  assert {
+    condition = (
+      var.started[index(var.started, "--requirepass") + 1] == "$${CACHE_PASSWORD:?The cache's password is not set}"
+      && strcontains(file("../deploy/release.sh"), "\"$(parameter cache-password)\"")
+      && strcontains(file("../deploy/release.sh"), "CACHE_PASSWORD=%s")
+      && aws_ssm_parameter.cache_password.name == "/vehicle-catalog/cache-password"
+      && aws_ssm_parameter.cache_password.type == "SecureString"
+      && aws_ssm_parameter.cache_password.value == random_password.cache.result
+      && can(regex("^[A-Za-z0-9]{48}$", random_password.cache.result))
+    )
+    error_message = "The cache asks for the password Terraform makes and keeps encrypted in Parameter Store, which the release script reads there. It is 48 letters and digits."
+  }
+
+  assert {
+    condition = (
+      !strcontains(aws_ssm_association.host_stack.parameters.commands, random_password.cache.result)
+      && strcontains(file("../deploy/release.sh"), "docker compose up --detach --quiet-pull cache ||")
+      && strcontains(file("../deploy/release.sh"), "--remove-orphans \\\n  caddy db backend worker; then")
+    )
+    error_message = "What the host is told to run does not hold the cache's password, and a release starts the cache by itself and waits for the other four."
   }
 }
 

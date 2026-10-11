@@ -5,6 +5,7 @@ case "$*" in
   *"--name /vehicle-catalog/origin-secret "*) echo "a-secret-for-this-check" ;;
   *"--name /vehicle-catalog/database-password "*) echo "a-password-for-this-check" ;;
   *"--name /vehicle-catalog/login-client-secret "*) echo "a-client-secret-for-this-check" ;;
+  *"--name /vehicle-catalog/cache-password "*) echo "a-cache-password-for-this-check" ;;
   # The key for the language model is there only while the check says it is.
   *"--name /vehicle-catalog/openai-api-key "*)
     [ -n "${MODEL_KEY:-}" ] || { echo "ParameterNotFound" >&2; exit 254; }

@@ -12,7 +12,9 @@ locals {
   # The parameters the host reads when it starts the stack, by their names under
   # /vehicle-catalog/. They are the ones deploy/release.sh asks for, which a test holds this list
   # to. The last is put there by hand, and the stack starts without it.
-  host_parameters = ["origin-secret", "database-password", "login-client-secret", "openai-api-key"]
+  host_parameters = [
+    "origin-secret", "database-password", "login-client-secret", "cache-password", "openai-api-key",
+  ]
 }
 
 data "aws_region" "current" {}
@@ -225,6 +227,21 @@ resource "aws_ssm_parameter" "origin_secret" {
   value       = random_password.origin_secret.result
 }
 
+# The password the cache on the host asks for, which the API and the worker give it. It is made
+# here, so it is in the state. Nothing outside the host's stack reaches the cache with it or
+# without it.
+resource "random_password" "cache" {
+  length  = 48
+  special = false
+}
+
+resource "aws_ssm_parameter" "cache_password" {
+  name        = "/vehicle-catalog/cache-password"
+  description = "The password the cache on the host asks for."
+  type        = "SecureString"
+  value       = random_password.cache.result
+}
+
 locals {
   # What the stack on the host is told and need not be kept secret: who signs in and where, where
   # the queue of the jobs is, and which buckets keep the exported spreadsheets and the uploaded
@@ -267,6 +284,7 @@ resource "aws_ssm_association" "host_stack" {
       secret_version  = aws_ssm_parameter.origin_secret.version
 
       login_secret_version = aws_ssm_parameter.login_client_secret.version
+      cache_secret_version = aws_ssm_parameter.cache_password.version
       region               = data.aws_region.current.region
     })
   }
@@ -274,11 +292,13 @@ resource "aws_ssm_association" "host_stack" {
   wait_for_success_timeout_seconds = 900
 
   # The stack is started with the host's fixed address already in place, where the certificate
-  # authority looks for it, and with somewhere for the backend's log to go: Docker does not start
-  # a container whose log it cannot write.
+  # authority looks for it, with somewhere for the backend's log to go, since Docker does not
+  # start a container whose log it cannot write, and with the host's role let read every
+  # parameter the stack's secrets are in.
   depends_on = [
     aws_eip_association.host,
     aws_cloudwatch_log_group.backend,
     aws_iam_role_policy.host_report,
+    aws_iam_role_policy.host_own_parameters,
   ]
 }
