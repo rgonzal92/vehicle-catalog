@@ -166,7 +166,7 @@ resource "aws_cloudwatch_dashboard" "backend" {
         }
       },
       {
-        type = "metric", x = 0, y = 6, width = 12, height = 6
+        type = "metric", x = 0, y = 6, width = 8, height = 6
         properties = {
           title  = "Whether the backend is ready (1) or not (0)"
           region = data.aws_region.current.region
@@ -180,7 +180,7 @@ resource "aws_cloudwatch_dashboard" "backend" {
         }
       },
       {
-        type = "metric", x = 12, y = 6, width = 12, height = 6
+        type = "metric", x = 8, y = 6, width = 8, height = 6
         properties = {
           title  = "How long saving an edit and copying a catalog take, on average"
           region = data.aws_region.current.region
@@ -198,6 +198,22 @@ resource "aws_cloudwatch_dashboard" "backend" {
               label      = "copying a catalog"
             }],
           ]
+        }
+      },
+      # What a person waits for after the save of an edit, and when they open a catalog. At the
+      # largest size a catalog can have it is many times the save, so it has a chart of its own.
+      {
+        type = "metric", x = 16, y = 6, width = 8, height = 6
+        properties = {
+          title  = "How long reading a catalog and working out its issues takes, on average"
+          region = data.aws_region.current.region
+          view   = "timeSeries"
+          period = 60
+          metrics = [[{
+            expression = "SEARCH('${local.backend_metric} MetricName=\"catalog.validate\"', 'Average', 60)"
+            id         = "validate"
+            label      = "reading a catalog with its issues"
+          }]]
         }
       },
       {

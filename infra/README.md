@@ -488,7 +488,7 @@ It all goes to Amazon CloudWatch.
   ```
 - **Its metrics** go to the same agent, which publishes them under the namespace
   `vehicle-catalog` together with two of the host's own. The dashboard `vehicle-catalog` shows
-  them. The API sends the first ten of these and the five of the language model. The worker sends
+  them. The API sends the first eleven of these and the five of the language model. The worker sends
   `job.run` and, of the model's, `ai.call`, `ai.tokens`, and `ai.refused`: it calls no tools, and
   the API says what the day has cost.
 
@@ -499,6 +499,7 @@ It all goes to Amazon CloudWatch.
 | `jvm.heap.used` | the memory the backend's heap uses | nothing |
 | `catalog.edit` | how long saving an edit of a working copy took | nothing |
 | `catalog.copy` | how long copying a catalog into a new working copy took | nothing |
+| `catalog.validate` | how long reading a catalog and working out its issues took, wherever the API does that: when a catalog is opened, after every edit, and once for each working copy in a person's list among them | nothing |
 | `catalog.submit.refused` | how many submits were refused for the state the catalog was in | `reason`, of which there are three: `STALE`, `VEHICLE_LINE_INACTIVE`, `HAS_ERRORS` |
 | `catalog.approved` | how many catalogs were approved | nothing |
 | `catalog.rejected` | how many catalogs were rejected | nothing |
@@ -514,11 +515,11 @@ It all goes to Amazon CloudWatch.
 | `disk_used_percent` | the share of the host's disk in use | nothing that varies |
 
 CloudWatch counts a metric once for every value of what it is told apart by, which makes up to
-forty-six of these, seventeen of them the language model's and three the cache's, and charges for
-each one beyond ten: up to thirty-six, at about $0.30 a month each, which is at most about $11 a
+forty-seven of these, seventeen of them the language model's and three the cache's, and charges for
+each one beyond ten: up to thirty-seven, at about $0.30 a month each, which is at most about $11 a
 month. So the backend
 sends no metric that the alarm or the dashboard does not use: `Telemetry.java` in the backend turns
-down every other. A metric is there once it has first been sent, so the two times and the fourth
+down every other. A metric is there once it has first been sent, so the three times and the fourth
 outcome, a request that fails in the backend, appear when there has been one, and `job.run` counts
 once for each type of job that has been done and once more for each that has failed. The six that
 count catalogs and the three that count the cache's reads are sent from the start, as zero in a

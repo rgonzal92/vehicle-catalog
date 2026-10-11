@@ -90,6 +90,7 @@ class TelemetryIT extends ApplicationIT {
             "jvm.heap.used",
             "catalog.edit",
             "catalog.copy",
+            "catalog.validate",
             "catalog.submit.refused",
             "catalog.approved",
             "catalog.rejected",
@@ -97,7 +98,7 @@ class TelemetryIT extends ApplicationIT {
             "cache.read",
             "ai.spent")
         .filteredOn(name -> !name.startsWith("ai."))
-        .hasSize(10);
+        .hasSize(11);
   }
 
   @Test
