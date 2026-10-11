@@ -7,6 +7,7 @@ import dev.rgonz.catalog.job.JobHandler;
 import dev.rgonz.catalog.job.JobType;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BiFunction;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.TransactionDefinition;
@@ -36,6 +37,9 @@ class DocumentProcessing implements JobHandler {
   private final DocumentFiles files;
   private final Model model;
   private final TransactionTemplate apart;
+
+  /** Reads the text of a file. A test has a PDF read by what never ends, under a shorter limit. */
+  BiFunction<Kind, byte[], String> text = DocumentText::of;
 
   DocumentProcessing(
       JdbcClient jdbc, DocumentFiles files, Model model, TransactionTemplate transactions) {
@@ -75,8 +79,7 @@ class DocumentProcessing implements JobHandler {
     List<String> passages;
     try {
       passages =
-          Passages.of(
-              DocumentText.of(Kind.valueOf(document.kind()), files.read(String.valueOf(id))));
+          Passages.of(text.apply(Kind.valueOf(document.kind()), files.read(String.valueOf(id))));
     } catch (DocumentText.Unreadable why) {
       failed(id, why.getMessage());
       return;
