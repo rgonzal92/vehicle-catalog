@@ -249,6 +249,14 @@ run "the_host_runs_the_worker_beside_the_api" {
 
   assert {
     condition = (
+      aws_instance.host.instance_type == "t4g.small"
+      && can(regex("^-XX:MaxHeapSize=[0-9]+m$", yamldecode(file("../deploy/compose.yaml")).services.backend.environment.JAVA_TOOL_OPTIONS))
+    )
+    error_message = "On a host this small, the API's heap has a limit of its own, as the worker's has."
+  }
+
+  assert {
+    condition = (
       strcontains(aws_ssm_association.host_stack.parameters.commands, file("../deploy/release.sh"))
       && strcontains(file("../deploy/release.sh"), "docker compose rm --stop --force backend worker\n")
       && strcontains(file("../deploy/release.sh"), "--wait-timeout 300 backend worker; then\n")
