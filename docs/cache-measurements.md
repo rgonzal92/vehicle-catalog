@@ -1,6 +1,6 @@
 # What the cache gains
 
-How long reads of Approved versions take with the cache and without it, and what PostgreSQL is sent for them. [The cache keeps the contents of Approved versions](adr/0016-the-contents-of-approved-versions-are-read-from-a-cache-that-is-never-needed.md): everything else a read answers with is read from PostgreSQL every time. These are measurements under a made-up load, on one machine and on generated data. They say what the cache saves in the app as it is built, and nothing certain about the deployed one: the times on the deployed host have not been measured. What the deployed app does when its cache is stopped was looked at on the host, and is [at the end](#the-cache-stopped-on-the-host).
+How long reads of Approved versions take with the cache and without it, and what PostgreSQL is sent for them. [The cache keeps the contents of Approved versions](adr/0016-the-contents-of-approved-versions-are-read-from-a-cache-that-is-never-needed.md): everything else a read answers with is read from PostgreSQL every time. These are measurements under a made-up load, on one machine and on generated data. They say what the cache saves in the app as it is built, and nothing certain about the deployed one: of the deployed host there are the times of [half a minute of reads](#on-the-deployed-host) and of a handful of requests, and no more. The handful is from the look at what the deployed app does when its cache is stopped, which is [at the end](#the-cache-stopped-on-the-host).
 
 Four things limit what they say:
 
@@ -64,7 +64,7 @@ One after another, the medians of the two runs are close: none differs by more t
 
 **With the cache stopped, a read takes about what it takes without one.** The first read after the stop waits for the cache, for 250 ms at the most. From then on no read asks it, and the app asks by itself every ten seconds whether it is back. One after another, the medians of the last column are within 6 ms of the first's for the seeded version and the comparison, and 58 ms above it for the largest version, which is a tenth. No request of either run failed.
 
-**Some reads take much longer than the median, with the cache stopped and without one.** Two reads of the largest version took 1.3 s with the cache stopped, in one run. Without a cache, one read in twenty of a seeded version took over 80 ms where the median is 34. Sent one after another for half a minute, reads without a cache come in stretches in which each takes a little longer than the one before. What makes them long was not traced, and the cache is not it: it shows where the cache has no part.
+**Some reads take much longer than the median, and what they wait for is the disk of the machine they were measured on.** Without a cache, one read in twenty of a seeded version took over 80 ms where the median is 34. Sent one after another for half a minute, nearly a fifth of the reads took over twice the median, and the long ones grew from one to the next until they started low again. Every request writes when its session was last used, and PostgreSQL does not say that it is written before the disk has it. On this machine the disk takes 5 ms for that at the median and over 50 ms in stretches. The cache has no part in it, and the deployed host does not show it: [what was measured](#the-long-reads) is below. Two reads of the largest version took 1.3 s with the cache stopped, in one run. Those two were not seen again, and whether they waited for the disk too is not known.
 
 **For the catalogs the demo has, the cache gains nothing that matters.** A seeded version opens in 34 ms without the cache and in 7 with it, and no one notices the 27 between them. What the cache is worth shows at sizes the demo does not have: at the largest size, nearly half a second for each opening.
 
@@ -80,6 +80,67 @@ Twenty reads of the largest version were sent at once, with the cache holding no
 | With the loads of one version made one at a time | 1 |
 
 The API has ten connections to PostgreSQL, so ten of the twenty read at a time. As first built, each of the ten found the cache empty and read the contents, and the ten after them found them in the cache. Now the reads of one version that the cache does not hold take turns inside one process: the first reads PostgreSQL and gives the cache the contents, and the others wait and then find them there. The API and the worker are two processes, and each takes its own turns.
+
+## The long reads
+
+Reads of the seeded Compact SUV 2026 v2 were sent one after another for 30 seconds, without a cache, on 2026-10-11. One command, run in `e2e/`, starts the stack, sends them, and says how even their times were:
+
+```sh
+npm run reads:even
+```
+
+```
+796 reads of a seeded Approved version in 30 seconds, one after another, without a cache: median 27 ms, 144 over twice the median, and at the most 3 of those one after another.
+```
+
+The long reads do not follow one another. One or two short ones come between them, and it is the long ones that grow and then start low again. In the first run below, the long reads of one stretch took 58, 63, 65, 69, 75, 77, 83, and 88 ms, in about a second.
+
+### What they wait for
+
+The reads were sent again with PostgreSQL logging every statement with its time, the API logging every request with its own, and Java logging its garbage collections. That is the first row. For the second, PostgreSQL was also told not to wait for the disk when a transaction ends, with `synchronous_commit = off`, and nothing else was changed.
+
+| | Reads | Median | Over twice the median | Longest |
+|---|---|---|---|---|
+| PostgreSQL waits for the disk, as it does unless told otherwise | 694 | 27.5 ms | 151 | 193 ms |
+| It does not wait | 1,338 | 22.2 ms | 0 | 31 ms |
+
+In the first row, the time is in one place: the `COMMIT` that ends the writing of the session's last use.
+
+| | Reads | The read | The API's own time | That `COMMIT` |
+|---|---|---|---|---|
+| Reads over twice the median | 151 | 91 ms | 90 ms | 68 ms, and never under 30 |
+| The others | 543 | 30 ms | 28 ms | 6.9 ms, with a median of 4.4 |
+
+They are averages. A read without that `COMMIT` took 23 ms at the median and 33 at the most, so no read was long for another reason. Of the 694 commits, 257 took over 10 ms and 100 over 50.
+
+The disk does the same with no app and no PostgreSQL. A script wrote 8 kB to a file of 16 MB in a Docker volume and had it flushed with `fdatasync`, as PostgreSQL does at a commit, then waited 24 ms and did so again, for 30 seconds. Of 598 flushes the median took 9.3 ms and 293 over 10 ms, and they grew as the commits do: 53, 66, 87, 91, 97, 104 ms one after another, and low again a second later. Docker keeps its volumes on btrfs here, with compression, on a disk the rest of the machine uses. On the machine's other disk, which has ext4, the same script's 1,227 flushes took 0.2 ms at the median and 4 ms at the most. Why the first of the two flushes so was not looked into: it is the file system's or the disk's, and not the app's.
+
+### What it is not
+
+- **The cache.** The app had no address for one.
+- **Garbage collection.** Java collected 76 times in the 30 seconds, for 3.1 ms at the most and 92 ms in all, where a long read takes 30 ms more than a short one at the least.
+- **The API's threads and its connections to PostgreSQL.** The reads were spread evenly over ten threads, and every thread had its share of the long ones, between 12 and 19 of about 70. Two connections carried the statements of all the reads, and both had long commits, of 170 and 130 ms at the most.
+- **The session's row.** Every request writes it anew, so old copies of it pile up: 201 were left at the end, and PostgreSQL had cleared them away once. Reading the session took 0.02 ms and writing it 0.04 ms, in long reads and in short ones.
+- **Any other statement.** Each of the others took the same in long reads as in short ones, to within 0.05 ms. Reading the cells took 0.21 ms in both. PostgreSQL logged no checkpoint in the 30 seconds.
+- **The web server and the client that sent the reads.** A read took 1.6 ms longer than the API's own time for it at the median, and 2.9 ms at the most.
+- **The tracing of every request.** It ran in both rows of the first table, and the second has no long read.
+
+### What it costs
+
+On a machine whose disk flushes like this one, about one request in five takes 30 to 170 ms longer than the others. That is true of every request and not only of reads, since each writes its session. One such wait is below what a person notices. The 95th percentiles and the longest times of the tables above were measured on the same disk, so they say more of it than of the app. The medians hold: at the median the commit takes 5 ms.
+
+The app is left as it is. The stretches are this machine's, and the app does not choose the disk it is measured on. That PostgreSQL waits for the disk is what keeps a saved edit when the machine fails, so it is not turned off for the measuring either: the host waits too, and the times here should be of the app as it runs there. The table above says what the waiting costs here: the median is 22 ms without it and 27.5 with it.
+
+### On the deployed host
+
+On 2026-10-11, from 10:26:58 UTC, the demo author's reads of Compact SUV 2026 v2 were sent to the deployed app one after another for 30 seconds, from the machine of the measurements above, and nothing else was sent. The cache held the version throughout.
+
+| | Reads | Median | Over twice the median | Longest |
+|---|---|---|---|---|
+| As timed where they were sent from, with the way there and back | 391 | 70 ms | 3, never two together | 156 ms |
+| The API's own times, from its log | 396 | 16 ms | 22, at the most 3 together | 95 ms |
+
+The API's log has the five reads that were sent first and not timed as well. Of its 22 over twice the median, 8 are among the first 20 reads, which took longer than the rest as a whole and less from one to the next: 47, 31, 53, 30, 32, 35, 25, 38 ms at the start, where three reads in four of the half minute took between 12 and 19 ms. Why the first took longer was not looked at. The other 14 are spread over the half minute, one to three at a time, between 34 and 60 ms but for one of 95, and do not grow from one to the next. So the host does not show the stretches. Its Docker volumes are on xfs. With the cache holding the version a read there still writes its session and waits for the disk, as every request does.
 
 ## How they were measured
 
@@ -103,7 +164,7 @@ The statements are counted apart from the times, for one more request of each ki
 
 The count of ten is from an earlier run, made before the loads of one version took turns. The count of one is from both runs here.
 
-The stretches of longer reads were seen apart from the two runs: reads of the seeded version were sent one after another for 30 seconds, without a cache, with the cache holding the version, and with the cache stopped, by a script that was not kept.
+The half minute of reads is apart from the two runs, and is [above](#the-long-reads) with its command. The script that logged every statement and the one that flushed a file were not kept.
 
 ## The cache stopped on the host
 
@@ -120,7 +181,7 @@ On 2026-10-11 the cache was stopped on the host on purpose, for two minutes, wit
 
 The API's log has those two lines about the cache and no other. The alarm on the backend's health stayed as it was, and did not change all that night.
 
-The API's own times for these requests, in milliseconds, are the only ones there are from the host:
+The API's own times for these requests, in milliseconds:
 
 | | Opening the version | Comparing the two |
 |---|---|---|

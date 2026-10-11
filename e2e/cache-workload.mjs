@@ -6,6 +6,10 @@
 //
 // It starts the browser tests' stack with the largest catalog, twice: without an address for the
 // cache, and with one. It removes the stack and its data when it is done.
+//
+// It also says how even the times of such reads are, which the tables do not show:
+//
+//   npm run reads:even        sends reads of one seeded version for half a minute, without a cache
 import { execFileSync } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "@playwright/test";
@@ -15,6 +19,7 @@ const SEQUENTIAL = 30;
 const AT_ONCE = 8;
 const ROUNDS_AT_ONCE = 3;
 const UNTIMED = 5;
+const HALF_A_MINUTE = 30_000;
 
 const run = (command, args, env = {}) =>
   execFileSync(command, args, {
@@ -173,7 +178,41 @@ function table(title, columns, rows) {
 const empty = (request) =>
   request.reads.forEach((catalog) => inTheCache("del", `approved-contents:1:${catalog}`));
 
-try {
+/**
+ * Sends reads of a seeded Approved version one after another for half a minute, without a cache,
+ * and prints how even their times are: the median, how many took over twice as long, and the most
+ * of those that came one after another.
+ */
+async function evenness() {
+  console.error("Starting the stack without a cache...");
+  run("npm", ["run", "stack:up"], { CACHE_HOST: "" });
+  const get = await signedIn();
+  const { path } = (await requests(get))["Opening a seeded Approved version"];
+  for (let i = 0; i < UNTIMED; i++) await get(path);
+  const times = [];
+  const until = performance.now() + HALF_A_MINUTE;
+  while (performance.now() < until) {
+    const started = performance.now();
+    await get(path);
+    times.push(performance.now() - started);
+  }
+  const median = [...times].sort((a, b) => a - b)[Math.floor(times.length / 2)];
+  let over = 0;
+  let together = 0;
+  let longest = 0;
+  for (const time of times) {
+    together = time > 2 * median ? together + 1 : 0;
+    if (together) over++;
+    longest = Math.max(longest, together);
+  }
+  console.log(
+    `${times.length} reads of a seeded Approved version in 30 seconds, one after another,` +
+      ` without a cache: median ${rounded(median)} ms, ${over} over twice the median,` +
+      ` and at the most ${longest} of those one after another.`,
+  );
+}
+
+async function tables() {
   console.error("Starting the stack without a cache...");
   run("npm", ["run", "stack:up"], { CACHE_HOST: "" });
   let get = await signedIn();
@@ -229,6 +268,10 @@ try {
     `\nTwenty reads of the largest version at once, with the cache holding nothing of it:` +
       ` PostgreSQL was asked for its cells ${asked === 1 ? "once" : `${asked} times`}.`,
   );
+}
+
+try {
+  await (process.argv[2] === "evenness" ? evenness() : tables());
 } finally {
   run("npm", ["run", "stack:down"]);
 }

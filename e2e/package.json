@@ -8,6 +8,7 @@
     "stack:up": "npm --prefix ../frontend run build && npm run compose -- up -d --build --wait",
     "stack:down": "npm run compose -- down -v",
     "cache:measure": "node cache-workload.mjs",
+    "reads:even": "node cache-workload.mjs evenness",
     "test": "playwright test",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint --deny-warnings tests playwright.config.ts",
