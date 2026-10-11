@@ -454,8 +454,10 @@ resource "aws_cloudwatch_dashboard" "backend" {
               id         = "all"
               visible    = false
             }],
+            # A minute without reads is zero over zero, which CloudWatch drops with a warning sign
+            # on the chart: the share is asked for the minutes that had reads.
             [{
-              expression = "100 * SUM(hits) / SUM(all)"
+              expression = "IF(SUM(all) > 0, 100 * SUM(hits) / SUM(all))"
               id         = "share"
               label      = "hits"
             }],

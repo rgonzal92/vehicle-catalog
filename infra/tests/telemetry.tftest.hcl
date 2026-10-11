@@ -186,9 +186,9 @@ run "every_metric_that_is_sent_is_looked_at" {
       ]) == [
       "SEARCH('Namespace=\"vehicle-catalog\" MetricName=\"cache.read\" result=\"hit\"', 'Sum', 60)",
       "SEARCH('Namespace=\"vehicle-catalog\" MetricName=\"cache.read\"', 'Sum', 60)",
-      "100 * SUM(hits) / SUM(all)",
+      "IF(SUM(all) > 0, 100 * SUM(hits) / SUM(all))",
     ]
-    error_message = "One chart shows the share of the reads of Approved versions that the cache answered: the hits over all of them, whatever labels the metric carries."
+    error_message = "One chart shows the share of the reads of Approved versions that the cache answered: the hits over all of them, whatever labels the metric carries, in the minutes that had reads and in no other."
   }
 
   assert {
