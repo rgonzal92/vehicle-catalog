@@ -158,6 +158,10 @@ services:
       CACHE_HOST: ${CACHE_HOST-cache}
       CACHE_PASSWORD: >-
         ${CATALOG_DB_PASSWORD:?Set CATALOG_DB_PASSWORD in a local .env file}
+      # What Java is told as the API starts, which is nothing unless API_JAVA_OPTIONS is set. The
+      # host limits the API's heap, and the same limit is tried here as
+      # `API_JAVA_OPTIONS=-XX:MaxHeapSize=256m docker compose up`.
+      JAVA_TOOL_OPTIONS: ${API_JAVA_OPTIONS-}
     ports:
       - "127.0.0.1:8090:8080"
     # Ready means startup has finished, which includes filling an empty library.
@@ -186,6 +190,8 @@ services:
     environment:
       <<: *backend-settings
       SPRING_PROFILES_ACTIVE: worker
+      # What the API's Java is told is not told the worker's.
+      JAVA_TOOL_OPTIONS: ""
       JOBS_QUEUE_URL: http://queue:9324/queue/jobs
       # The worker puts the exported spreadsheets where this stack keeps them.
       EXPORTS_ENDPOINT: http://storage:9090

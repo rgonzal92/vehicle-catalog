@@ -33,6 +33,9 @@ services:
     env_file:
       - settings.env
     environment:
+      # The heap may grow to this and no further, which is twice the most it has held here. Left
+      # to itself, Java would let it have a quarter of the host's memory.
+      JAVA_TOOL_OPTIONS: -XX:MaxHeapSize=256m
       DATABASE_URL: jdbc:postgresql://db:5432/catalog
       DATABASE_USER: catalog
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:?The database password is not set}
