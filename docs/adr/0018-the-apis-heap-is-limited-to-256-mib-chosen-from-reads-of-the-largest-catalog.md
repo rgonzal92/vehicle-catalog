@@ -1,6 +1,6 @@
 # The API's heap is limited to 256 MiB, chosen from reads of the largest catalog
 
-The API's heap may grow to 256 MiB and no further, where Java would by itself let it grow to a quarter of the host's memory, 462 MiB. The limit is in the host's stack beside the worker's 192 MiB and the cache's 64 MB. It is twice the most the heap held on the host from 2026-10-08 to 2026-10-11, which was 127 MiB by the metric `jvm.heap.used`. By what the host used on 2026-10-11, the two heaps and the cache all at their limits would bring it to about 1,500 MiB of the 1,840 that Linux has to give out, which leaves about 340 where [the cache had left about 130](0017-the-cache-runs-on-the-host-within-64-mb.md). [The measurements](../host-memory-measurements.md) have the host's figures.
+The API's heap may grow to 256 MiB and no further, where Java would by itself let it grow to a quarter of the host's memory, 462 MiB. The limit is in the host's stack beside the worker's 192 MiB and the cache's 64 MB. It is twice the most the heap held on the host from 2026-10-08 to 2026-10-11, which was 127 MiB by the metric `jvm.heap.used`. Measured on the host with the limit, the two heaps and the cache all at their limits would bring it to about 1,495 MiB of the 1,840 that Linux has to give out, which leaves about 345 where [the cache had left about 130](0017-the-cache-runs-on-the-host-within-64-mb.md). [The measurements](../host-memory-measurements.md) have the host's figures.
 
 ## What it was chosen from
 
@@ -46,7 +46,7 @@ So neither of the two things one might hope for happened. The requests that need
 ## Considered Options
 
 - **No limit.** The heap could then grow to 462 MiB, and the host would have about 130 MiB to spare with everything at its limit, without swap.
-- **320 MiB.** The workload ran with it as it ran with 256 MiB, no nearer to the run without a limit. It would leave the host about 275 MiB to spare where 256 MiB leaves about 340.
+- **320 MiB.** The workload ran with it as it ran with 256 MiB, no nearer to the run without a limit. It would leave the host about 280 MiB to spare where 256 MiB leaves about 345.
 - **A smaller limit.** The largest catalog was read eight at once within 128 MiB and within 96, more slowly each time. The host does not need what a smaller limit would give back, and 256 MiB is twice the most the heap has held there.
 - **Having Java end the API when its heap is full.** Java can be told to end the process at the first such error, and Docker would then start the API again, as it does whenever the process ends. An API that answers nothing until someone restarts it would become one that is away for as long as it takes to start. It was not done here: it was not tried, and it would be the worker's to do as well.
 

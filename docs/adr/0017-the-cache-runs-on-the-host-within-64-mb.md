@@ -14,7 +14,7 @@ Redis runs in the host's stack, beside the database, and the host stays a `t4g.s
 
 - The limit is in the stack's file, `deploy/compose.yaml`, and an infrastructure test holds the cache to it, to keeping nothing on disk, and to listening on no port.
 - Most of what the host uses more than it did is not the cache. The API's and the worker's containers use 59 and 84 MiB more than when they were last measured, in which time the app came to ask a language model, to read documents, and to read through the cache. Of the 180 MiB by which the room at the limits shrank, the cache at its limit takes about 75 and the two Java processes about 100.
-- About 130 MiB is what is left with everything at its limit, on a host without swap. A fourth process, a larger limit for the cache, or a Java process that holds much more than was measured means measuring again, and limiting the API's heap first. With the API's heap limited to 256 MiB since, about 340 MiB are left.
+- About 130 MiB is what is left with everything at its limit, on a host without swap. A fourth process, a larger limit for the cache, or a Java process that holds much more than was measured means measuring again, and limiting the API's heap first. With the API's heap limited to 256 MiB since, about 345 MiB are left.
 - The cache's password is made by Terraform and read by the host from Parameter Store with the stack's other secrets.
 - A release starts the cache and does not wait for it, and the API and the worker run whether it does or not.
 - Nothing watches the cache's memory. The dashboard shows the share of the host's memory in use, and how the cache answers reads.
