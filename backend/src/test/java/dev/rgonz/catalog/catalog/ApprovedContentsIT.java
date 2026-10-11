@@ -75,12 +75,15 @@ class ApprovedContentsIT extends WorkingCopyTests {
 
   @Test
   void theFirstReadOfAnApprovedVersionIsAMissAndTheSecondAHitAndBothAnswerTheSame() {
+    var reported = meters.get("cache.read").tag("result", "hit").functionCounter();
+    var hitsReported = reported.count();
     var first = snapshot(open(ana(), approved));
     assertThat(counted()).as("hits, misses, fallbacks").containsExactly(0L, 1L, 0L);
 
     var second = snapshot(open(ben(), approved));
 
     assertThat(counted()).as("hits, misses, fallbacks").containsExactly(1L, 1L, 0L);
+    assertThat(reported.count()).as("the hits the API reports").isEqualTo(hitsReported + 1);
     assertThat(second).isEqualTo(first);
     assertThat(ApplicationIT.<List<Object>>read(open(ana(), approved), "$.snapshot.featureRows"))
         .hasSize(151);

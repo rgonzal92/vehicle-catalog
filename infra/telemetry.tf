@@ -421,6 +421,48 @@ resource "aws_cloudwatch_dashboard" "backend" {
           }
         }
       },
+      {
+        type = "metric", x = 0, y = 54, width = 12, height = 6
+        properties = {
+          title   = "Reads of an Approved version's contents a minute, by how the cache answered"
+          region  = data.aws_region.current.region
+          view    = "timeSeries"
+          period  = 60
+          stacked = true
+          metrics = [[{
+            expression = "SEARCH('${local.backend_metric} MetricName=\"cache.read\"', 'Sum', 60)"
+            id         = "reads"
+            label      = "$${PROP('Dim.result')}"
+          }]]
+        }
+      },
+      {
+        type = "metric", x = 12, y = 54, width = 12, height = 6
+        properties = {
+          title  = "Share of those reads that the cache answered, in percent"
+          region = data.aws_region.current.region
+          view   = "timeSeries"
+          period = 60
+          metrics = [
+            [{
+              expression = "SEARCH('${local.backend_metric} MetricName=\"cache.read\" result=\"hit\"', 'Sum', 60)"
+              id         = "hits"
+              visible    = false
+            }],
+            [{
+              expression = "SEARCH('${local.backend_metric} MetricName=\"cache.read\"', 'Sum', 60)"
+              id         = "all"
+              visible    = false
+            }],
+            [{
+              expression = "100 * SUM(hits) / SUM(all)"
+              id         = "share"
+              label      = "hits"
+            }],
+          ]
+          yAxis = { left = { min = 0, max = 100 } }
+        }
+      },
     ]
   })
 }

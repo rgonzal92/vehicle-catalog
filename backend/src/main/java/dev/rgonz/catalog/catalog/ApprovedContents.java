@@ -6,9 +6,12 @@ import dev.rgonz.catalog.catalog.CatalogSnapshot.Offering;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Region;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Trim;
 import dev.rgonz.catalog.core.ResetCleanup;
+import io.micrometer.core.instrument.FunctionCounter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -75,8 +78,18 @@ class ApprovedContents implements HealthIndicator, ResetCleanup {
   private final AtomicBoolean down = new AtomicBoolean();
   private volatile long leftAloneUntil;
 
-  ApprovedContents(@Value("${app.cache.host}") String host, StringRedisTemplate cache) {
+  ApprovedContents(
+      @Value("${app.cache.host}") String host, StringRedisTemplate cache, MeterRegistry metrics) {
     this.cache = host.isBlank() ? null : cache;
+    Map.of("hit", hits, "miss", misses, "fallback", fallbacks)
+        .forEach(
+            (result, counted) ->
+                FunctionCounter.builder("cache.read", counted, LongAdder::sum)
+                    .description(
+                        "How many reads of an Approved version's contents the cache answered (hit),"
+                            + " had nothing for (miss), or failed (fallback)")
+                    .tag("result", result)
+                    .register(metrics));
   }
 
   /**
