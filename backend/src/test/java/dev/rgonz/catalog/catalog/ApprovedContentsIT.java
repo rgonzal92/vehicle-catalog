@@ -7,6 +7,7 @@ import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.catalog.ApprovedContents.Counts;
 import dev.rgonz.catalog.core.Role;
 import dev.rgonz.catalog.job.Worker;
+import io.lettuce.core.resource.ClientResources;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +41,7 @@ class ApprovedContentsIT extends WorkingCopyTests {
 
   @Autowired ApprovedContents contents;
   @Autowired StringRedisTemplate cache;
+  @Autowired ClientResources client;
   @Autowired ApplicationContext application;
 
   /** The current Approved version of the seeded Compact SUV 2026. */
@@ -259,9 +261,22 @@ class ApprovedContentsIT extends WorkingCopyTests {
     assertThat(output.getOut().split("The cache stopped answering", -1))
         .as("the log says once that the cache stopped answering")
         .hasSize(2);
-    assertThat(output.getOut().split("The cache answers", -1))
-        .as("and once that it answers again")
+    // An app that started within this test said at its start that the cache answers.
+    var sinceTheStop =
+        output.getOut().substring(output.getOut().indexOf("The cache stopped answering"));
+    assertThat(sinceTheStop.split("The cache answers", -1))
+        .as("and once, after that, that it answers")
         .hasSize(2);
+  }
+
+  @Test
+  void aCacheThatHasStoppedIsLookedForEveryTwoSecondsHoweverLongItHasBeenGone() {
+    assertThat(List.of(1, 20, 200))
+        .as("tries to reach the cache again, by how many there have been")
+        .allSatisfy(
+            tries ->
+                assertThat(client.reconnectDelay().createDelay(tries))
+                    .isEqualTo(Duration.ofSeconds(2)));
   }
 
   @Test
