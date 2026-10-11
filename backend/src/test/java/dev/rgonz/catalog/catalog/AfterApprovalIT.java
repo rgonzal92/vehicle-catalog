@@ -6,6 +6,7 @@ import static org.awaitility.Awaitility.await;
 import dev.rgonz.catalog.core.Role;
 import dev.rgonz.catalog.job.Worker;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,8 +16,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.ApplicationContext;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Checks what follows an approval: a job that the worker runs once, whatever stops in between, as
@@ -27,6 +30,9 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 @ExtendWith(OutputCaptureExtension.class)
 class AfterApprovalIT extends WorkingCopyTests {
   @Autowired ApplicationContext application;
+  @Autowired ApprovedContents contents;
+  @Autowired AfterApproval afterApproval;
+  @Autowired StringRedisTemplate cache;
 
   /** Ana's submitted working copy, at revision 1. */
   private long copy;
@@ -104,6 +110,45 @@ class AfterApprovalIT extends WorkingCopyTests {
     assertThat(count("notification WHERE user_id = %d", person("mia")))
         .as("the reviewer is told nothing")
         .isZero();
+  }
+
+  @Test
+  void theWorkerGivesTheCacheTheNewVersionSoThatTheFirstReadOfItIsAHit() {
+    decide(mia(), "approve", "\"1\"");
+    var before = contents.counts();
+
+    Worker.runs(application);
+
+    assertThat(open(ben(), copy)).hasStatusOk();
+    var after = contents.counts();
+    assertThat(List.of(after.hits() - before.hits(), after.misses() - before.misses()))
+        .as("hits and misses of the first read")
+        .containsExactly(1L, 0L);
+  }
+
+  @Test
+  void withTheCacheDownTheOwnerIsToldAllTheSameAndTheJobEndsAsDone() {
+    decide(mia(), "approve", "\"1\"");
+
+    whileTheCacheDoesNotAnswer(() -> Worker.runs(application));
+
+    assertThat(notifications()).isOne();
+    assertThat(count("job WHERE status = 'SUCCEEDED' AND attempts = 1")).isOne();
+  }
+
+  @Test
+  void theJobDoneTwiceTellsTheOwnerOnceAndLeavesOneEntryInTheCache() {
+    decide(mia(), "approve", "\"1\"");
+    var subject = JsonMapper.builder().build().readTree("{\"catalogId\": %d}".formatted(copy));
+
+    afterApproval.handle(subject);
+    var kept = cache.opsForValue().get(ApprovedContents.KEY + copy);
+    afterApproval.handle(subject);
+
+    assertThat(notifications()).isOne();
+    assertThat(cache.keys("approved-contents:*:" + copy))
+        .containsExactly(ApprovedContents.KEY + copy);
+    assertThat(cache.opsForValue().get(ApprovedContents.KEY + copy)).isNotNull().isEqualTo(kept);
   }
 
   @Test

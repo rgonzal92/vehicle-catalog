@@ -23,5 +23,6 @@ What decides a change does not read the cache. Submitting and approving read a w
 - The app is ready whether Redis answers or not. Health names the cache as a part of its own, so with Redis down `/api/health` answers 503 and says which part is down, and `/api/health/readiness` answers 200.
 - The key names the form of what is kept, as `approved-contents:1:<catalog id>`. A change to that form, or a migration that changes what an Approved version holds, takes the next number, and what was kept before is then not read and is gone within a day.
 - An entry that cannot be read as that form counts as not there, and is replaced.
+- The job that follows an approval gives the cache the new version, so the first person to open it finds it there. The demo reset empties the cache of every version. No entry would be wrong without that: it gives back the memory of catalogs that are gone.
 - The reads are counted as hits, misses, and fallbacks in the app, and are not sent to CloudWatch.
 - Redis is asked with Lettuce, the client Spring's Redis support brings, which brings Netty with it.

@@ -219,6 +219,23 @@ class Catalogs {
     return snapshot(id, approved.lineageId(), Status.APPROVED, approved.revision(), false);
   }
 
+  /**
+   * Gives the cache an Approved version's contents, as they read with the labels of its approval,
+   * so that the first read of the version finds them there. A catalog that is no Approved version
+   * is left out of the cache, as it always is.
+   */
+  @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+  void keepInTheCache(long id) {
+    boolean approved =
+        jdbc.sql("SELECT EXISTS (SELECT 1 FROM catalog WHERE id = :id AND status = 'APPROVED')")
+            .param("id", id)
+            .query(Boolean.class)
+            .single();
+    if (approved) {
+      approvedContents.keep(id, contents(id, true));
+    }
+  }
+
   /** What places an Approved version: its lineage, and the revision it was approved at. */
   private record Approved(long lineageId, long revision) {}
 
