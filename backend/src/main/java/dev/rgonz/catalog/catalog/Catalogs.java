@@ -8,11 +8,14 @@ import dev.rgonz.catalog.catalog.CatalogSnapshot.Region;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Trim;
 import dev.rgonz.catalog.library.RuleKind;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -32,10 +35,15 @@ class Catalogs {
 
   private final JdbcClient jdbc;
   private final ApprovedContents approvedContents;
+  private final Timer validateTime;
 
-  Catalogs(JdbcClient jdbc, ApprovedContents approvedContents) {
+  Catalogs(JdbcClient jdbc, ApprovedContents approvedContents, MeterRegistry metrics) {
     this.jdbc = jdbc;
     this.approvedContents = approvedContents;
+    this.validateTime =
+        Timer.builder("catalog.validate")
+            .description("How long reading a catalog and working out its issues takes")
+            .register(metrics);
   }
 
   /**
@@ -105,11 +113,21 @@ class Catalogs {
    * A catalog with its contents, if the viewer may open it: one query for the catalog itself, one
    * for each content table, and one for its rules. The queries share one view of the database, so
    * the contents always belong to the revision.
+   *
+   * <p>The time is taken from before the catalog is read until its issues are worked out, and only
+   * of a catalog that is found.
    */
   @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
   Optional<CatalogView> find(long id, long viewerId, boolean reviews) {
-    return read(id, viewerId, reviews)
-        .map(catalog -> catalog.withIssues(Validation.issues(catalog.snapshot(), library(id))));
+    var started = System.nanoTime();
+    var found =
+        read(id, viewerId, reviews)
+            .map(catalog -> catalog.withIssues(Validation.issues(catalog.snapshot(), library(id))));
+    if (found.isPresent()) {
+      validateTime.record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
+    }
+
+    return found;
   }
 
   /** A catalog with its contents, for its owner or, when it is an Approved version, for anyone. */

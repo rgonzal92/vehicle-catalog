@@ -21,13 +21,13 @@ import org.springframework.http.server.observation.ServerRequestObservationConte
 /**
  * What the backend reports of itself. Each metric that is kept is one that is paid for, so the list
  * is short. Of the API: whether it is ready, its requests by outcome, the memory its heap uses, how
- * long an edit and a copy of a catalog take, and how many catalogs were refused at their submit,
- * approved, rejected, and updated from Approved. Of the worker: how long each job took, by its type
- * and its outcome. Of both, what they ask the language model: its requests by what they were for
- * and how they ended, the tokens in and out, and the requests that were refused; and of the API
- * also the tool calls and what the day has cost. Every other metric is turned down here, the many
- * that the libraries offer among them, so a new one is added to its list here and to the dashboard
- * that shows it.
+ * long an edit and a copy of a catalog take, how long reading one and working out its issues takes,
+ * and how many catalogs were refused at their submit, approved, rejected, and updated from
+ * Approved. Of the worker: how long each job took, by its type and its outcome. Of both, what they
+ * ask the language model: its requests by what they were for and how they ended, the tokens in and
+ * out, and the requests that were refused; and of the API also the tool calls and what the day has
+ * cost. Every other metric is turned down here, the many that the libraries offer among them, so a
+ * new one is added to its list here and to the dashboard that shows it.
  */
 @Configuration(proxyBeanMethods = false)
 class Telemetry {
@@ -54,6 +54,7 @@ class Telemetry {
           "jvm.heap.used",
           "catalog.edit",
           "catalog.copy",
+          "catalog.validate",
           "catalog.submit.refused",
           "catalog.approved",
           "catalog.rejected",

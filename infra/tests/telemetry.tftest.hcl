@@ -149,7 +149,7 @@ run "a_backend_that_is_not_ready_or_says_nothing_sets_off_the_alarm" {
 
 run "every_metric_that_is_sent_is_looked_at" {
   assert {
-    # Tests in backend/ hold the API to the first ten and the last five, and the worker to
+    # Tests in backend/ hold the API to the first eleven and the last five, and the worker to
     # job.run and the model's requests, tokens, and refusals.
     condition = alltrue([
       for metric in [
@@ -158,6 +158,7 @@ run "every_metric_that_is_sent_is_looked_at" {
         "jvm.heap.used",
         "catalog.edit",
         "catalog.copy",
+        "catalog.validate",
         "catalog.submit.refused",
         "catalog.approved",
         "catalog.rejected",

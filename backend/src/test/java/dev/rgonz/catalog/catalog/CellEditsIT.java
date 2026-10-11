@@ -474,6 +474,23 @@ class CellEditsIT extends WorkingCopyTests {
     return timer == null ? 0 : timer.count();
   }
 
+  @Test
+  void openingACatalogAndSavingAnEditEachTimeOneReadingOfTheCatalogWithItsIssues() {
+    var timer = metrics.get("catalog.validate").timer();
+    var before = timer.count();
+    var time = timer.totalTime(TimeUnit.NANOSECONDS);
+
+    open(ana(), copy);
+    assertThat(timer.count()).as("after opening it").isEqualTo(before + 1);
+    assertThat(timer.totalTime(TimeUnit.NANOSECONDS)).isGreaterThan(time);
+
+    setCells(ana(), copy, "\"0\"", cell("TRANS_MANUAL", "Base", "NA", "A"));
+    assertThat(timer.count()).as("after saving an edit").isEqualTo(before + 2);
+
+    assertThat(open(ben(), copy)).hasStatus(404);
+    assertThat(timer.count()).as("a catalog that is not found is not timed").isEqualTo(before + 2);
+  }
+
   /** What the working copy stores for the cell, where no stored cell is Not offered. */
   private String stored(String feature, String trim, String region) {
     return jdbc.sql(

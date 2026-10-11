@@ -300,8 +300,8 @@ done
 expect "the agent is sent how long the job took, told apart by its type and by how it ended" \
   "outcome: Str(SUCCESS) type: Str(AFTER_APPROVAL)" \
   "$(grep -B 1 -F -- "$its_time" <<<"$said" | sed -n 's/^ *-> //p' | sort -u | paste -sd ' ')"
-expect "the agent is sent eleven metrics and no other: the API's ten, and how long a job took" \
-  "cache.read catalog.approved catalog.copy catalog.edit catalog.merged catalog.rejected catalog.submit.refused health http.server.requests job.run jvm.heap.used" \
+expect "the agent is sent twelve metrics and no other: the API's eleven, and how long a job took" \
+  "cache.read catalog.approved catalog.copy catalog.edit catalog.merged catalog.rejected catalog.submit.refused catalog.validate health http.server.requests job.run jvm.heap.used" \
   "$(sed -n 's/^ *-> Name: //p' <<<"$said" | sort -u | paste -sd ' ')"
 asks_the_worker() { # the path
   docker compose exec -T worker wget --quiet --spider "http://127.0.0.1:8080$1"
