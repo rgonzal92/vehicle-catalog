@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Supplier;
@@ -21,11 +22,15 @@ import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.HealthIndicator;
+import org.springframework.boot.health.contributor.Status;
+import org.springframework.context.event.EventListener;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
@@ -38,8 +43,10 @@ import tools.jackson.databind.module.SimpleModule;
  * for a day.
  *
  * <p>The cache is never needed. When it does not answer, the contents are read from the database,
- * and for some seconds after that the cache is not asked at all. Without an address for it there is
- * no cache, and every read is of the database.
+ * and from then on no read asks it until it is known to answer again. Whether it does, the app asks
+ * by itself, when it has started and every ten seconds while the cache does not answer, where no
+ * one waits for it: reaching the cache for the first time can take longer than a read is given.
+ * Without an address for it there is no cache, and every read is of the database.
  *
  * <p>It is also the part of the app's health that says whether the cache answers. Whether the app
  * is ready does not depend on it.
@@ -63,9 +70,6 @@ class ApprovedContents implements HealthIndicator, ResetCleanup {
 
   private static final Duration KEPT_FOR = Duration.ofDays(1);
 
-  /** How long the cache is left alone after it did not answer, before it is asked again. */
-  private static final Duration LEFT_ALONE_FOR = Duration.ofSeconds(10);
-
   /** A rule's trims and regions are kept in their order, and are read back in it. */
   private static final JsonMapper JSON =
       JsonMapper.builder()
@@ -76,7 +80,9 @@ class ApprovedContents implements HealthIndicator, ResetCleanup {
   private final LongAdder hits = new LongAdder();
   private final LongAdder misses = new LongAdder();
   private final LongAdder fallbacks = new LongAdder();
-  private final AtomicBoolean down = new AtomicBoolean();
+
+  /** Whether the cache is known to answer. A read asks it only while it is. */
+  private final AtomicBoolean answering = new AtomicBoolean();
 
   /**
    * What the reads of a version wait their turn on, so that one of them at a time asks the database
@@ -84,8 +90,6 @@ class ApprovedContents implements HealthIndicator, ResetCleanup {
    * nothing else.
    */
   private final Object[] oneAtATime = Stream.generate(Object::new).limit(64).toArray();
-
-  private volatile long leftAloneUntil;
 
   ApprovedContents(
       @Value("${app.cache.host}") String host, StringRedisTemplate cache, MeterRegistry metrics) {
@@ -138,7 +142,7 @@ class ApprovedContents implements HealthIndicator, ResetCleanup {
    * What the cache holds for the version, or null when it holds nothing for it. What it holds and
    * cannot be read counts as nothing, and is replaced by whoever reads the version next.
    *
-   * @throws Unanswered when the cache does not answer, or is being left alone
+   * @throws Unanswered when the cache does not answer, or is not known to answer
    */
   private Contents kept(long catalogId) throws Unanswered {
     if (leftAlone()) {
@@ -190,7 +194,7 @@ class ApprovedContents implements HealthIndicator, ResetCleanup {
     return new Counts(hits.sum(), misses.sum(), fallbacks.sum());
   }
 
-  /** Asks the cache whether it is there, whether or not it is being left alone. */
+  /** Asks the cache whether it is there, whether or not it is known to answer. */
   @Override
   public Health health() {
     if (cache == null) {
@@ -207,19 +211,37 @@ class ApprovedContents implements HealthIndicator, ResetCleanup {
   }
 
   private boolean leftAlone() {
-    return down.get() && System.nanoTime() - leftAloneUntil < 0;
+    return !answering.get();
+  }
+
+  /**
+   * Asks the cache whether it is there once the app has started, before any read could ask it, and
+   * says so in the log if it is not.
+   */
+  @EventListener(ApplicationReadyEvent.class)
+  void asksAtTheStart() {
+    if (cache != null && health().getStatus() != Status.UP) {
+      log.warn("The cache does not answer, so Approved versions are read from the database.");
+    }
+  }
+
+  /** Asks the cache again every ten seconds for as long as it is not known to answer. */
+  @Scheduled(initialDelay = 10, fixedDelay = 10, timeUnit = TimeUnit.SECONDS)
+  void asksAgain() {
+    if (cache != null && !answering.get()) {
+      health();
+    }
   }
 
   private void answers() {
-    if (down.compareAndSet(true, false)) {
-      log.info("The cache answers again.");
+    if (answering.compareAndSet(false, true)) {
+      log.info("The cache answers.");
     }
   }
 
   /** The log says so once, when the cache stops answering, and not for each read after that. */
   private void doesNotAnswer(RuntimeException why) {
-    leftAloneUntil = System.nanoTime() + LEFT_ALONE_FOR.toNanos();
-    if (down.compareAndSet(false, true)) {
+    if (answering.compareAndSet(true, false)) {
       log.warn(
           "The cache stopped answering, so Approved versions are read from the database: {}",
           why.toString());

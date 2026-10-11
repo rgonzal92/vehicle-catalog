@@ -1,11 +1,13 @@
 package dev.rgonz.catalog.catalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.catalog.ApprovedContents.Counts;
 import dev.rgonz.catalog.core.Role;
 import dev.rgonz.catalog.job.Worker;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -257,8 +259,30 @@ class ApprovedContentsIT extends WorkingCopyTests {
     assertThat(output.getOut().split("The cache stopped answering", -1))
         .as("the log says once that the cache stopped answering")
         .hasSize(2);
-    assertThat(output.getOut().split("The cache answers again", -1))
+    assertThat(output.getOut().split("The cache answers", -1))
         .as("and once that it answers again")
         .hasSize(2);
+  }
+
+  @Test
+  void aCacheThatAnswersAgainIsUsedAgainWithoutAnyoneAskingForTheAppsHealth() {
+    snapshot(open(ana(), approved));
+    CACHE.getDockerClient().pauseContainerCmd(CACHE.getContainerId()).exec();
+    try {
+      snapshot(open(ana(), approved));
+      assertThat(counted()).as("hits, misses, fallbacks").containsExactly(0L, 1L, 1L);
+    } finally {
+      CACHE.getDockerClient().unpauseContainerCmd(CACHE.getContainerId()).exec();
+    }
+
+    // The app asks the cache again every ten seconds while it is not known to answer.
+    await()
+        .atMost(Duration.ofSeconds(15))
+        .pollInterval(Duration.ofMillis(500))
+        .untilAsserted(
+            () -> {
+              snapshot(open(ana(), approved));
+              assertThat(counted().getFirst()).as("hits").isPositive();
+            });
   }
 }

@@ -18,7 +18,8 @@ What decides a change does not read the cache. Submitting and approving read a w
 
 ## Consequences
 
-- When Redis does not answer within a quarter of a second, the read is answered from PostgreSQL and counted as a fallback. For ten seconds after that Redis is not asked at all, and then one read asks again. The log says once that the cache stopped answering and once that it answers again.
+- When Redis does not answer within a quarter of a second, the read is answered from PostgreSQL and counted as a fallback. From then on no read asks Redis, and each is a fallback, until Redis is known to answer again. The log says once that the cache stopped answering and once that it answers.
+- No read reaches Redis for the first time. Making the connection can take longer than a read is given, most of all in an app that has just started, so the app makes it itself: when it has started, and every ten seconds while Redis is not known to answer. It is given two seconds for it, and no one waits for those.
 - Without an address for it the app has no cache, starts, and reads everything from PostgreSQL.
 - The app is ready whether Redis answers or not. Health names the cache as a part of its own, so with Redis down `/api/health` answers 503 and says which part is down, and `/api/health/readiness` answers 200.
 - The key names the form of what is kept, as `approved-contents:1:<catalog id>`. A change to that form, or a migration that changes what an Approved version holds, takes the next number, and what was kept before is then not read and is gone within a day.
