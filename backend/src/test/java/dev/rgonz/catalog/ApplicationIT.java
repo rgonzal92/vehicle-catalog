@@ -70,6 +70,8 @@ import software.amazon.awssdk.services.sqs.model.QueueAttributeName;
       "app.ai.api-key=a-key-for-the-tests",
       // The tests upload the documents they are about. The demo's own are for the tests of those.
       "app.documents.seeded=false",
+      // The tests make the submissions they are about. The demo's own is for the tests of it.
+      "app.submission.seeded=false",
       "app.ai.timeout=2s",
       // Where the cache is. A test of the app without one says so by leaving this empty.
       "app.cache.host=127.0.0.1",

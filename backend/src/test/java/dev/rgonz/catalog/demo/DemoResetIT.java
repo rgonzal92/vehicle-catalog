@@ -30,6 +30,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor;
 import org.springframework.scheduling.support.CronExpression;
@@ -574,11 +575,15 @@ class DemoResetIT extends ApplicationIT {
     return jdbc.sql("SELECT count(*) FROM " + from).query(Long.class).single();
   }
 
+  private List<String> content() {
+    return content(jdbc);
+  }
+
   /**
    * Everything the library and the catalogs hold, one line for each row, named by what a person
    * would call it and never by an id, since a reset gives everything new ids.
    */
-  private List<String> content() {
+  static List<String> content(JdbcClient jdbc) {
     return jdbc.sql(
             """
             -- A catalog is told from every other by its lineage, its owner, and its name, with

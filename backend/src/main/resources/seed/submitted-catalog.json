@@ -1,0 +1,18 @@
+{
+  "vehicleLine": "SEDAN",
+  "modelYear": 2027,
+  "name": "Winter content for Europe",
+  "note": "The heated windshield is new, and offered in Europe: Standard on Luxury, Available on Base and Sport. It cannot be built with the head-up display, so Luxury no longer offers the display in Europe. The heated steering wheel becomes Available on Base and Standard on Sport, also in Europe.",
+  "featureRows": ["WINDSHIELD_HEATED"],
+  "cells": [
+    { "feature": "WINDSHIELD_HEATED", "trim": "Base", "region": "EU", "availability": "A" },
+    { "feature": "WINDSHIELD_HEATED", "trim": "Sport", "region": "EU", "availability": "A" },
+    { "feature": "WINDSHIELD_HEATED", "trim": "Luxury", "region": "EU", "availability": "S" },
+    { "feature": "HEAD_UP_DISPLAY", "trim": "Luxury", "region": "EU", "availability": "N" },
+    { "feature": "STEERING_WHEEL_HEATED", "trim": "Base", "region": "EU", "availability": "A" },
+    { "feature": "STEERING_WHEEL_HEATED", "trim": "Sport", "region": "EU", "availability": "S" }
+  ],
+  "rules": [
+    { "kind": "EXCLUDES", "source": "HEAD_UP_DISPLAY", "targets": ["WINDSHIELD_HEATED"] }
+  ]
+}

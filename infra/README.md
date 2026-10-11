@@ -409,6 +409,15 @@ sudo docker compose exec -T db psql --username catalog --dbname catalog --comman
 A limit of OpenAI's own, set for the key's project in OpenAI's console, is the line behind that
 one.
 
+The demo starts with one catalog that waits for review, so that whoever signs in as the demo
+manager finds something in the review queue. It is a working copy of Sedan 2027 that the demo
+author owns, and `backend/src/main/resources/seed/submitted-catalog.json` lists what it changes
+and the note it is submitted with. The app makes it together with the seeded Approved versions, as
+its owner would make it, and each demo reset puts it back, whatever was done to it meanwhile. The
+worker has the model write its summary as it does for any submission: one request after a first
+start and one after each reset, for which US$0.0004 is reserved, the most it can cost.
+`app.submission.seeded=false` turns this off.
+
 ## Backups
 
 Every night at 02:30 UTC the host writes a copy of the database to the bucket
