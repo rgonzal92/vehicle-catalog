@@ -58,6 +58,7 @@ class Telemetry {
           "catalog.approved",
           "catalog.rejected",
           "catalog.merged",
+          "cache.read",
           "ai.call",
           "ai.tokens",
           "ai.tool.calls",

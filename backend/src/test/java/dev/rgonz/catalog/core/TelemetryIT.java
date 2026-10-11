@@ -94,9 +94,10 @@ class TelemetryIT extends ApplicationIT {
             "catalog.approved",
             "catalog.rejected",
             "catalog.merged",
+            "cache.read",
             "ai.spent")
         .filteredOn(name -> !name.startsWith("ai."))
-        .hasSize(9);
+        .hasSize(10);
   }
 
   @Test
@@ -107,6 +108,16 @@ class TelemetryIT extends ApplicationIT {
             List.of(Tag.of("reason", "HAS_ERRORS")),
             List.of(Tag.of("reason", "STALE")),
             List.of(Tag.of("reason", "VEHICLE_LINE_INACTIVE")));
+  }
+
+  @Test
+  void aReadOfAnApprovedVersionsContentsIsToldApartByThreeResultsAndByNothingElse() {
+    assertThat(meters.find("cache.read").functionCounters())
+        .extracting(counter -> counter.getId().getTags())
+        .containsExactlyInAnyOrder(
+            List.of(Tag.of("result", "fallback")),
+            List.of(Tag.of("result", "hit")),
+            List.of(Tag.of("result", "miss")));
   }
 
   @Test

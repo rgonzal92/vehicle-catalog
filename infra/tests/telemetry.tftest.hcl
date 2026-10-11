@@ -149,7 +149,7 @@ run "a_backend_that_is_not_ready_or_says_nothing_sets_off_the_alarm" {
 
 run "every_metric_that_is_sent_is_looked_at" {
   assert {
-    # Tests in backend/ hold the API to the first nine and the last five, and the worker to
+    # Tests in backend/ hold the API to the first ten and the last five, and the worker to
     # job.run and the model's requests, tokens, and refusals.
     condition = alltrue([
       for metric in [
@@ -162,6 +162,7 @@ run "every_metric_that_is_sent_is_looked_at" {
         "catalog.approved",
         "catalog.rejected",
         "catalog.merged",
+        "cache.read",
         "job.run",
         "ai.call",
         "ai.tokens",
@@ -175,6 +176,19 @@ run "every_metric_that_is_sent_is_looked_at" {
       ])
     ])
     error_message = "The dashboard shows each of the backend's metrics, found in the app's namespace by its name."
+  }
+
+  assert {
+    condition = one([
+      for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+      [for metric in widget.properties.metrics : metric[0].expression]
+      if strcontains(jsonencode(widget.properties.metrics), "result=\\\"hit\\\"")
+      ]) == [
+      "SEARCH('Namespace=\"vehicle-catalog\" MetricName=\"cache.read\" result=\"hit\"', 'Sum', 60)",
+      "SEARCH('Namespace=\"vehicle-catalog\" MetricName=\"cache.read\"', 'Sum', 60)",
+      "100 * SUM(hits) / SUM(all)",
+    ]
+    error_message = "One chart shows the share of the reads of Approved versions that the cache answered: the hits over all of them, whatever labels the metric carries."
   }
 
   assert {

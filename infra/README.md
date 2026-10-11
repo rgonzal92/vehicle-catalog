@@ -475,7 +475,7 @@ It all goes to Amazon CloudWatch.
   ```
 - **Its metrics** go to the same agent, which publishes them under the namespace
   `vehicle-catalog` together with two of the host's own. The dashboard `vehicle-catalog` shows
-  them. The API sends the first nine of these and the five of the language model. The worker sends
+  them. The API sends the first ten of these and the five of the language model. The worker sends
   `job.run` and, of the model's, `ai.call`, `ai.tokens`, and `ai.refused`: it calls no tools, and
   the API says what the day has cost.
 
@@ -490,6 +490,7 @@ It all goes to Amazon CloudWatch.
 | `catalog.approved` | how many catalogs were approved | nothing |
 | `catalog.rejected` | how many catalogs were rejected | nothing |
 | `catalog.merged` | how many working copies were updated from Approved | nothing |
+| `cache.read` | how many reads of an Approved version's contents there were | `result`, of which there are three: `hit` when the cache answered, `miss` when it had nothing, `fallback` when it failed |
 | `job.run` | how many jobs the worker handled and how long each took | `type`, of which there are five, and `outcome`: `SUCCESS` or `FAILURE` |
 | `ai.call` | how many requests the language model was sent and how long each took | `purpose`, of which there are five: `RULE_SUGGESTION`, `SUBMISSION_SUMMARY`, `ANALYST`, `DOCUMENT_EMBEDDING`, `QUESTION_EMBEDDING`, and `outcome`: `SUCCESS` or `FAILURE` |
 | `ai.tokens` | how many tokens the model was sent and answered with | `direction`: `in` or `out` |
@@ -500,13 +501,16 @@ It all goes to Amazon CloudWatch.
 | `disk_used_percent` | the share of the host's disk in use | nothing that varies |
 
 CloudWatch counts a metric once for every value of what it is told apart by, which makes up to
-forty-three of these, seventeen of them the language model's, and charges for each one beyond ten:
-up to thirty-three, at about $0.30 a month each, which is at most about $10 a month. So the backend
+forty-six of these, seventeen of them the language model's and three the cache's, and charges for
+each one beyond ten: up to thirty-six, at about $0.30 a month each, which is at most about $11 a
+month. So the backend
 sends no metric that the alarm or the dashboard does not use: `Telemetry.java` in the backend turns
 down every other. A metric is there once it has first been sent, so the two times and the fourth
 outcome, a request that fails in the backend, appear when there has been one, and `job.run` counts
 once for each type of job that has been done and once more for each that has failed. The six that
-count catalogs are sent from the start, as zero in a minute when there was none.
+count catalogs and the three that count the cache's reads are sent from the start, as zero in a
+minute when there was none. The worker reads Approved versions too and sends nothing of it: its
+reads would be three metrics more.
 
 The model's metrics are there once what they count has happened: a purpose that is never asked
 for, an outcome or a refusal that never occurs, costs nothing. `ai.spent` is sent from the start
