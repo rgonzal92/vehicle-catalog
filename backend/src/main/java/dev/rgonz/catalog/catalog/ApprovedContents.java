@@ -216,13 +216,21 @@ class ApprovedContents implements HealthIndicator, ResetCleanup {
 
   /**
    * Asks the cache whether it is there once the app has started, before any read could ask it, and
-   * says so in the log if it is not.
+   * says so in the log if it is not. It asks up to three times: an app that has just started can
+   * take longer over its first question than an answer is waited for, with nothing wrong with the
+   * cache.
    */
   @EventListener(ApplicationReadyEvent.class)
   void asksAtTheStart() {
-    if (cache != null && health().getStatus() != Status.UP) {
-      log.warn("The cache does not answer, so Approved versions are read from the database.");
+    if (cache == null) {
+      return;
     }
+    for (int asked = 0; asked < 3; asked++) {
+      if (health().getStatus() == Status.UP) {
+        return;
+      }
+    }
+    log.warn("The cache does not answer, so Approved versions are read from the database.");
   }
 
   /** Asks the cache again every ten seconds for as long as it is not known to answer. */
