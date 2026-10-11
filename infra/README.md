@@ -202,10 +202,14 @@ starts without when there is none. The policy AWS has for Systems Manager lets a
 account holds, so the host's role has a policy of its own that refuses the rest. When the app
 comes to need another secret, name it in two places: where `deploy/release.sh` reads it, and in
 `host_parameters` in `host.tf`. `terraform test` fails while the two differ, and one apply takes
-both to the host.
+both to the host. That apply has the host start its stack at once, and AWS can take some seconds
+to let the host's role read the new parameter. The run then fails on reading it and leaves the
+stack as it was, and running it again, as above, puts it right. It happened when the cache's
+password was added.
 
 The cache is Redis, which runs in the stack as `cache` and keeps what can be read from the
-database again: the contents of Approved versions, as `docs/adr/0016` says. It may hold 64 MB and drops what was used longest ago past that, keeps nothing on
+database again: the contents of Approved versions, as `docs/adr/0016` says. `docs/adr/0017` says
+why it runs on the host and within which limit. It may hold 64 MB and drops what was used longest ago past that, keeps nothing on
 disk, and listens on no port of the host. A release starts it and does not wait for it, and the
 API and the worker run whether it does or not. This says what it holds and how much memory that
 takes:
