@@ -1,6 +1,6 @@
 # What the cache gains
 
-How long reads of Approved versions take with the cache and without it, and what PostgreSQL is sent for them. [The cache keeps the contents of Approved versions](adr/0016-the-contents-of-approved-versions-are-read-from-a-cache-that-is-never-needed.md): everything else a read answers with is read from PostgreSQL every time. These are measurements under a made-up load, on one machine and on generated data. They say what the cache saves in the app as it is built, and nothing certain about the deployed one: the deployed host has not been measured.
+How long reads of Approved versions take with the cache and without it, and what PostgreSQL is sent for them. [The cache keeps the contents of Approved versions](adr/0016-the-contents-of-approved-versions-are-read-from-a-cache-that-is-never-needed.md): everything else a read answers with is read from PostgreSQL every time. These are measurements under a made-up load, on one machine and on generated data. They say what the cache saves in the app as it is built, and nothing certain about the deployed one: the times on the deployed host have not been measured. What the deployed app does when its cache is stopped was looked at on the host, and is [at the end](#the-cache-stopped-on-the-host).
 
 Four things limit what they say:
 
@@ -104,6 +104,40 @@ The statements are counted apart from the times, for one more request of each ki
 The count of ten is from an earlier run, made before the loads of one version took turns. The count of one is from both runs here.
 
 The stretches of longer reads were seen apart from the two runs: reads of the seeded version were sent one after another for 30 seconds, without a cache, with the cache holding the version, and with the cache stopped, by a script that was not kept.
+
+## The cache stopped on the host
+
+On 2026-10-11 the cache was stopped on the host on purpose, for two minutes, with `docker compose stop cache`, and started again. Meanwhile the demo author opened Compact SUV 2026 v2 on the deployed app and compared it with v1, four times over. Times are in UTC.
+
+| | |
+|---|---|
+| 04:53:28 | The cache is stopped. |
+| 04:53:35 | The first read after it waits for the cache and is answered from PostgreSQL. The API's log says that the cache stopped answering. |
+| 04:53:35 to 04:54:56 | Four openings and four comparisons, each answered 200 and each the same as before the stop: the same contents, the same issues, the same differences. The API is ready each time it is asked. |
+| 04:55:37 | The cache is started again. |
+| 04:55:45 | The API's log says that the cache answers. Nobody asked for the app's health: the app found the cache by itself, 8 seconds after it was back. |
+| 04:56:40 | The first opening after that finds the cache empty and fills it, and the ones after it are answered from the cache. |
+
+The API's log has those two lines about the cache and no other. The alarm on the backend's health stayed as it was, and did not change all that night.
+
+The API's own times for these requests, in milliseconds, are the only ones there are from the host:
+
+| | Opening the version | Comparing the two |
+|---|---|---|
+| Before the stop, the cache holding both | 43 | 59 |
+| The first after the stop, which waited for the cache | 384 | 165 |
+| The other three while it was stopped | 110, 107, 69 | 131, 110, 115 |
+| After its return, the cache holding both | 37, 25 | 78, 34 |
+
+They are one person's requests, a handful of each, on the seeded catalogs: enough to say that the app answers as before with the cache stopped, and too few to say what the cache gains there.
+
+The dashboard's chart of the reads, by how the cache answered them:
+
+![Reads of an Approved version's contents a minute, by how the cache answered: fallbacks from 04:13 to 04:15 and at 04:54 and 04:55, each followed by hits](cache-stopped-on-the-host.png)
+
+The reads at 04:00 are the ones sent to [measure the host's memory](host-memory-measurements.md). The fallbacks at 04:54 and 04:55 are this stop, and the hits and the misses at 04:57 the reads after it. A count is sent once a minute, so it shows in the minute after its reads.
+
+The fallbacks from 04:13 to 04:15 are an earlier stop, from 04:12:20 to 04:14:30, on the app as it was built two releases before. Readers saw the same then: every opening and comparison answered 200, the same as before. But the app went on reading from PostgreSQL for half a minute after the cache was back, until its health was asked for. The client had come to wait half a minute between its tries to reach a cache that was gone. It now tries every two seconds, which is what the 8 seconds above show.
 
 ## Environment
 
