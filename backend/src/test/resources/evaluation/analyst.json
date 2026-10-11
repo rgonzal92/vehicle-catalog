@@ -92,20 +92,52 @@
   {
     "id": "how-a-lineage-came-to-its-version",
     "heldOut": false,
-    "question": "Who approved each version of the 2026 Compact SUV, and when?",
+    "question": "When was each version of the 2026 Compact SUV approved?",
     "ofAWorkingCopy": false,
     "tools": [
       "list_versions"
     ],
     "facts": [
       [
-        "Demo Manager"
-      ],
-      [
         "2025"
       ]
     ],
     "absent": []
+  },
+  {
+    "id": "who-approved-a-version",
+    "heldOut": false,
+    "question": "Who approved version 2 of the 2026 Compact SUV?",
+    "ofAWorkingCopy": false,
+    "tools": [],
+    "facts": [
+      [
+        "page"
+      ]
+    ],
+    "absent": [
+      "Demo Manager"
+    ]
+  },
+  {
+    "id": "who-approved-a-catalog-and-when",
+    "heldOut": false,
+    "question": "Who approved the current 2027 Sedan catalog, and when?",
+    "ofAWorkingCopy": false,
+    "tools": [
+      "list_versions"
+    ],
+    "facts": [
+      [
+        "page"
+      ],
+      [
+        "2026"
+      ]
+    ],
+    "absent": [
+      "Demo Manager"
+    ]
   },
   {
     "id": "where-a-feature-is-found",
@@ -201,6 +233,21 @@
     "facts": [],
     "absent": [
       "Performance"
+    ]
+  },
+  {
+    "id": "who-signed-off-the-pickup",
+    "heldOut": true,
+    "question": "Which manager signed off the 2026 Pickup Truck catalog?",
+    "ofAWorkingCopy": false,
+    "tools": [],
+    "facts": [
+      [
+        "page"
+      ]
+    ],
+    "absent": [
+      "Demo Manager"
     ]
   }
 ]
