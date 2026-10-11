@@ -229,6 +229,21 @@ public abstract class ApplicationIT {
     registry.add("spring.data.redis.password", () -> "a-password-for-the-tests");
   }
 
+  /**
+   * Does what is to be tried while the cache answers nothing: its container is held still, so
+   * whatever is asked of it waits. Afterwards the app is asked for its health, which asks the cache
+   * whether or not the app is leaving it alone, so the app knows at once that it answers.
+   */
+  protected void whileTheCacheDoesNotAnswer(Runnable tried) {
+    CACHE.getDockerClient().pauseContainerCmd(CACHE.getContainerId()).exec();
+    try {
+      tried.run();
+    } finally {
+      CACHE.getDockerClient().unpauseContainerCmd(CACHE.getContainerId()).exec();
+      mvc.get().uri("/api/health").exchange();
+    }
+  }
+
   @DynamicPropertySource
   static void model(DynamicPropertyRegistry registry) {
     registry.add("app.ai.base-url", ModelStandIn::url);

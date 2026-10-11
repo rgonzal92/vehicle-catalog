@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor;
@@ -52,6 +53,7 @@ class DemoResetIT extends ApplicationIT {
   @Autowired SandboxRoles sandboxRoles;
   @Autowired ApplicationContext context;
   @Autowired FindByIndexNameSessionRepository<? extends Session> sessions;
+  @Autowired StringRedisTemplate cache;
 
   @BeforeEach
   void aFirstStart() throws Exception {
@@ -321,6 +323,31 @@ class DemoResetIT extends ApplicationIT {
         };
 
     new DemoReset(jdbc, transactions, seeds, List.of(failing), sandboxRoles, "-").run();
+
+    assertThat(content()).isEqualTo(seeded);
+  }
+
+  @Test
+  void itLeavesNothingInTheCacheFromBeforeIt() {
+    var opened =
+        jdbc.sql("SELECT id FROM catalog WHERE status = 'APPROVED'").query(Long.class).list();
+    for (var approved : opened) {
+      assertThat(mvc.get().uri("/api/catalogs/" + approved).with(signedInAs(Role.AUTHOR, "author")))
+          .hasStatusOk();
+    }
+    assertThat(cache.keys("approved-contents:*")).hasSizeGreaterThanOrEqualTo(opened.size());
+
+    reset.run();
+
+    assertThat(cache.keys("approved-contents:*")).isEmpty();
+  }
+
+  @Test
+  void withTheCacheDownItPutsTheLibraryAndTheCatalogsBackAllTheSame() {
+    var seeded = content();
+    jdbc.sql("INSERT INTO trim (name, sort_order) VALUES ('A visitor''s trim', 99)").update();
+
+    whileTheCacheDoesNotAnswer(reset::run);
 
     assertThat(content()).isEqualTo(seeded);
   }

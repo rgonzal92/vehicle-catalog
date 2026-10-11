@@ -10,7 +10,8 @@ import tools.jackson.databind.JsonNode;
 
 /**
  * What follows an approval, which the worker does: the catalog's owner is told that it was
- * approved, as which version, and by whom.
+ * approved, as which version, and by whom, and the cache is given the new version's contents, so
+ * that the first person to open it finds them there.
  */
 @Component
 class AfterApproval implements JobHandler {
@@ -19,10 +20,12 @@ class AfterApproval implements JobHandler {
 
   private final JdbcClient jdbc;
   private final Notifications notifications;
+  private final Catalogs catalogs;
 
-  AfterApproval(JdbcClient jdbc, Notifications notifications) {
+  AfterApproval(JdbcClient jdbc, Notifications notifications, Catalogs catalogs) {
     this.jdbc = jdbc;
     this.notifications = notifications;
+    this.catalogs = catalogs;
   }
 
   @Override
@@ -30,7 +33,11 @@ class AfterApproval implements JobHandler {
     return JobType.AFTER_APPROVAL;
   }
 
-  /** Tells the owner, once. A catalog that is no longer there has no owner to tell. */
+  /**
+   * Tells the owner, once, and then gives the cache the version's contents, which changes nothing
+   * when the cache has them and is left undone when the cache does not answer. A catalog that is no
+   * longer there has no owner to tell and nothing to keep.
+   */
   @Override
   public void handle(JsonNode subject) {
     long catalog = subject.required(CATALOG).asLong();
@@ -61,6 +68,7 @@ class AfterApproval implements JobHandler {
                         "modelYear", approved.modelYear(),
                         "versionNumber", approved.versionNumber(),
                         "reviewer", approved.reviewer())));
+    catalogs.keepInTheCache(catalog);
   }
 
   private record Approved(

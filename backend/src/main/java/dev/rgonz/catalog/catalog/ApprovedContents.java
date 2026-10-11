@@ -5,6 +5,7 @@ import dev.rgonz.catalog.catalog.CatalogSnapshot.FeatureRow;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Offering;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Region;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Trim;
+import dev.rgonz.catalog.core.ResetCleanup;
 import java.time.Duration;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -38,9 +39,13 @@ import tools.jackson.databind.module.SimpleModule;
  *
  * <p>It is also the part of the app's health that says whether the cache answers. Whether the app
  * is ready does not depend on it.
+ *
+ * <p>The demo reset empties the cache of what is kept here. No entry would be wrong without that: a
+ * catalog's id is never used twice, so the entries of catalogs that are gone are never read. It
+ * keeps them from taking up the cache's memory until they are a day old.
  */
 @Component("cache")
-class ApprovedContents implements HealthIndicator {
+class ApprovedContents implements HealthIndicator, ResetCleanup {
   private static final Logger log = LoggerFactory.getLogger(ApprovedContents.class);
 
   /**
@@ -48,6 +53,9 @@ class ApprovedContents implements HealthIndicator {
    * that form changes, so does the number, and what was kept in the form before is not read.
    */
   static final String KEY = "approved-contents:1:";
+
+  /** What the key of an entry starts with, in whatever form its contents are kept. */
+  private static final String IN_ANY_FORM = "approved-contents:";
 
   private static final Duration KEPT_FOR = Duration.ofDays(1);
 
@@ -119,6 +127,19 @@ class ApprovedContents implements HealthIndicator {
       answers();
     } catch (RuntimeException unanswered) {
       doesNotAnswer(unanswered);
+    }
+  }
+
+  @Override
+  public void clean() {
+    if (cache == null) {
+      return;
+    }
+    // ponytail: KEYS reads every key in one go, which holds Redis up for as long. There are a few
+    // dozen. With thousands, SCAN reads them a batch at a time.
+    var kept = cache.keys(IN_ANY_FORM + "*");
+    if (!kept.isEmpty()) {
+      cache.delete(kept);
     }
   }
 

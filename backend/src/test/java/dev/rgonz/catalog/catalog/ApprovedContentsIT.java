@@ -192,31 +192,28 @@ class ApprovedContentsIT extends WorkingCopyTests {
         .extractingPath("$.components.cache.status")
         .isEqualTo("UP");
 
-    CACHE.getDockerClient().pauseContainerCmd(CACHE.getContainerId()).exec();
-    try {
-      for (int read = 0; read < 3; read++) {
-        assertThat(snapshot(open(ana(), approved))).isEqualTo(first);
-      }
-      assertThat(snapshot(open(ana(), approved("SEDAN", 2027, 1))))
-          .as("a version the cache was never given")
-          .containsEntry("status", "APPROVED");
+    whileTheCacheDoesNotAnswer(
+        () -> {
+          for (int read = 0; read < 3; read++) {
+            assertThat(snapshot(open(ana(), approved))).isEqualTo(first);
+          }
+          assertThat(snapshot(open(ana(), approved("SEDAN", 2027, 1))))
+              .as("a version the cache was never given")
+              .containsEntry("status", "APPROVED");
 
-      assertThat(counted()).as("hits, misses, fallbacks").containsExactly(0L, 1L, 4L);
-      assertThat(mvc.get().uri("/api/health/readiness"))
-          .hasStatusOk()
-          .bodyJson()
-          .extractingPath("$.status")
-          .isEqualTo("UP");
-      assertThat(mvc.get().uri("/api/health"))
-          .hasStatus(503)
-          .bodyJson()
-          .extractingPath("$.components.cache.status")
-          .isEqualTo("DOWN");
-    } finally {
-      CACHE.getDockerClient().unpauseContainerCmd(CACHE.getContainerId()).exec();
-    }
+          assertThat(counted()).as("hits, misses, fallbacks").containsExactly(0L, 1L, 4L);
+          assertThat(mvc.get().uri("/api/health/readiness"))
+              .hasStatusOk()
+              .bodyJson()
+              .extractingPath("$.status")
+              .isEqualTo("UP");
+          assertThat(mvc.get().uri("/api/health"))
+              .hasStatus(503)
+              .bodyJson()
+              .extractingPath("$.components.cache.status")
+              .isEqualTo("DOWN");
+        });
 
-    // Health asks the cache whether or not it is being left alone, so the app knows at once.
     assertThat(mvc.get().uri("/api/health"))
         .hasStatusOk()
         .bodyJson()
