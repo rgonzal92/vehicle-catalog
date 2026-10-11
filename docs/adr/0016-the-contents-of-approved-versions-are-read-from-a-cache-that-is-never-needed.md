@@ -24,5 +24,6 @@ What decides a change does not read the cache. Submitting and approving read a w
 - The key names the form of what is kept, as `approved-contents:1:<catalog id>`. A change to that form, or a migration that changes what an Approved version holds, takes the next number, and what was kept before is then not read and is gone within a day.
 - An entry that cannot be read as that form counts as not there, and is replaced.
 - The job that follows an approval gives the cache the new version, so the first person to open it finds it there. The demo reset empties the cache of every version. No entry would be wrong without that: it gives back the memory of catalogs that are gone.
-- The reads are counted as hits, misses, and fallbacks in the app, and are not sent to CloudWatch.
+- The reads are counted as hits, misses, and fallbacks. The API sends the three counts to CloudWatch, and the worker sends none.
+- Reads of one version that the cache does not hold ask PostgreSQL for it one at a time within a process, so reads that arrive together ask once. [What the cache gains](../cache-measurements.md) has that count and the times.
 - Redis is asked with Lettuce, the client Spring's Redis support brings, which brings Netty with it.
