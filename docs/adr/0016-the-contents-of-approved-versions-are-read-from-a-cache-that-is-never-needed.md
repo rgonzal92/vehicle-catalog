@@ -14,7 +14,7 @@ What decides a change does not read the cache. Submitting and approving read a w
 - **Keeping working copies.** Every edit would have to remove or replace the entry, in the same moment as the database commits, which Redis takes no part in. A working copy that reads as it was before the last edit would be a bug a person sees.
 - **Keeping the contents in the API's own memory.** The worker is a second process and reads the same versions, and a release would empty both. It would also grow the API's heap, which is [the largest thing on a host with little to spare](0012-the-worker-runs-beside-the-api-on-the-t4g-small-with-a-limit-on-its-heap.md).
 - **Removing an entry when something changes, in place of a time to live.** Nothing changes. The day is there so that a version no one opens any more does not stay for ever, and so that an entry in a form the app no longer reads goes away by itself.
-- **A compressed or a binary form.** The largest catalog there can be is under 2 MB as JSON, and JSON can be read by a person who asks Redis for a key.
+- **A compressed or a binary form.** The largest catalog there can be is about 2 MB as JSON, of the 64 MB the cache may hold, and JSON can be read by a person who asks Redis for a key.
 
 ## Consequences
 

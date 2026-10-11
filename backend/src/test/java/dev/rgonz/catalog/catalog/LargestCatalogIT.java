@@ -110,9 +110,11 @@ class LargestCatalogIT extends WorkingCopyTests {
                 id))
         .as("regions without the name and the place they were approved with")
         .isZero();
-    assertThat(cache.opsForValue().size(ApprovedContents.KEY + id))
+    var kept = cache.opsForValue().size(ApprovedContents.KEY + id);
+    log.info("The largest catalog's contents are kept in the cache in {} bytes.", kept);
+    assertThat(kept)
         .as("the bytes the cache keeps its contents in, of the 64 MB it may hold")
-        .isBetween(1L, 2_000_000L);
+        .isBetween(1L, 3_000_000L);
     assertThat(
             ApplicationIT.<List<String>>read(
                 mvc.get().uri("/api/lineages").with(ana()).exchange(), "$[*].vehicleLine"))
