@@ -136,6 +136,7 @@ class ExportsIT extends WorkingCopyTests {
     var asked = ask(ben(), approved);
     jdbc.sql("UPDATE trim SET name = 'Sport Plus' WHERE name = 'Sport'").update();
     jdbc.sql("UPDATE region SET name = 'Europe and Africa' WHERE code = 'EU'").update();
+    jdbc.sql("UPDATE region SET sort_order = 99 WHERE code = 'NA'").update();
     jdbc.sql("UPDATE feature SET name = 'Mats' WHERE code = 'FLOOR_CARPET_MATS'").update();
     Worker.runs(application);
 
@@ -149,6 +150,9 @@ class ExportsIT extends WorkingCopyTests {
             .body();
     var matrix = SpreadsheetTest.rows(file, 1);
     assertThat(matrix.getFirst()).contains("North America: Sport", "Europe: Base");
+    assertThat(matrix.getFirst().get(3))
+        .as("the first offering, by the order the regions had")
+        .isEqualTo("North America: Base");
     assertThat(matrix)
         .anySatisfy(
             row ->

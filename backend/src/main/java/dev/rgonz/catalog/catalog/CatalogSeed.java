@@ -177,8 +177,8 @@ class CatalogSeed implements Seed {
 
     jdbc.sql(
             """
-            INSERT INTO catalog_region (catalog_id, region_code, approved_name)
-            SELECT :catalog, code, name FROM region WHERE code = ANY (:regions)
+            INSERT INTO catalog_region (catalog_id, region_code, approved_name, approved_sort_order)
+            SELECT :catalog, code, name, sort_order FROM region WHERE code = ANY (:regions)
             """)
         .param("catalog", catalog)
         .param("regions", seeded.offerings().keySet().toArray(String[]::new))

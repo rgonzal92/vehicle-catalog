@@ -308,8 +308,8 @@ class Catalogs {
   /**
    * A catalog's contents.
    *
-   * @param frozen whether an Approved version shows the labels it was approved with, and not the
-   *     library's of today
+   * @param frozen whether an Approved version shows the labels and the order it was approved with,
+   *     and not the library's of today
    */
   private CatalogSnapshot snapshot(
       long id, long lineageId, Status status, long revision, boolean frozen) {
@@ -336,7 +336,8 @@ class Catalogs {
             FROM catalog_region c
             JOIN region r ON r.code = c.region_code
             WHERE c.catalog_id = :id
-            ORDER BY r.sort_order, r.code
+            ORDER BY COALESCE(CASE WHEN :frozen THEN c.approved_sort_order END, r.sort_order),
+                     r.code
             """,
             id,
             frozen,
@@ -374,14 +375,26 @@ class Catalogs {
             Cell.class);
 
     return new CatalogSnapshot(
-        id, lineageId, status, revision, trims, regions, offerings, featureRows, cells, rules(id));
+        id,
+        lineageId,
+        status,
+        revision,
+        trims,
+        regions,
+        offerings,
+        featureRows,
+        cells,
+        rules(id, frozen));
   }
 
   /**
    * The catalog's own rules, read with one query: each with its targets by their codes, and with
-   * the trims and regions it lists in the library's order.
+   * the trims and regions it lists in the order the catalog has them in.
+   *
+   * @param frozen whether that is the order an Approved version was approved with, and not the
+   *     library's of today
    */
-  private List<Rule> rules(long catalogId) {
+  private List<Rule> rules(long catalogId, boolean frozen) {
     return jdbc.sql(
             """
             SELECT r.rule_key, r.kind, r.source_feature_id, r.all_trims, r.all_regions, r.pair_key,
@@ -392,20 +405,29 @@ class Catalogs {
                          ORDER BY tf.code) AS targets,
                    ARRAY(SELECT t.trim_id
                          FROM catalog_rule_trim t
+                         JOIN catalog_trim ct
+                             ON ct.catalog_id = t.catalog_id AND ct.trim_id = t.trim_id
                          JOIN trim tr ON tr.id = t.trim_id
                          WHERE t.catalog_id = r.catalog_id AND t.rule_key = r.rule_key
-                         ORDER BY tr.sort_order, tr.id) AS trims,
+                         ORDER BY COALESCE(CASE WHEN :frozen THEN ct.approved_sort_order END,
+                                           tr.sort_order),
+                                  tr.id) AS trims,
                    ARRAY(SELECT s.region_code
                          FROM catalog_rule_region s
+                         JOIN catalog_region cr
+                             ON cr.catalog_id = s.catalog_id AND cr.region_code = s.region_code
                          JOIN region rg ON rg.code = s.region_code
                          WHERE s.catalog_id = r.catalog_id AND s.rule_key = r.rule_key
-                         ORDER BY rg.sort_order, rg.code) AS regions
+                         ORDER BY COALESCE(CASE WHEN :frozen THEN cr.approved_sort_order END,
+                                           rg.sort_order),
+                                  rg.code) AS regions
             FROM catalog_rule r
             JOIN feature f ON f.id = r.source_feature_id
             WHERE r.catalog_id = :id
             ORDER BY f.code, r.kind, r.rule_key
             """)
         .param("id", catalogId)
+        .param("frozen", frozen)
         .query(
             (row, _) ->
                 new Rule(

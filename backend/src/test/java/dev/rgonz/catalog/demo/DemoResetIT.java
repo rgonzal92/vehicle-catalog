@@ -592,7 +592,7 @@ class DemoResetIT extends ApplicationIT {
             JOIN trim t ON t.id = ct.trim_id
             UNION ALL
             SELECT 'catalog region ' || concat_ws('|', which.catalog, cr.region_code,
-                       cr.approved_name)
+                       cr.approved_name, cr.approved_sort_order)
             FROM catalog_region cr
             JOIN which ON which.id = cr.catalog_id
             UNION ALL

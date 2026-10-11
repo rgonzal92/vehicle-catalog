@@ -375,6 +375,56 @@ class ReviewsIT extends WorkingCopyTests {
   }
 
   @Test
+  void anApprovedVersionKeepsTheOrderOfItsRegionsAndOfWhatItsRulesListWhateverMovesInTheLibrary() {
+    long bens = workingCopy(ben(), "COMPACT_SUV", 2026);
+    assertThat(
+            edit(
+                ben(),
+                mvc.post().uri("/api/catalogs/{id}/rules", bens),
+                "\"0\"",
+                """
+                {"kind": "REQUIRES", "sourceFeatureId": %d, "targetFeatureIds": [%d],
+                 "allTrims": false, "trimIds": [%d, %d],
+                 "allRegions": false, "regionCodes": ["NA", "EU"]}
+                """
+                    .formatted(
+                        feature("SEAT_VENTILATED_FRONT"),
+                        feature("SEAT_LEATHER"),
+                        trim("Base"),
+                        trim("Sport"))))
+        .hasStatus2xxSuccessful();
+    assertThat(submit(ben(), bens, "\"1\"")).hasStatusOk();
+    assertThat(decide(mia(), "approve", bens, "\"2\"", null)).hasStatusOk();
+    var before = ApplicationIT.<Map<String, Object>>read(open(ben(), bens), "$.snapshot");
+    var listsBoth = "$.snapshot.rules[?(@.allTrims == false && @.allRegions == false)]";
+    var base = (int) trim("Base");
+    var sport = (int) trim("Sport");
+
+    jdbc.sql("UPDATE region SET sort_order = 99 WHERE code = 'NA'").update();
+    jdbc.sql("UPDATE trim SET sort_order = 99 WHERE name = 'Base'").update();
+
+    var after = open(ben(), bens);
+    var later = open(ben(), workingCopy(ben(), "COMPACT_SUV", 2026));
+    assertThat(ApplicationIT.<Map<String, Object>>read(after, "$.snapshot")).isEqualTo(before);
+    assertThat(ApplicationIT.<List<String>>read(after, "$.snapshot.regions[*].code"))
+        .as("its regions, in the order they had")
+        .containsExactly("NA", "EU");
+    assertThat(ApplicationIT.<List<List<String>>>read(after, listsBoth + ".regionCodes"))
+        .as("the regions its rule lists, in the order they had")
+        .containsExactly(List.of("NA", "EU"));
+    assertThat(ApplicationIT.<List<List<Integer>>>read(after, listsBoth + ".trimIds"))
+        .as("the trims its rule lists, in the order they had")
+        .containsExactly(List.of(base, sport));
+    assertThat(ApplicationIT.<List<String>>read(later, "$.snapshot.regions[*].code"))
+        .as("a working copy made from it follows the library")
+        .containsExactly("EU", "NA");
+    assertThat(ApplicationIT.<List<List<String>>>read(later, listsBoth + ".regionCodes"))
+        .containsExactly(List.of("EU", "NA"));
+    assertThat(ApplicationIT.<List<List<Integer>>>read(later, listsBoth + ".trimIds"))
+        .containsExactly(List.of(sport, base));
+  }
+
+  @Test
   void aRejectedCatalogIsDeletedWithTheDecisionsAboutIt() {
     decide(mia(), "reject", copy, "\"1\"", "Not yet.");
 

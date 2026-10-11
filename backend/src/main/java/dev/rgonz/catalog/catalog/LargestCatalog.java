@@ -163,10 +163,10 @@ class LargestCatalog implements Seed {
                 SELECT 'LARGEST' || n, 'Largest region ' || n,
                        (SELECT COALESCE(max(sort_order), 0) FROM region) + n
                 FROM generate_series(1, 8) AS n
-                RETURNING code, name
+                RETURNING code, name, sort_order
             )
-            INSERT INTO catalog_region (catalog_id, region_code, approved_name)
-            SELECT :catalog, code, name FROM made
+            INSERT INTO catalog_region (catalog_id, region_code, approved_name, approved_sort_order)
+            SELECT :catalog, code, name, sort_order FROM made
             """)
         .param("catalog", catalog)
         .update();

@@ -373,7 +373,13 @@ class WorkingCopiesIT extends WorkingCopyTests {
                 """,
                 copy))
         .isZero();
-    assertThat(count("catalog_region WHERE catalog_id = %d AND approved_name IS NOT NULL", copy))
+    assertThat(
+            count(
+                """
+                catalog_region WHERE catalog_id = %d
+                AND (approved_name IS NOT NULL OR approved_sort_order IS NOT NULL)
+                """,
+                copy))
         .isZero();
     assertThat(
             count(
