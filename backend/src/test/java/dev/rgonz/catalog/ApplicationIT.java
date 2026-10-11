@@ -71,6 +71,9 @@ import software.amazon.awssdk.services.sqs.model.QueueAttributeName;
       // The tests upload the documents they are about. The demo's own are for the tests of those.
       "app.documents.seeded=false",
       "app.ai.timeout=2s",
+      // Where the cache is. A test of the app without one says so by leaving this empty.
+      "app.cache.host=127.0.0.1",
+      "spring.data.redis.host=127.0.0.1",
       "spring.security.oauth2.client.registration.cognito.client-id=" + ApplicationIT.CLIENT_ID,
       "spring.security.oauth2.client.registration.cognito.client-secret=test-secret"
     })
@@ -151,6 +154,12 @@ public abstract class ApplicationIT {
   static final GenericContainer<?> STORAGE =
       new GenericContainer<>("adobe/s3mock:5.2.3").withExposedPorts(9090);
 
+  /** The cache as the host runs it: Redis from the same image, which asks for a password. */
+  protected static final GenericContainer<?> CACHE =
+      new GenericContainer<>("redis:8.10.2-alpine")
+          .withExposedPorts(6379)
+          .withCommand("redis-server", "--requirepass", "a-password-for-the-tests");
+
   /** Reads the stand-in's bucket, for the tests that look at what is kept there. */
   private static final S3Client STORED;
 
@@ -163,6 +172,7 @@ public abstract class ApplicationIT {
     LOGIN_SERVER.start();
     QUEUE.start();
     STORAGE.start();
+    CACHE.start();
     STORED =
         S3Client.builder()
             .region(Region.US_EAST_1)
@@ -211,6 +221,12 @@ public abstract class ApplicationIT {
 
   private static String queueServerUrl() {
     return "http://127.0.0.1:" + QUEUE.getMappedPort(9324);
+  }
+
+  @DynamicPropertySource
+  static void cache(DynamicPropertyRegistry registry) {
+    registry.add("spring.data.redis.port", () -> CACHE.getMappedPort(6379));
+    registry.add("spring.data.redis.password", () -> "a-password-for-the-tests");
   }
 
   @DynamicPropertySource

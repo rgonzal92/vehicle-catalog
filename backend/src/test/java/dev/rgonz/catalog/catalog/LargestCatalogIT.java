@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -52,6 +53,7 @@ class LargestCatalogIT extends WorkingCopyTests {
   }
 
   @Autowired LargestCatalog largest;
+  @Autowired StringRedisTemplate cache;
   @Autowired Catalogs catalogs;
   @Autowired CatalogRules catalogRules;
   @Autowired TransactionTemplate transactions;
@@ -108,6 +110,11 @@ class LargestCatalogIT extends WorkingCopyTests {
                 id))
         .as("regions without the name and the place they were approved with")
         .isZero();
+    var kept = cache.opsForValue().size(ApprovedContents.KEY + id);
+    log.info("The largest catalog's contents are kept in the cache in {} bytes.", kept);
+    assertThat(kept)
+        .as("the bytes the cache keeps its contents in, of the 64 MB it may hold")
+        .isBetween(1L, 3_000_000L);
     assertThat(
             ApplicationIT.<List<String>>read(
                 mvc.get().uri("/api/lineages").with(ana()).exchange(), "$[*].vehicleLine"))
