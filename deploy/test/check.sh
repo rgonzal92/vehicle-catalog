@@ -2,8 +2,9 @@
 # Runs the host's stack on this machine as the host runs it, against stand-ins for the certificate
 # authority, the image registry, Parameter Store, the CloudWatch agent, and the queue of the jobs,
 # and checks what it does: who is answered, how an image is released, what happens to one that
-# does not come up healthy, what the backend reports of itself, that the worker does a job, and that
-# the key for the language model reaches the stack when there is one.
+# does not come up healthy, what the backend reports of itself, that the worker does a job, that
+# the key for the language model reaches the stack when there is one, and that the cache asks for
+# its password and is not waited for.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 
@@ -24,7 +25,7 @@ registry=127.0.0.1:15000
 # Compose asks for the secrets whatever it is told to do. Before the stack's own file of them is
 # written, and for what does not use them, they are given as nothing in particular.
 without_secrets() {
-  ORIGIN_SECRET=unused DATABASE_PASSWORD=unused OIDC_CLIENT_SECRET=unused "$@"
+  ORIGIN_SECRET=unused DATABASE_PASSWORD=unused OIDC_CLIENT_SECRET=unused CACHE_PASSWORD=unused "$@"
 }
 trap 'without_secrets docker compose down --volumes >/dev/null 2>&1
   docker rmi --force vehicle-catalog-backend:current vehicle-catalog-backend:previous \
@@ -98,7 +99,8 @@ in_the_database() {
 # The address the stand-in signs its own certificate with, which Caddy has to trust.
 quietly without_secrets docker compose create --quiet-pull authority
 quietly without_secrets docker compose cp authority:/test/certs/pebble.minica.pem "$AUTHORITY_ROOT"
-quietly without_secrets docker compose up --detach --quiet-pull authority registry
+# The stand-ins are started here: a release starts the host's own services and no other.
+quietly without_secrets docker compose up --detach --quiet-pull authority registry agent queue
 
 # The images to release: the backend itself, and three made for this check from Caddy's.
 caddy_image="$(without_secrets docker compose config --format json | jq --raw-output .services.caddy.image)"
@@ -148,6 +150,19 @@ EOF
 releases "with nothing released, the stack starts without a backend" 0
 await_the_stack
 expect "the secrets are in a file that only its owner reads" 600 "$(stat --format %a .env)"
+asks_the_cache() { # what to ask, which is asked with the password
+  docker compose exec -T --env REDISCLI_AUTH=a-cache-password-for-this-check cache \
+    redis-cli "$@" 2>&1 | paste -sd ' '
+}
+expect "the cache answers a request that gives its password" PONG "$(asks_the_cache ping)"
+expect "and refuses one that gives none" yes \
+  "$(whether grep -q NOAUTH <<<"$(docker compose exec -T cache redis-cli ping 2>&1)")"
+expect "the cache holds 64 MB at most, and then drops what was used longest ago" \
+  "maxmemory 67108864 maxmemory-policy allkeys-lru" \
+  "$(asks_the_cache config get maxmemory) $(asks_the_cache config get maxmemory-policy)"
+# What it is set to comes as a name and a value, and the times it saves at are none.
+expect "and writes nothing to disk" "save  appendonly no" \
+  "$(asks_the_cache config get save) $(asks_the_cache config get appendonly)"
 expect "no secret is refused" 403 "$(ask --output /dev/null https://origin.test:18443/api/health)"
 expect "a wrong secret is refused" 403 \
   "$(ask --output /dev/null --header 'X-Origin-Secret: not-it' https://origin.test:18443/api/health)"
@@ -222,7 +237,17 @@ for _ in $(seq 1 30); do
 done
 expect "the agent is sent that request's trace" yes "$(whether grep -qE "$span" <<<"$said")"
 expect "the log holds none of the secrets" 0 \
-  "$(logged | grep -cF -e "$secret" -e a-password-for-this-check -e a-client-secret-for-this-check || true)"
+  "$(logged | grep -cF -e "$secret" -e a-password-for-this-check -e a-client-secret-for-this-check \
+    -e a-cache-password-for-this-check || true)"
+
+# The cache stopped, and the API and the worker started anew as a release starts them.
+quietly docker compose stop cache
+quietly docker compose up --detach --wait --force-recreate --no-deps backend worker
+expect "with the cache stopped, the API comes up healthy, and the worker" "yes yes" \
+  "$(healthy) $(whether docker compose exec -T worker wget --quiet --spider \
+    http://127.0.0.1:8080/api/health/readiness)"
+expect "and the cache is still stopped" "" "$(docker compose ps --quiet --status running cache)"
+quietly docker compose start cache
 
 # The worker, which is the backend's image run beside the API. A job is put into the database as a
 # change puts it there: with its message, unsent. The catalog it names does not exist, so there is
@@ -348,16 +373,17 @@ expect "and the certificate" "${issued:-none was issued}" "$(certificate -serial
 hosts="$(without_secrets docker compose --file compose.yaml config --format json)"
 expect "the host listens on ports 80 and 443, for Caddy" "80:80 443:443" \
   "$(jq --raw-output '[.services[].ports // [] | .[] | "\(.published):\(.target)"] | join(" ")' <<<"$hosts")"
-expect "the database listens on no port of the host" null \
-  "$(jq --compact-output .services.db.ports <<<"$hosts")"
-expect "everything comes back when the host restarts" 4 \
+expect "the database listens on no port of the host, and neither does the cache" "null null" \
+  "$(jq --compact-output .services.db.ports <<<"$hosts") $(jq --compact-output .services.cache.ports <<<"$hosts")"
+expect "everything comes back when the host restarts" 5 \
   "$(jq '[.services[] | select(.restart == "unless-stopped")] | length' <<<"$hosts")"
-expect "and those four are all that runs there" "backend caddy db worker" \
+expect "and those five are all that runs there" "backend cache caddy db worker" \
   "$(jq --raw-output '.services | keys | join(" ")' <<<"$hosts")"
 
 # Without a secret, Caddy does not start at all.
 expect "no secret, no start" no \
-  "$(ORIGIN_SECRET=' ' DATABASE_PASSWORD=unused OIDC_CLIENT_SECRET=unused whether docker compose run --rm --no-deps caddy \
+  "$(ORIGIN_SECRET=' ' DATABASE_PASSWORD=unused OIDC_CLIENT_SECRET=unused CACHE_PASSWORD=unused \
+    whether docker compose run --rm --no-deps caddy \
     caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile)"
 
 exit "$failed"

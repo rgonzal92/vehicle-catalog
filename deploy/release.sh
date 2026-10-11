@@ -33,6 +33,7 @@ parameter() {
 origin_secret="$(parameter origin-secret)"
 database_password="$(parameter database-password)"
 login_client_secret="$(parameter login-client-secret)"
+cache_password="$(parameter cache-password)"
 # The key for the language model is the one secret the stack runs without: when there is none, the
 # app says that the model cannot be asked, and does everything else.
 if ! openai_api_key="$(parameter openai-api-key 2>/dev/null)"; then
@@ -41,8 +42,9 @@ if ! openai_api_key="$(parameter openai-api-key 2>/dev/null)"; then
 fi
 (
   umask 077
-  printf 'ORIGIN_SECRET=%s\nDATABASE_PASSWORD=%s\nOIDC_CLIENT_SECRET=%s\nOPENAI_API_KEY=%s\n' \
-    "$origin_secret" "$database_password" "$login_client_secret" "$openai_api_key" > .env.new
+  printf 'ORIGIN_SECRET=%s\nDATABASE_PASSWORD=%s\nOIDC_CLIENT_SECRET=%s\nCACHE_PASSWORD=%s\n' \
+    "$origin_secret" "$database_password" "$login_client_secret" "$cache_password" > .env.new
+  printf 'OPENAI_API_KEY=%s\n' "$openai_api_key" >> .env.new
 )
 mv .env.new .env
 
@@ -58,13 +60,19 @@ if [ $# -eq 1 ]; then
   docker rmi "$1" >/dev/null
 fi
 
+# The cache is started by itself and not waited for. Whatever it holds can be read from the
+# database again, so a cache that does not start holds up no release.
+docker compose up --detach --quiet-pull cache ||
+  echo "The cache did not start. The stack runs without it." >&2
+
 if [ -z "$(image_named "$current")" ]; then
   echo "No backend has been released to this host. Caddy and the database run without one."
   docker compose up --detach --wait --quiet-pull caddy db
   exit 0
 fi
 
-if docker compose up --detach --wait --wait-timeout 300 --quiet-pull --remove-orphans; then
+if docker compose up --detach --wait --wait-timeout 300 --quiet-pull --remove-orphans \
+  caddy db backend worker; then
   # Two images are kept: the one that runs and the one before it.
   if [ -n "$dropped" ]; then
     forget "$dropped"

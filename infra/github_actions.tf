@@ -122,6 +122,7 @@ resource "aws_iam_role_policy" "plan" {
         Resource = [
           aws_ssm_parameter.origin_secret.arn,
           aws_ssm_parameter.login_client_secret.arn,
+          aws_ssm_parameter.cache_password.arn,
         ]
       },
       {

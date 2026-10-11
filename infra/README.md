@@ -149,7 +149,7 @@ aws ssm start-session --target "$(aws ec2 describe-instances \
 ```
 
 The stack is in `/opt/vehicle-catalog` there, which only root reads. This shows what Caddy, the
-backend, the worker, and the database say:
+backend, the worker, the database, and the cache say:
 
 ```sh
 sudo docker compose --project-directory /opt/vehicle-catalog logs
@@ -196,13 +196,30 @@ The secret the distribution sends the host is changed with
 `terraform apply -replace=random_password.origin_secret`. The host has the new one within a
 minute and the distribution some minutes later; in between, the API answers 403.
 
-The host reads four parameters and no other, all under `/vehicle-catalog/`: `origin-secret`,
-`database-password`, `login-client-secret`, and `openai-api-key`, which it starts without when
-there is none. The policy AWS has for Systems Manager lets a machine read every parameter the
+The host reads five parameters and no other, all under `/vehicle-catalog/`: `origin-secret`,
+`database-password`, `login-client-secret`, `cache-password`, and `openai-api-key`, which it
+starts without when there is none. The policy AWS has for Systems Manager lets a machine read every parameter the
 account holds, so the host's role has a policy of its own that refuses the rest. When the app
 comes to need another secret, name it in two places: where `deploy/release.sh` reads it, and in
 `host_parameters` in `host.tf`. `terraform test` fails while the two differ, and one apply takes
 both to the host.
+
+The cache is Redis, which runs in the stack as `cache` and keeps what can be read from the
+database again. It may hold 64 MB and drops what was used longest ago past that, keeps nothing on
+disk, and listens on no port of the host. A release starts it and does not wait for it, and the
+API and the worker run whether it does or not. This says what it holds and how much memory that
+takes:
+
+```sh
+sudo sh -c 'cd /opt/vehicle-catalog && docker compose exec \
+  --env REDISCLI_AUTH="$(sed -n "s/^CACHE_PASSWORD=//p" .env)" cache redis-cli info memory'
+```
+
+Its password is made by Terraform and changed with `terraform apply -replace=random_password.cache`,
+which has the host start the cache, the API, and the worker with the new one. To go back to a host
+without a cache, take the `cache` service and the two settings that name it out of
+`deploy/compose.yaml`, the line that starts it and the password out of `deploy/release.sh`, and
+the password out of `host.tf`, and apply: the release that follows removes the container.
 
 Terraform refuses to give up the host's address, because whoever is given it next could pass for
 the host while the `origin-catalog` record still names it. To take the host down for good, remove
@@ -553,3 +570,7 @@ Debian, and its C library sorts text another way than the one the host's indexes
 so it is not the one to take. To go back to `postgres:18.6`, put that name back in those three
 places and apply. That works for as long as no migration has created the extension: a database
 that has it does not start on an image without it.
+
+The cache is Redis 8.10.2, from the image `redis:8.10.2-alpine`, which `compose.yaml` and
+`deploy/compose.yaml` each name. It holds nothing that is kept, so another release of Redis is
+those two names changed and an apply.
