@@ -10,8 +10,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
 
 /**
- * Checks the application without an address for the cache: it starts, and it reads Approved
- * versions from the database without asking a cache for them.
+ * Checks the application whose address for the cache is set to nothing, which is no address: it
+ * starts, and it reads Approved versions from the database without asking a cache for them.
  */
 @TestPropertySource(properties = "app.cache.host=")
 class WithoutACacheIT extends WorkingCopyTests {

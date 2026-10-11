@@ -73,7 +73,6 @@ import software.amazon.awssdk.services.sqs.model.QueueAttributeName;
       "app.ai.timeout=2s",
       // Where the cache is. A test of the app without one says so by leaving this empty.
       "app.cache.host=127.0.0.1",
-      "spring.data.redis.host=127.0.0.1",
       "spring.security.oauth2.client.registration.cognito.client-id=" + ApplicationIT.CLIENT_ID,
       "spring.security.oauth2.client.registration.cognito.client-secret=test-secret"
     })
@@ -225,8 +224,8 @@ public abstract class ApplicationIT {
 
   @DynamicPropertySource
   static void cache(DynamicPropertyRegistry registry) {
-    registry.add("spring.data.redis.port", () -> CACHE.getMappedPort(6379));
-    registry.add("spring.data.redis.password", () -> "a-password-for-the-tests");
+    registry.add("app.cache.port", () -> CACHE.getMappedPort(6379));
+    registry.add("app.cache.password", () -> "a-password-for-the-tests");
   }
 
   /**
