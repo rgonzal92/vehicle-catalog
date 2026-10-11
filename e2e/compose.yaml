@@ -38,6 +38,10 @@ services:
       EXPORTS_ENDPOINT: http://localhost:8095
       # No demo reset while the browser tests run: one at 03:00 UTC would take their work away.
       APP_DEMORESET_CRON: "-"
+      # The tests submit the catalogs they are about. The demo's own, which waits for review from
+      # the start, would be one of the twenty working copies the author can have, and the tests
+      # leave the author with nearly as many.
+      APP_SUBMISSION_SEEDED: "false"
       PUBLIC_URL: http://localhost:8092
       # The web server stands in for OpenAI, so the app has a key that is none and asks it there.
       OPENAI_API_KEY: a-key-for-the-browser-tests

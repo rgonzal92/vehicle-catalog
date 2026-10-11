@@ -22,7 +22,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * The demo reset: every day at 03:00 UTC the library and the catalogs go back to what a first start
  * leaves, so that nothing a visitor did lasts longer than a day. Every working copy, every Approved
  * version that is not seeded, and all change history go, whoever they belong to, and with them the
- * jobs, what people were told, and the spreadsheets they exported. A job from before a reset finds
+ * jobs, what people were told, and the spreadsheets they exported. The catalog that a first start
+ * leaves waiting for review is made anew, whatever became of it. A job from before a reset finds
  * itself gone and does nothing. The people who have signed in stay on record, and so do the
  * accounts at the login provider.
  *

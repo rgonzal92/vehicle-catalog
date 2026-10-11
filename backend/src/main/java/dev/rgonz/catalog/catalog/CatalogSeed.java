@@ -39,6 +39,9 @@ import tools.jackson.databind.json.JsonMapper;
  * one string: a group of characters for each region, in the regions' order and separated by spaces,
  * and in each group a character for each trim sold there, in the trims' order. S is Standard, A is
  * Available, and - is Not offered.
+ *
+ * <p>With the Approved versions comes the one working copy the demo starts with, which waits for
+ * review: {@link SeededSubmission} makes it.
  */
 @Component
 @Order(2)
@@ -49,12 +52,19 @@ class CatalogSeed implements Seed {
   private final JsonMapper json;
   private final DemoPeople demoPeople;
   private final ApprovedChecks checks;
+  private final SeededSubmission submission;
 
-  CatalogSeed(JdbcClient jdbc, JsonMapper json, DemoPeople demoPeople, ApprovedChecks checks) {
+  CatalogSeed(
+      JdbcClient jdbc,
+      JsonMapper json,
+      DemoPeople demoPeople,
+      ApprovedChecks checks,
+      SeededSubmission submission) {
     this.jdbc = jdbc;
     this.json = json;
     this.demoPeople = demoPeople;
     this.checks = checks;
+    this.submission = submission;
   }
 
   /**
@@ -93,6 +103,7 @@ class CatalogSeed implements Seed {
     }
     // What is seeded as Approved has not been validated by an approval, so the worker does it.
     checks.queueForEveryCurrentApproved();
+    submission.add(owner.get());
   }
 
   private List<SeededCatalog> read() {
