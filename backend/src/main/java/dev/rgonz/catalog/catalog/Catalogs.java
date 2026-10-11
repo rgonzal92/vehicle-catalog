@@ -1,5 +1,6 @@
 package dev.rgonz.catalog.catalog;
 
+import dev.rgonz.catalog.catalog.ApprovedContents.Contents;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Cell;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.FeatureRow;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Offering;
@@ -30,9 +31,11 @@ class Catalogs {
       "(c.status = 'APPROVED' OR c.owner_id = :viewer OR (c.status = 'SUBMITTED' AND :reviews))";
 
   private final JdbcClient jdbc;
+  private final ApprovedContents approvedContents;
 
-  Catalogs(JdbcClient jdbc) {
+  Catalogs(JdbcClient jdbc, ApprovedContents approvedContents) {
     this.jdbc = jdbc;
+    this.approvedContents = approvedContents;
   }
 
   /**
@@ -306,13 +309,35 @@ class Catalogs {
   private record OutOfUse(String kind, String key) {}
 
   /**
-   * A catalog's contents.
+   * A catalog's contents. Those of an Approved version as it was approved never change, so they are
+   * taken from the cache when it holds them. A working copy's are always read from the database,
+   * and so are an Approved version's by the labels of today.
    *
    * @param frozen whether an Approved version shows the labels and the order it was approved with,
    *     and not the library's of today
    */
   private CatalogSnapshot snapshot(
       long id, long lineageId, Status status, long revision, boolean frozen) {
+    var held =
+        frozen && status == Status.APPROVED
+            ? approvedContents.of(id, () -> contents(id, true))
+            : contents(id, frozen);
+
+    return new CatalogSnapshot(
+        id,
+        lineageId,
+        status,
+        revision,
+        held.trims(),
+        held.regions(),
+        held.offerings(),
+        held.featureRows(),
+        held.cells(),
+        held.rules());
+  }
+
+  /** A catalog's contents as the database holds them, read with one query for each table. */
+  private Contents contents(long id, boolean frozen) {
     var trims =
         content(
             """
@@ -374,17 +399,7 @@ class Catalogs {
             frozen,
             Cell.class);
 
-    return new CatalogSnapshot(
-        id,
-        lineageId,
-        status,
-        revision,
-        trims,
-        regions,
-        offerings,
-        featureRows,
-        cells,
-        rules(id, frozen));
+    return new Contents(trims, regions, offerings, featureRows, cells, rules(id, frozen));
   }
 
   /**

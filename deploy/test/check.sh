@@ -240,14 +240,25 @@ expect "the log holds none of the secrets" 0 \
   "$(logged | grep -cF -e "$secret" -e a-password-for-this-check -e a-client-secret-for-this-check \
     -e a-cache-password-for-this-check || true)"
 
-# The cache stopped, and the API and the worker started anew as a release starts them.
+# The cache stopped, and the API and the worker started anew as a release starts them. Both get
+# ready without it, and health says of the cache alone that it is down.
+expect "health says the cache is up" UP \
+  "$(answer "${with_secret[@]}" https://origin.test:18443/api/health | jq --raw-output .components.cache.status)"
 quietly docker compose stop cache
 quietly docker compose up --detach --wait --force-recreate --no-deps backend worker
-expect "with the cache stopped, the API comes up healthy, and the worker" "yes yes" \
-  "$(healthy) $(whether docker compose exec -T worker wget --quiet --spider \
-    http://127.0.0.1:8080/api/health/readiness)"
+expect "with the cache stopped, the API is ready, and the worker" "200 yes" \
+  "$(ask "${with_secret[@]}" https://origin.test:18443/api/health/readiness) $(whether \
+    docker compose exec -T worker wget --quiet --spider http://127.0.0.1:8080/api/health/readiness)"
+expect "and health says that the cache is down and the database up" "DOWN UP" \
+  "$(answer "${with_secret[@]}" https://origin.test:18443/api/health |
+    jq --raw-output '"\(.components.cache.status) \(.components.db.status)"')"
 expect "and the cache is still stopped" "" "$(docker compose ps --quiet --status running cache)"
 quietly docker compose start cache
+for _ in $(seq 1 15); do
+  [ "$(healthy)" = yes ] && break
+  sleep 1
+done
+expect "with the cache started again, health says the backend is up" yes "$(healthy)"
 
 # The worker, which is the backend's image run beside the API. A job is put into the database as a
 # change puts it there: with its message, unsent. The catalog it names does not exist, so there is

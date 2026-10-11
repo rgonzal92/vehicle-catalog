@@ -205,7 +205,7 @@ comes to need another secret, name it in two places: where `deploy/release.sh` r
 both to the host.
 
 The cache is Redis, which runs in the stack as `cache` and keeps what can be read from the
-database again. It may hold 64 MB and drops what was used longest ago past that, keeps nothing on
+database again: the contents of Approved versions, as `docs/adr/0016` says. It may hold 64 MB and drops what was used longest ago past that, keeps nothing on
 disk, and listens on no port of the host. A release starts it and does not wait for it, and the
 API and the worker run whether it does or not. This says what it holds and how much memory that
 takes:
