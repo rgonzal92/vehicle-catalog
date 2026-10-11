@@ -193,7 +193,7 @@ class CatalogsIT extends ApplicationIT {
   @Test
   void renamingInTheLibraryLeavesTheLabelsOfAnApprovedVersionAsTheyWere() {
     jdbc.sql("UPDATE trim SET name = 'Entry', sort_order = 9 WHERE name = 'Base'").update();
-    jdbc.sql("UPDATE region SET name = 'Americas' WHERE code = 'NA'").update();
+    jdbc.sql("UPDATE region SET name = 'Americas', sort_order = 9 WHERE code = 'NA'").update();
     jdbc.sql(
             "UPDATE feature SET name = 'Glass Roof', category_code = 'INTERIOR'"
                 + " WHERE code = 'ROOF_PANORAMIC'")
@@ -217,7 +217,8 @@ class CatalogsIT extends ApplicationIT {
     } finally {
       // The other tests of this class read the library as it was seeded.
       jdbc.sql("UPDATE trim SET name = 'Base', sort_order = 1 WHERE name = 'Entry'").update();
-      jdbc.sql("UPDATE region SET name = 'North America' WHERE code = 'NA'").update();
+      jdbc.sql("UPDATE region SET name = 'North America', sort_order = 1 WHERE code = 'NA'")
+          .update();
       jdbc.sql(
               "UPDATE feature SET name = 'Panoramic Roof', category_code = 'EXTERIOR'"
                   + " WHERE code = 'ROOF_PANORAMIC'")
@@ -231,7 +232,8 @@ class CatalogsIT extends ApplicationIT {
         List.of(
             "SELECT count(*) FROM catalog_trim"
                 + " WHERE approved_name IS NULL OR approved_sort_order IS NULL",
-            "SELECT count(*) FROM catalog_region WHERE approved_name IS NULL",
+            "SELECT count(*) FROM catalog_region"
+                + " WHERE approved_name IS NULL OR approved_sort_order IS NULL",
             "SELECT count(*) FROM catalog_feature"
                 + " WHERE approved_name IS NULL OR approved_category_code IS NULL")) {
       assertThat(jdbc.sql(missing).query(Long.class).single()).as(missing).isZero();

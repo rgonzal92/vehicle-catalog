@@ -234,8 +234,8 @@ class Reviews {
 
   /**
    * Records, with the catalog, what the library calls its trims, features, and regions at this
-   * moment, and the order of its trims. An Approved version shows these from then on, whatever the
-   * library changes.
+   * moment, and the order of its trims and of its regions. An Approved version shows these from
+   * then on, whatever the library changes.
    */
   private void freezeLabels(long catalogId) {
     jdbc.sql(
@@ -250,7 +250,7 @@ class Reviews {
     jdbc.sql(
             """
             UPDATE catalog_region c
-            SET approved_name = r.name
+            SET approved_name = r.name, approved_sort_order = r.sort_order
             FROM region r
             WHERE c.catalog_id = :catalog AND r.code = c.region_code
             """)

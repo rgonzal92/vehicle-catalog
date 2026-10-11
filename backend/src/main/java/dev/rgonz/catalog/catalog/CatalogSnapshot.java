@@ -9,7 +9,8 @@ import java.util.List;
  * and rules, with the labels to show for them. An Approved version carries the labels it had when
  * it was approved; a working copy carries the library's current ones.
  *
- * @param regions in the library's order
+ * @param regions in the order they had in the library when an Approved version was approved, and in
+ *     the library's order of today for a working copy
  * @param cells only Standard and Available; a missing cell is Not offered
  * @param rules the rules that belong to the catalog, by the code of their source
  */

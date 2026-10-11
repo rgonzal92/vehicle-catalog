@@ -102,6 +102,13 @@ class LargestCatalogIT extends WorkingCopyTests {
         .as("half of the 48,000 cells are Not offered, which is no stored cell")
         .isEqualTo(24_000);
     assertThat(
+            count(
+                "catalog_region WHERE catalog_id = %d"
+                    + " AND (approved_name IS NULL OR approved_sort_order IS NULL)",
+                id))
+        .as("regions without the name and the place they were approved with")
+        .isZero();
+    assertThat(
             ApplicationIT.<List<String>>read(
                 mvc.get().uri("/api/lineages").with(ana()).exchange(), "$[*].vehicleLine"))
         .contains("Largest Catalog");
