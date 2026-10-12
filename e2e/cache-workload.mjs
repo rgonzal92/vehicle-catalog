@@ -4,8 +4,12 @@
 //
 //   npm run cache:measure     in e2e/, with nothing else running on the stack's ports
 //
-// It starts the browser tests' stack with the largest catalog, twice: without an address for the
-// cache, and with one. It removes the stack and its data when it is done.
+// It starts the browser tests' stack with the largest catalog, and starts the API again before
+// each of the four columns: without an address for the cache for the first, and with one for the
+// others. The API then answers everything the column sends once over, untimed, before the same is
+// sent again and timed. So every column is timed on an API that has answered as many requests since
+// its start as any other's, and the script stops if that is not so. It removes the stack and its
+// data when it is done.
 //
 // It also says how even the times of such reads are, which the tables do not show:
 //
@@ -20,6 +24,11 @@ const AT_ONCE = 8;
 const ROUNDS_AT_ONCE = 3;
 const UNTIMED = 5;
 const HALF_A_MINUTE = 30_000;
+
+// How many of this script's requests the API has answered since it was last started, and how many
+// it had answered when the timing of each column began.
+let answered = 0;
+const behind = [];
 
 const run = (command, args, env = {}) =>
   execFileSync(command, args, {
@@ -61,9 +70,10 @@ async function signedIn() {
     await page.waitForURL(`${site}/dashboard`);
     const cookie = (await context.cookies()).map((c) => `${c.name}=${c.value}`).join("; ");
     return async (path) => {
-      const answered = await fetch(site + path, { headers: { cookie } });
-      const body = await answered.text();
-      if (!answered.ok) throw new Error(`${path} answered ${answered.status}`);
+      const response = await fetch(site + path, { headers: { cookie } });
+      const body = await response.text();
+      if (!response.ok) throw new Error(`${path} answered ${response.status}`);
+      answered++;
       return JSON.parse(body);
     };
   } finally {
@@ -212,19 +222,37 @@ async function evenness() {
   );
 }
 
+/** Starts the API and the worker again, with the cache's address unless `env` takes it away. */
+function startAgain(column, env) {
+  console.error(`Starting the API and the worker again, for "${column}"...`);
+  compose(["up", "-d", "--wait", "--force-recreate", "backend", "worker"], env);
+  answered = 0;
+}
+
+/**
+ * Measures one column on an API that has just been started. The API first answers everything the
+ * column sends once over, untimed, so that each column is timed on an API that has answered as
+ * many requests since its start as any other's, and none on the one that filled the database.
+ */
+async function column(get, kinds, before) {
+  for (const request of Object.values(kinds)) await timed(get, request, () => before?.(request));
+  behind.push(answered);
+  return measured(get, kinds, before);
+}
+
 async function tables() {
   console.error("Starting the stack without a cache...");
   run("npm", ["run", "stack:up"], { CACHE_HOST: "" });
-  let get = await signedIn();
-  let kinds = await requests(get);
-  const off = await measured(get, kinds);
+  // The session is kept in PostgreSQL, so it outlives every start of the API.
+  const get = await signedIn();
+  const kinds = await requests(get);
+  startAgain("Cache off", { CACHE_HOST: "" });
+  const off = await column(get, kinds);
 
-  console.error("Starting the API and the worker again, with the cache...");
-  compose(["up", "-d", "--wait"]);
-  get = await signedIn();
-  kinds = await requests(get);
-  const onAndEmpty = await measured(get, kinds, empty);
-  const onAndHolding = await measured(get, kinds);
+  startAgain("On and empty");
+  const onAndEmpty = await column(get, kinds, empty);
+  startAgain("On and holding it");
+  const onAndHolding = await column(get, kinds);
 
   const largest = kinds["Opening the largest Approved version"];
   empty(largest);
@@ -232,9 +260,9 @@ async function tables() {
     Promise.all(Array.from({ length: 20 }, () => get(largest.path))),
   );
 
-  console.error("Stopping the cache...");
+  startAgain("Cache stopped");
   compose(["stop", "cache"]);
-  const stopped = await measured(get, kinds);
+  const stopped = await column(get, kinds);
   compose(["start", "cache"]);
 
   const modes = { "Cache off": off, "On and empty": onAndEmpty, "On and holding it": onAndHolding };
@@ -267,6 +295,14 @@ async function tables() {
   console.log(
     `\nTwenty reads of the largest version at once, with the cache holding nothing of it:` +
       ` PostgreSQL was asked for its cells ${asked === 1 ? "once" : `${asked} times`}.`,
+  );
+  if (new Set(behind).size > 1)
+    throw new Error(
+      `The columns were timed on an API that had answered ${behind.join(", ")} requests since its` +
+        ` start, which is not the same for each.`,
+    );
+  console.log(
+    `\nEvery column was timed on an API that had answered ${behind[0]} requests since its start.`,
   );
 }
 
