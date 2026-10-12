@@ -40,8 +40,8 @@
 
 			# A request that finds no API to connect to is kept, and the API is asked again four
 			# times a second, for as long as this. That is longer than the API takes to start
-			# again. One try may wait three seconds to connect, so the answer comes within 30
-			# seconds, which is how long CloudFront waits for one.
+			# again. One try may wait three seconds to connect, so Caddy has given up within 30
+			# seconds, which is how long CloudFront waits for an answer.
 			lb_try_duration 26s
 
 			# A request that reached the API is not sent a second time, and no path is one that
