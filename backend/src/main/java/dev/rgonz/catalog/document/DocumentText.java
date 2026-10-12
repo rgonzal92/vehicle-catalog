@@ -12,18 +12,26 @@ import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.cos.COSArray;
 import org.apache.pdfbox.cos.COSBase;
+import org.apache.pdfbox.cos.COSDictionary;
+import org.apache.pdfbox.cos.COSDocument;
+import org.apache.pdfbox.cos.COSInputStream;
 import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.cos.COSStream;
+import org.apache.pdfbox.filter.DecodeOptions;
 import org.apache.pdfbox.filter.FilterFactory;
+import org.apache.pdfbox.io.IOUtils;
+import org.apache.pdfbox.io.RandomAccessRead;
+import org.apache.pdfbox.io.RandomAccessReadBuffer;
+import org.apache.pdfbox.pdfparser.PDFParser;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException;
 import org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject;
@@ -33,7 +41,7 @@ import org.apache.pdfbox.text.PDFTextStripper;
 /**
  * Reads the text of an uploaded file. Markdown and plain text are their own text. A PDF's is taken
  * out of it, which anyone's file may make slow or impossible, so it is given a time to be done in
- * and its pages a size to unpack to.
+ * and a size to unpack to.
  */
 final class DocumentText {
   /** The longest a PDF is read for, its wait for the PDF before it included. */
@@ -51,10 +59,15 @@ final class DocumentText {
    * PDFBox reads this much for depends on what it is: about a second for drawing that does nothing,
    * and nearly eight for a page that draws a small form millions of times. So the time a PDF is
    * given stays.
+   *
+   * <p>All that PDFBox unpacks into memory of a PDF may come to as much, counted apart: its fonts,
+   * the streams that hold its objects, and whatever else of it is unpacked on the way to its text.
    */
   static final long MOST_UNPACKED = 32L * 1024 * 1024;
 
   static final String UNPACKS_TO_TOO_MUCH = "Its pages unpack to more than 32 MB.";
+
+  static final String ALL_UNPACKS_TO_TOO_MUCH = "It unpacks to more than 32 MB.";
 
   /** Held by the one PDF that is being read, until its reading has ended. */
   private static final Semaphore ONE_AT_A_TIME = new Semaphore(1);
@@ -154,7 +167,7 @@ final class DocumentText {
             write(String.valueOf((char) character), 0, 1);
           }
         };
-    try (var pdf = Loader.loadPDF(file)) {
+    try (var pdf = new CountingParser(file).parse()) {
       new BoundedStripper().writeText(pdf, bounded);
       return text.toString();
     } catch (InvalidPasswordException locked) {
@@ -172,7 +185,7 @@ final class DocumentText {
    * counts again, since it is read again.
    */
   private static final class BoundedStripper extends PDFTextStripper {
-    private long left = MOST_UNPACKED;
+    private final Unpacked pages = new Unpacked(UNPACKS_TO_TOO_MUCH);
 
     @Override
     public void processPage(PDPage page) throws IOException {
@@ -180,11 +193,11 @@ final class DocumentText {
       // are streams and passes over the others, so those are the ones that count.
       COSBase contents = page.getCOSObject().getDictionaryObject(COSName.CONTENTS);
       if (contents instanceof COSStream whole) {
-        unpack(whole);
+        pages.unpack(whole);
       } else if (contents instanceof COSArray parts) {
         for (int index = 0; index < parts.size(); index++) {
           if (parts.getObject(index) instanceof COSStream part) {
-            unpack(part);
+            pages.unpack(part);
           }
         }
       }
@@ -193,24 +206,95 @@ final class DocumentText {
 
     @Override
     public void showForm(PDFormXObject form) throws IOException {
-      unpack(form.getCOSObject());
+      pages.unpack(form.getCOSObject());
       super.showForm(form);
     }
 
     @Override
     public void showTransparencyGroup(PDTransparencyGroup group) throws IOException {
-      unpack(group.getCOSObject());
+      pages.unpack(group.getCOSObject());
       super.showTransparencyGroup(group);
+    }
+  }
+
+  /**
+   * Opens a PDF as PDFBox does, with every stream of the file one that is counted before it is
+   * unpacked.
+   *
+   * <p>PDFBox unpacks a stream wholly into memory wherever it reads one that is not the contents of
+   * a page: the table of where the file's objects are and the streams that hold them, some of them
+   * while it opens the file, and a font's files and maps when a page first writes in it. None has a
+   * limit, and they are read in many places. But every stream of a file is made in one place, by
+   * the document that its parser fills, and is unpacked by one of two methods. So the parser is
+   * given a document whose streams unpack themselves here first, with nothing kept, and count. A
+   * stream that is unpacked again counts again.
+   */
+  private static final class CountingParser extends PDFParser {
+    CountingParser(byte[] file) throws IOException {
+      super(new RandomAccessReadBuffer(file), "");
+      var all = new Unpacked(ALL_UNPACKS_TO_TOO_MUCH);
+      document =
+          new COSDocument(IOUtils.createMemoryOnlyStreamCache(), this) {
+            @Override
+            public COSStream createCOSStream(COSDictionary dictionary, long start, long length)
+                throws IOException {
+              var stream =
+                  new COSStream(null, createRandomAccessReadView(start, length)) {
+                    @Override
+                    public COSInputStream createInputStream(DecodeOptions options)
+                        throws IOException {
+                      all.unpack(this);
+                      return super.createInputStream(options);
+                    }
+
+                    @Override
+                    public RandomAccessRead createView() throws IOException {
+                      all.unpack(this);
+                      return super.createView();
+                    }
+                  };
+              dictionary.forEach(stream::setItem);
+              stream.setKey(dictionary.getKey());
+              return stream;
+            }
+          };
+    }
+  }
+
+  /** What streams of a PDF have unpacked to, which may be so much and no more. */
+  private static final class Unpacked {
+    /**
+     * The ways of packing that give a picture. PDFBox takes memory for the size the picture is said
+     * to have before any of it is unpacked, so they cannot be counted as they go. Nothing that is
+     * read for a PDF's text is packed so, and what is, is not unpacked.
+     */
+    private static final Set<COSName> FOR_PICTURES =
+        Set.of(
+            COSName.DCT_DECODE,
+            COSName.DCT_DECODE_ABBREVIATION,
+            COSName.CCITTFAX_DECODE,
+            COSName.CCITTFAX_DECODE_ABBREVIATION,
+            COSName.JBIG2_DECODE,
+            COSName.JPX_DECODE);
+
+    private final String tooMuch;
+    private long left = MOST_UNPACKED;
+
+    /**
+     * @param tooMuch why the PDF cannot be read, once they have unpacked to more
+     */
+    Unpacked(String tooMuch) {
+      this.tooMuch = tooMuch;
     }
 
     /**
      * Unpacks contents as PDFBox will, through each of their filters in turn, and counts what every
      * one of them gives. Only what a filter gives to the next is kept, for that long.
      *
-     * @throws Unreadable once the pages have unpacked to more than they may
+     * @throws Unreadable once the streams have unpacked to more than they may
      * @throws IOException when the contents cannot be unpacked
      */
-    private void unpack(COSStream contents) throws IOException {
+    void unpack(COSStream contents) throws IOException {
       COSBase named = contents.getFilters();
       List<? extends COSBase> filters =
           named instanceof COSArray several
@@ -220,6 +304,9 @@ final class DocumentText {
       for (int index = 0; index < filters.size(); index++) {
         if (!(filters.get(index) instanceof COSName name)) {
           throw new IOException("A filter has no name.");
+        }
+        if (FOR_PICTURES.contains(name)) {
+          throw new IOException("Contents are packed as a picture is.");
         }
         var kept = new ByteArrayOutputStream();
         var unpacked = index < filters.size() - 1 ? kept : OutputStream.nullOutputStream();
@@ -234,14 +321,14 @@ final class DocumentText {
       }
     }
 
-    /** Passes on what is written, as long as the pages may still unpack to that much more. */
+    /** Passes on what is written, as long as the streams may still unpack to that much more. */
     private OutputStream counted(OutputStream unpacked) {
       return new FilterOutputStream(unpacked) {
         @Override
         public void write(byte[] part, int from, int length) throws IOException {
           left -= length;
           if (left < 0) {
-            throw new Unreadable(UNPACKS_TO_TOO_MUCH);
+            throw new Unreadable(tooMuch);
           }
           out.write(part, from, length);
         }

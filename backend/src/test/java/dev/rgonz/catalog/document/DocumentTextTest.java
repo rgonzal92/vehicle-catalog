@@ -126,12 +126,17 @@ class DocumentTextTest {
    * reading has ended by then, and that the PDF after it is read at once.
    */
   private static void failsSoonAndLeavesNoReadingBehind(byte[] pdf) {
+    failsSoonAndLeavesNoReadingBehind(pdf, "Its pages unpack to more than 32 MB.");
+  }
+
+  /** The same of a PDF that unpacks to far more than it may, with the reason it is to fail with. */
+  private static void failsSoonAndLeavesNoReadingBehind(byte[] pdf, String reason) {
     assertThat(pdf.length).isLessThan(2 * 1024 * 1024);
     long start = System.nanoTime();
 
     assertThatThrownBy(() -> DocumentText.of(Kind.PDF, pdf))
         .isInstanceOf(DocumentText.Unreadable.class)
-        .hasMessage("Its pages unpack to more than 32 MB.");
+        .hasMessage(reason);
 
     long failed = System.nanoTime();
     await().atMost(Duration.ofSeconds(1)).until(() -> !aPdfIsBeingRead());
@@ -153,6 +158,40 @@ class DocumentTextTest {
   @Test
   void aPdfWhoseFormUnpacksToTwoGigabytesFailsBeforeItFillsMemoryAndLeavesNoReadingBehind() {
     failsSoonAndLeavesNoReadingBehind(Pdfs.ofDrawingThatUnpacksTo(2_000_000_000L, true));
+  }
+
+  @Test
+  void aPdfWhoseFontMapUnpacksToTwoGigabytesFailsSoonAndLeavesNoReadingBehind() {
+    failsSoonAndLeavesNoReadingBehind(
+        Pdfs.ofAFontMapThatUnpacksTo(2_000_000_000L, List.of("Launch notes")),
+        "It unpacks to more than 32 MB.");
+  }
+
+  @Test
+  void aPdfWhoseObjectStreamUnpacksToTwoGigabytesFailsSoonAndLeavesNoReadingBehind() {
+    failsSoonAndLeavesNoReadingBehind(
+        Pdfs.ofAnObjectStreamThatUnpacksTo(2_000_000_000L), "It unpacks to more than 32 MB.");
+  }
+
+  @Test
+  void aPdfWhoseFontMapAndObjectStreamUnpackToLittleIsRead() {
+    assertThat(
+            DocumentText.of(
+                Kind.PDF, Pdfs.ofAFontMapThatUnpacksTo(100_000, List.of("Launch notes"))))
+        .contains("Launch notes");
+    assertThat(DocumentText.of(Kind.PDF, Pdfs.ofAnObjectStreamThatUnpacksTo(100_000))).isBlank();
+  }
+
+  @Test
+  void aPdfInAFontOfItsOwnIsRead() {
+    assertThat(DocumentText.of(Kind.PDF, Pdfs.inAFontOfItsOwn("It comes to Zürich first.")))
+        .contains("It comes to Zürich first.");
+  }
+
+  @Test
+  void aPdfWhoseFontFileIsPackedAsAPictureIsReadWithoutTheFile() {
+    assertThat(DocumentText.of(Kind.PDF, Pdfs.ofAFontFilePackedAsAPicture(List.of("Launch notes"))))
+        .contains("Launch notes");
   }
 
   /** A reading that goes on until its test is over, whatever it is told. */
