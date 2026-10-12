@@ -37,6 +37,24 @@
 		# The API's requests go on to the backend, without the secret that let them in.
 		reverse_proxy /api/* backend:8080 {
 			header_up -X-Origin-Secret
+
+			# A request that finds no API to connect to is kept, and the API is asked again four
+			# times a second, for as long as this. That is longer than the API takes to start
+			# again. One try may wait three seconds to connect, so the answer comes within 30
+			# seconds, which is how long CloudFront waits for one.
+			lb_try_duration 26s
+
+			# A request that reached the API is not sent a second time, and no path is one that
+			# would be. The API ended while it answered: a write may have been saved, and a read
+			# may be what filled the heap.
+			lb_retry_match not path *
+
+			# Every request gets a connection of its own. A read whose connection had carried a
+			# request before would be sent a second time all the same when that connection breaks,
+			# by the library Caddy passes requests on with.
+			transport http {
+				keepalive off
+			}
 		}
 
 		respond 404

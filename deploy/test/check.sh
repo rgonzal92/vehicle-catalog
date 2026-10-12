@@ -42,15 +42,25 @@ quietly() {
   fi
 }
 
-# Asks the stack as CloudFront would, and prints what it answers.
+# How long Caddy goes on asking for an API that is not there, in seconds, as its file says.
+held="$(sed -n 's/^\t*lb_try_duration \([0-9]*\)s$/\1/p' Caddyfile)"
+# Asks the stack as CloudFront would, and prints what it answers. It waits a little longer than
+# Caddy does, so that an answer that comes late is seen to be late.
 answer() {
-  curl --silent --insecure --max-time 5 --resolve origin.test:18443:127.0.0.1 "$@"
+  curl --silent --insecure --max-time "$((held + 5))" --resolve origin.test:18443:127.0.0.1 "$@"
 }
 # The same, for the status alone.
 ask() {
   answer --output /dev/null --write-out '%{http_code}\n' "$@"
 }
 with_secret=(--header "X-Origin-Secret: $secret")
+# What a stack without an API answers, and when: no sooner than Caddy gives up asking for one, and
+# before the 30 seconds are over that CloudFront waits for an answer.
+without_an_api() {
+  answer --output /dev/null --write-out '%{http_code} %{time_total}\n' "${with_secret[@]}" \
+    https://origin.test:18443/api/health |
+    awk -v held="$held" '{ print $1, (held > 0 && $2 >= held && $2 < 30 ? "in time" : "after " $2 " seconds") }'
+}
 failed=0
 expect() { # what, wanted, got
   if [ "$2" = "$3" ]; then
@@ -166,8 +176,8 @@ expect "and writes nothing to disk" "save  appendonly no" \
 expect "no secret is refused" 403 "$(ask --output /dev/null https://origin.test:18443/api/health)"
 expect "a wrong secret is refused" 403 \
   "$(ask --output /dev/null --header 'X-Origin-Secret: not-it' https://origin.test:18443/api/health)"
-expect "the API has no one to answer for it" 502 \
-  "$(ask --output /dev/null "${with_secret[@]}" https://origin.test:18443/api/health)"
+expect "the API has no one to answer for it, which Caddy says once it has asked for $held seconds" \
+  "502 in time" "$(without_an_api)"
 expect "a request that names another host is turned away, with the secret or without" "421 421" \
   "$(ask --output /dev/null --header 'Host: elsewhere.test' https://origin.test:18443/api/) $(ask \
     --output /dev/null "${with_secret[@]}" --header 'Host: elsewhere.test' https://origin.test:18443/api/)"
@@ -188,8 +198,7 @@ expect "Caddy's own controls answer no one" no \
   "$(whether docker compose exec -T caddy wget --quiet --output-document=- http://127.0.0.1:2019/config/)"
 
 releases "a first image that stops at once fails its release" 1 "$registry/backend:stops-at-once"
-expect "and the stack runs on without a backend" 502 \
-  "$(ask "${with_secret[@]}" https://origin.test:18443/api/health)"
+expect "and the stack runs on without a backend" "502 in time" "$(without_an_api)"
 expect "and that image is not kept" no "$(kept stops-at-once)"
 
 releases "an image is released" 0 "$registry/backend:echo"
@@ -201,6 +210,20 @@ done
 expect "the backend is not sent the secret" yes "$(whether grep -qxF 'secret: ' <<<"$said")"
 expect "nothing outside /api is passed on" 404 \
   "$(ask --output /dev/null "${with_secret[@]}" https://origin.test:18443/)"
+
+# The API stopped and started again, as Docker starts it again when its process has ended. What is
+# asked meanwhile reaches no API, so Caddy keeps it and asks again until there is one to answer.
+quietly docker compose stop backend
+ask --output /dev/null "${with_secret[@]}" https://origin.test:18443/api/things >"$work/read" &
+ask --output /dev/null "${with_secret[@]}" --data 'a=write' https://origin.test:18443/api/things \
+  >"$work/write" &
+sleep 3
+expect "a read and a write asked while the API is stopped are not answered at once" "" \
+  "$(cat "$work/read" "$work/write")"
+quietly docker compose start backend
+wait
+expect "and both are answered once the API is started" "200 200" \
+  "$(cat "$work/read" "$work/write" | paste -sd ' ')"
 
 releases "the backend is released" 0 "$registry/backend:real"
 healthy() {
