@@ -2,12 +2,13 @@
 
 How long reads of Approved versions take with the cache and without it, and what PostgreSQL is sent for them. [The cache keeps the contents of Approved versions](adr/0016-the-contents-of-approved-versions-are-read-from-a-cache-that-is-never-needed.md): everything else a read answers with is read from PostgreSQL every time. These are measurements under a made-up load, on one machine and on generated data. They say what the cache saves in the app as it is built, and nothing certain about the deployed one: of the deployed host there are the times of [half a minute of reads](#on-the-deployed-host) and of a handful of requests, and no more. The handful is from the look at what the deployed app does when its cache is stopped, which is [at the end](#the-cache-stopped-on-the-host).
 
-Four things limit what they say:
+Five things limit what they say:
 
-- **Everything ran on one machine.** The program that sent the requests, the web server, the API, PostgreSQL, and Redis shared a processor with twelve cores and had no network between them. The host has two processors, which it may use in full only for a while, and runs the worker and an agent beside them.
+- **Everything ran on one machine.** The program that sent the requests, the web server, the API, PostgreSQL, and Redis shared a processor with twelve cores and had no network between them. The host has two processors, which it may use in full only for a while, and runs the worker and an agent beside them. The API's heap is limited to 256 MiB there and was not limited here.
 - **One person read, and nobody wrote.** Every request was the same person's, and nothing else used the app. The API had answered the same requests before any was timed.
 - **The data is generated or seeded.** The largest catalog there can be is made by the app for measuring, and the demo has no catalog near its size. The seeded catalog measured has 151 feature rows and 7 offerings.
-- **They are two runs.** The tables are of the second, and the medians of both are below them. Both are of the code as it was on 2026-10-10, when the cells of a catalog were made into records by handing Spring the record's class. Since they are read by a mapper written for them, a working copy of the largest catalog, which is never in the cache, is [read in a median of 81 ms](largest-catalog-measurements.md), where the largest version took 558 here without a cache. The tables were not measured again, so what the cache gains at that size today is not in them.
+- **The columns were measured one after the other, always in the same order.** The API is started for the first column and started again for the second, and not again after that. So by the third column it has answered some two hundred requests since its start, and by the fourth some four hundred, where the first two begin with an API that has just started. The first column and the last both read PostgreSQL for every request, and they do not take the same.
+- **They are two runs.** The tables are of the second, and the medians of both are below them. Both are of 2026-10-12 and of the code as it was that day, in which the cells of a catalog are read by a mapper written for them. The tables this document had before were of 2026-10-10, when the cells were made into records by handing Spring the record's class, and their medians are [below](#as-they-were-on-2026-10-10) for comparison.
 
 ## Results
 
@@ -19,17 +20,17 @@ The four columns are the app without an address for the cache; with the cache, w
 
 | | Cache off | On and empty | On and holding it | Cache stopped |
 |---|---|---|---|---|
-| Opening the largest Approved version | median 558, 95th percentile 601, longest 627 | median 566, 95th percentile 594, longest 599 | median 68, 95th percentile 82, longest 92 | median 616, 95th percentile 1315, longest 1388 |
-| Opening a seeded Approved version | median 34, 95th percentile 84, longest 87 | median 34, 95th percentile 52, longest 73 | median 6.8, 95th percentile 8.3, longest 8.4 | median 30, 95th percentile 107, longest 111 |
-| Comparing two versions of one lineage | median 46, 95th percentile 52, longest 55 | median 54, 95th percentile 145, longest 159 | median 8.4, 95th percentile 9.7, longest 9.8 | median 50, 95th percentile 65, longest 81 |
+| Opening the largest Approved version | median 96, 95th percentile 162, longest 166 | median 128, 95th percentile 143, longest 146 | median 83, 95th percentile 106, longest 110 | median 102, 95th percentile 133, longest 140 |
+| Opening a seeded Approved version | median 16, 95th percentile 19, longest 19 | median 24, 95th percentile 69, longest 71 | median 9.6, 95th percentile 11, longest 11 | median 11, 95th percentile 15, longest 15 |
+| Comparing two versions of one lineage | median 18, 95th percentile 26, longest 27 | median 26, 95th percentile 62, longest 63 | median 12, 95th percentile 13, longest 14 | median 15, 95th percentile 19, longest 20 |
 
 ### 8 at once, 3 times
 
 | | Cache off | On and empty | On and holding it | Cache stopped |
 |---|---|---|---|---|
-| Opening the largest Approved version | median 706, 95th percentile 802, longest 812 | median 694, 95th percentile 789, longest 797 | median 133, 95th percentile 178, longest 189 | median 704, 95th percentile 747, longest 760 |
-| Opening a seeded Approved version | median 55, 95th percentile 83, longest 85 | median 42, 95th percentile 56, longest 56 | median 13, 95th percentile 18, longest 19 | median 65, 95th percentile 126, longest 128 |
-| Comparing two versions of one lineage | median 57, 95th percentile 66, longest 67 | median 66, 95th percentile 75, longest 77 | median 15, 95th percentile 20, longest 21 | median 55, 95th percentile 92, longest 94 |
+| Opening the largest Approved version | median 199, 95th percentile 250, longest 256 | median 226, 95th percentile 299, longest 309 | median 160, 95th percentile 202, longest 212 | median 172, 95th percentile 209, longest 217 |
+| Opening a seeded Approved version | median 21, 95th percentile 25, longest 26 | median 26, 95th percentile 33, longest 33 | median 16, 95th percentile 21, longest 22 | median 16, 95th percentile 22, longest 24 |
+| Comparing two versions of one lineage | median 23, 95th percentile 30, longest 30 | median 32, 95th percentile 39, longest 41 | median 18, 95th percentile 25, longest 26 | median 21, 95th percentile 26, longest 28 |
 
 ### Statements PostgreSQL was sent for one request
 
@@ -45,30 +46,42 @@ The first run's median, then the second's.
 
 | | Cache off | On and empty | On and holding it | Cache stopped |
 |---|---|---|---|---|
-| The largest version, one after another | 553, 558 | 555, 566 | 70, 68 | 602, 616 |
-| A seeded version, one after another | 30, 34 | 34, 34 | 7.9, 6.8 | 28, 30 |
-| A comparison, one after another | 45, 46 | 52, 54 | 8.7, 8.4 | 44, 50 |
-| The largest version, 8 at once | 723, 706 | 634, 694 | 127, 133 | 687, 704 |
-| A seeded version, 8 at once | 35, 55 | 41, 42 | 13, 13 | 80, 65 |
-| A comparison, 8 at once | 55, 57 | 58, 66 | 17, 15 | 99, 55 |
+| The largest version, one after another | 117, 96 | 123, 128 | 82, 83 | 100, 102 |
+| A seeded version, one after another | 16, 16 | 21, 24 | 9.5, 9.6 | 9.9, 11 |
+| A comparison, one after another | 17, 18 | 24, 26 | 11, 12 | 14, 15 |
+| The largest version, 8 at once | 223, 199 | 220, 226 | 163, 160 | 180, 172 |
+| A seeded version, 8 at once | 20, 21 | 27, 26 | 16, 16 | 17, 16 |
+| A comparison, 8 at once | 23, 23 | 31, 32 | 18, 18 | 19, 21 |
 
-One after another, the medians of the two runs are close: none differs by more than 6 ms, but for the largest version, where none differs by more than 14. Eight at once they are further apart: a seeded version without a cache took 35 in one run and 55 in the other. So what eight at once say is how the columns stand to each other, and not the figures. The statements were the same in both runs.
+For a seeded version and a comparison the medians of the two runs are close: none differs by more than 3 ms. For the largest version without a cache they are not: 117 in one run and 96 in the other, one after another, and 223 and 199 eight at once. That is the figure the cache's gain at that size is counted from, so the gain is given below as from one figure to another, and not as one. The statements were the same in both runs.
+
+### As they were on 2026-10-10
+
+The medians of the tables this document had before, one after another, beside those of the second run of 2026-10-12, which are in the first table above. Between the two, the cells of a catalog came to be [read by a mapper written for them](largest-catalog-measurements.md). What else changed in the app in those two days was not taken apart from it.
+
+| | Cache off, 2026-10-10 | Cache off, now | On and holding it, 2026-10-10 | On and holding it, now |
+|---|---|---|---|---|
+| Opening the largest Approved version | 558 | 96 | 68 | 83 |
+| Opening a seeded Approved version | 34 | 16 | 6.8 | 9.6 |
+| Comparing two versions of one lineage | 46 | 18 | 8.4 | 12 |
 
 ## What they say
 
-**The cache saves the reading of the contents, which is most of a read.** With the cache holding it, the largest version opens in about an eighth of the time, 68 ms against 558, a seeded one in about a fifth, and a comparison in under a fifth. PostgreSQL is sent 8 statements where it was sent 14: the six that read the contents are not sent. A comparison reads two versions, and is sent 8 where it was sent 20.
+**The cache saves the reading of the contents, which is no longer most of a read.** With the cache holding it, the largest version opens in a median of 83 ms, against 96 without a cache; the first run has 82 against 117. So the cache saves between 13 and 35 ms of about a hundred there, where on 2026-10-10 it saved 490 of 558. A seeded version opens in 9.6 ms against 16, and a comparison in 12 against 18. PostgreSQL is sent 8 statements where it was sent 14: the six that read the contents are not sent. A comparison reads two versions, and is sent 8 where it was sent 20.
 
-**What is left is not the cache's to save.** The 68 ms that remain for the largest version go to finding the session and the person, to what describes the catalog, to validating it against the library of today, and to writing 1.8 million characters of JSON. They were not taken apart.
+**Held against the reads with the cache stopped, it saves less.** Those read PostgreSQL for everything too, with the same statements, and were sent after the API had answered some hundreds of requests, as the reads from the cache were. The largest version opens in 83 ms against 102, a seeded one in 9.6 against 11, and a comparison in 12 against 15; the first run has 82 against 100, 9.5 against 9.9, and 11 against 14. That is 18 or 19 ms at the largest size, 3 ms for a comparison, and about 1 ms for a seeded version. Why a read without the cache takes less in the last column than in the first, for the seeded version and the comparison in both runs, was not looked into, so which of the two the cache is to be held against is not settled. By either, the gain is small.
 
-**A read that finds the cache empty costs a little more than one without a cache.** It reads PostgreSQL as before and then gives the cache what it read, which for the largest version is 2 MB: a median of 566 against 558. The job that follows an approval gives the cache a new version before anyone opens it, so the reads that pay this are the first of a version after a day in which no one opened it, and the first after the demo reset.
+**What is left is not the cache's to save.** The 83 ms that remain for the largest version go to finding the session and the person, to what describes the catalog, to validating it against the library of today, and to writing 1.8 million characters of JSON. They were not taken apart. On 2026-10-10 they were 68 ms, and a read from the cache took less then at the other two sizes as well. Why it takes more now was not looked into.
 
-**With the cache stopped, a read takes about what it takes without one.** The first read after the stop waits for the cache, for 250 ms at the most. From then on no read asks it, and the app asks by itself every ten seconds whether it is back. One after another, the medians of the last column are within 6 ms of the first's for the seeded version and the comparison, and 58 ms above it for the largest version, which is a tenth. No request of either run failed.
+**A read that finds the cache empty costs more than one without a cache.** It reads PostgreSQL as before and then gives the cache what it read, which for the largest version is 2 MB: a median of 128 against 96, and 123 against 117 in the first run. A seeded version takes 24 against 16, and a comparison 26 against 18. So at the two smaller sizes a read that fills the cache loses about as much as a read that finds it filled gains. Not all of that need be the filling: to empty the cache, the script runs two Docker commands before every request of this column and of no other, so the API waits between its requests here, and what part of the difference that is was not measured. The job that follows an approval gives the cache a new version before anyone opens it, so the reads that pay this are the first of a version after a day in which no one opened it, and the first after the demo reset.
 
-**Some reads take much longer than the median, and what they wait for is the disk of the machine they were measured on.** Without a cache, one read in twenty of a seeded version took over 80 ms where the median is 34. Sent one after another for half a minute, nearly a fifth of the reads took over twice the median, and the long ones grew from one to the next until they started low again. Every request writes when its session was last used, and PostgreSQL does not say that it is written before the disk has it. On this machine the disk takes 5 ms for that at the median and over 50 ms in stretches. The cache has no part in it, and the deployed host does not show it: [what was measured](#the-long-reads) is below. Two reads of the largest version took 1.3 s with the cache stopped, in one run. Those two were not seen again, and whether they waited for the disk too is not known.
+**With the cache stopped, a read takes no longer than without one.** The first read after the stop waits for the cache, for 250 ms at the most. From then on no read asks it, and the app asks by itself every ten seconds whether it is back. One after another, the medians of the last column are at or below the first's, but for the largest version in the second run, 102 against 96. No request of either run failed.
 
-**For the catalogs the demo has, the cache gains nothing that matters.** A seeded version opens in 34 ms without the cache and in 7 with it, and no one notices the 27 between them. What the cache is worth shows at sizes the demo does not have: at the largest size, nearly half a second for each opening.
+**Few reads of these two runs took much longer than the median.** On 2026-10-10, one read in twenty of a seeded version without a cache took over 80 ms where the median was 34, and what such reads wait for is the disk of the machine they were measured on. Every request writes when its session was last used, and PostgreSQL does not say that it is written before the disk has it. On this machine the disk took 5 ms for that at the median and over 50 ms in stretches when it was looked at on 2026-10-11. The cache has no part in it, and the deployed host does not show it: [what was measured](#the-long-reads) is below. In these two runs the longest read of a seeded version without a cache took 19 ms, where the median is 16. The reads that took over twice their median, one after another, are nearly all of the column that finds the cache empty: in the second run 71 ms against 24 for a seeded version and 63 against 26 for a comparison, and in the first 85 against 24 for a comparison. Whether those waited for the disk was not looked at.
 
-**It does nothing for editing.** A working copy is never in the cache. Saving a cell of the largest catalog answered with its issues after about half a second when this was measured. It has been [answered in a median of 57 ms](largest-catalog-measurements.md) since the cells are read by a mapper written for them, which is no doing of the cache.
+**At no size does the cache gain what a person notices.** A seeded version opens in 16 ms without the cache and in 9.6 with it. The largest catalog there can be opens in about 100 ms without it and in 83 with it, where on 2026-10-10 the cache saved nearly half a second for each opening. Eight at once, the largest version takes 160 ms with the cache, against 199 without one and 172 with it stopped. What the cache still spares is PostgreSQL's part: six statements for each read, and twelve for a comparison. What that is worth with many readers on the host's two processors was not measured, here or there. Against it stand the memory it may take on the host, [64 MB](adr/0017-the-cache-runs-on-the-host-within-64-mb.md), and a process more to run. Whether it is still worth that is a decision of its own, and is not taken here: the app is left as it is.
+
+**It does nothing for editing.** A working copy is never in the cache. Saving a cell of the largest catalog answered with its issues after about half a second when the cache was first measured. It has been [answered in a median of 57 ms](largest-catalog-measurements.md) since the cells are read by a mapper written for them, which is no doing of the cache.
 
 ## Reads of one version that arrive together
 
@@ -202,7 +215,7 @@ The fallbacks from 04:13 to 04:15 are an earlier stop, from 04:12:20 to 04:14:30
 
 ## Environment
 
-- Measured on 2026-10-10, with the application as the repository built it that day.
+- The two runs of the tables were measured on 2026-10-12, between 16:22 and 16:27 UTC, with the application as the repository built it that day. The half minutes of reads are of 2026-10-11.
 - AMD Ryzen 9 5900X, 32 GB of memory, Linux 7.2. Docker 29.9.0 with Compose 5.6.0 keeps its volumes on btrfs.
 - Node 24.21.0 sent the requests. Chromium, driven by Playwright 1.63, signed in.
 - Spring Boot 4.1.1 on Java 25, PostgreSQL 18.6, Redis 8.10.2, and Caddy 2.11.6, each in a container on the same machine.
