@@ -261,7 +261,8 @@ run "the_starts_of_the_api_and_the_worker_are_counted_from_the_backends_log" {
   }
 
   assert {
-    # Two counts by the hour and by nothing else, which CloudWatch draws as two lines over time.
+    # Two counts by the hour and by nothing else, which is the form AWS's page on stats gives for
+    # several values drawn over time.
     condition = (
       endswith(
         one([
