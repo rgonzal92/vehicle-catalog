@@ -2,6 +2,7 @@ package dev.rgonz.catalog.document;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
 import dev.rgonz.catalog.document.Documents.Kind;
 import java.nio.charset.StandardCharsets;
@@ -104,6 +105,46 @@ class DocumentTextTest {
     assertThat(pdf.length).isBetween(1_500_000, 2 * 1024 * 1024);
     assertThat(text.length()).isBetween(400_000, DocumentText.MOST_TEXT);
     assertThat(text).contains("Page 140, line 48:");
+  }
+
+  /** Whether a thread is reading a PDF. */
+  private static boolean aPdfIsBeingRead() {
+    return Thread.getAllStackTraces().keySet().stream()
+        .anyMatch(thread -> thread.getName().equals("pdf-reading"));
+  }
+
+  /**
+   * Checks that a PDF whose drawing unpacks to far more than its pages may fails soon, that its
+   * reading has ended by then, and that the PDF after it is read at once.
+   */
+  private static void failsSoonAndLeavesNoReadingBehind(byte[] pdf) {
+    assertThat(pdf.length).isLessThan(2 * 1024 * 1024);
+    long start = System.nanoTime();
+
+    assertThatThrownBy(() -> DocumentText.of(Kind.PDF, pdf))
+        .isInstanceOf(DocumentText.Unreadable.class)
+        .hasMessage("Its pages unpack to more than 32 MB.");
+
+    long failed = System.nanoTime();
+    await().atMost(Duration.ofSeconds(1)).until(() -> !aPdfIsBeingRead());
+    assertThat(DocumentText.of(Kind.PDF, Pdfs.of(List.of("Launch notes"))))
+        .contains("Launch notes");
+    long next = System.nanoTime();
+    System.out.printf(
+        "A PDF OF %,d BYTES THAT UNPACKS TO FAR MORE: FAILED AFTER %d MS, THE NEXT READ IN %d MS%n",
+        pdf.length, (failed - start) / 1_000_000, (next - failed) / 1_000_000);
+    assertThat(Duration.ofNanos(failed - start)).isLessThan(Duration.ofSeconds(5));
+    assertThat(Duration.ofNanos(next - failed)).isLessThan(Duration.ofSeconds(1));
+  }
+
+  @Test
+  void aPdfWhosePageUnpacksToTwoGigabytesFailsSoonAndLeavesNoReadingBehind() {
+    failsSoonAndLeavesNoReadingBehind(Pdfs.ofDrawingThatUnpacksTo(2_000_000_000L, false));
+  }
+
+  @Test
+  void aPdfWhoseFormUnpacksToTwoGigabytesFailsBeforeItFillsMemoryAndLeavesNoReadingBehind() {
+    failsSoonAndLeavesNoReadingBehind(Pdfs.ofDrawingThatUnpacksTo(2_000_000_000L, true));
   }
 
   /** A reading that goes on until its test is over, whatever it is told. */
