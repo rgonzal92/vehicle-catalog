@@ -1,7 +1,8 @@
 # What the backend reports of itself, and where Amazon CloudWatch keeps it: its log, its traces, and
 # a short list of metrics. An alarm watches the metric that says whether the backend is ready, and
 # a dashboard shows the others, beside what SQS reports of the jobs' two queues. A metric that neither of them uses is not sent: each one beyond the
-# first ten is paid for by the month.
+# first ten is paid for by the month. How often the API and the worker have started, the dashboard
+# counts from the log.
 
 locals {
   # What the CloudWatch agent on the host is told to do, and the namespace it publishes metrics
@@ -479,6 +480,21 @@ resource "aws_cloudwatch_dashboard" "backend" {
             }],
           ]
           yAxis = { left = { min = 0, max = 100 } }
+        }
+      },
+      # Nothing sends a metric of this. The API and the worker each write a line to the log once
+      # they have started, and the chart counts those lines, which is a query of the log: it reads
+      # the log of the time the dashboard shows, and is paid for by how much that is.
+      {
+        type = "log", x = 0, y = 60, width = 12, height = 6
+        properties = {
+          title  = "Starts of the API and of the worker by the hour, those of each release among them"
+          region = data.aws_region.current.region
+          view   = "timeSeries"
+          query = join("\n| ", [
+            "SOURCE '${aws_cloudwatch_log_group.backend.name}' | filter @message like \"Started VehicleCatalogApplication in\"",
+            "stats sum(@logStream = \"backend\") as API, sum(@logStream = \"worker\") as worker by bin(1h)",
+          ])
         }
       },
     ]

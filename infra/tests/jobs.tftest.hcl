@@ -142,6 +142,7 @@ run "the_dashboard_shows_what_waits_on_the_two_queues" {
         for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
         widget.properties.period == 60
         && strcontains(jsonencode(widget.properties.metrics), trimsuffix(jsonencode(chart), "]"))
+        if widget.type == "metric"
       ])
     ])
     error_message = "The dashboard shows, by the minute, how many messages wait on the jobs' queue, how old the oldest is, and how many are in the dead-letter queue."
