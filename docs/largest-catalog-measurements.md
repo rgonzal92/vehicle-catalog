@@ -51,7 +51,7 @@ Inside the test's own process, with no server between:
 
 **As it was read on 2026-10-09, validating the whole catalog after every edit was not fast enough at this size.** A save that was answered in about 10 ms was answered in about half a second. A cell still showed its new value at once, since the page does not wait for the answer. What a person editing noticed is what follows the answer: the marks and the counts of issues came half a second after the edit that caused them, and the editor sends one save at a time, so someone setting cells faster than two a second left a queue of saves behind them that the page worked off afterwards.
 
-**Validation itself is not what took the time.** It takes about 25 ms, chains included. Nearly all of the rest went to reading the catalog's 24,000 stored cells, about 390 ms, and not to the database: PostgreSQL answers the query for the cells in 3 to 4 ms. The API made a record of each row by handing Spring the record's class, and that mapping is what took the time.
+**Validation itself is not what took the time.** It takes about 25 ms, chains included. Nearly all of the rest went to reading the catalog, about 390 ms, some 315 of them for its 24,000 stored cells, and not to the database: PostgreSQL answers the query for the cells in 3 to 4 ms. The API made a record of each row by handing Spring the record's class, and that mapping is what took the time.
 
 **So the cells are read by a mapper written for them, and every edit still validates the whole catalog.** [The decision record](adr/0019-every-edit-still-validates-the-whole-catalog-which-is-read-fast-enough-for-it.md) has the parts measured one by one, and what validating only the offerings an edit touches would be, which stays the way to take when catalogs outgrow this.
 
@@ -75,7 +75,7 @@ Inside the test's own process, with no server between, from one run of the whole
 | Reading the catalog and validating it | 56.0 | 52.6 | 89.3 |
 | A save of one cell, with its answer | 66.6 | 61.9 | 93.5 |
 
-**A save of one cell of the largest catalog is answered in a median of 57 ms, where it took 517.** The marks and the counts of issues follow an edit that soon, and the editor, which sends one save at a time, keeps up with someone who sets seventeen cells a second.
+**A save of one cell of the largest catalog is answered in a median of 57 ms, where it took 517.** The marks and the counts of issues follow an edit that soon, and the editor, which sends one save at a time, keeps up with someone who sets seventeen cells a second by the plain client's figure.
 
 **Some answers take two or three times the median.** Of the 40 saves of the largest catalog with the mapper, at least three took 152 ms or more, and the longest 166. What they waited for was not traced. On this machine reads wait in stretches for [the disk](cache-measurements.md#the-long-reads), and whether these did is not known.
 
@@ -171,7 +171,7 @@ The stack was started with `LARGEST_CATALOG=true npm run stack:up` in `e2e/` twi
 3. saved the cell of its first feature row in its first offering 43 times, to Standard and to Available in turn, timing the last 40;
 4. did the same with a working copy of Sedan 2027, saving to Not offered and to Available in turn.
 
-The last answer of each 43 listed one issue, where the catalog measured on 2026-10-09 had none: the cell that was saved is not one that can be set freely. Which issue it was, was not looked at.
+The last answer of each 43 listed one issue. Which issue it was, and whether the saves caused it, was not looked at. The sedan's working copy was at revision 42 after its 43 saves, so the first of them asked for what was already so: its cell was Not offered before the saves and Not offered after the last, and the issue was listed with the cell as it began. The working copy of the largest catalog was at revision 43, so its cell was not Standard before the saves and was Standard after the last; the catalog measured on 2026-10-09 had no issue.
 
 Each was measured once. The scripts of 2026-10-09 were not kept, so which cell they saved is not known.
 
