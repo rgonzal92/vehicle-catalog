@@ -57,7 +57,7 @@ For a seeded version and a comparison the medians of the two runs are close: non
 
 ### As they were on 2026-10-10
 
-The medians of the tables this document had before, one after another, beside those of the table above. Between the two, the cells of a catalog came to be [read by a mapper written for them](largest-catalog-measurements.md). What else changed in the app in those two days was not taken apart from it.
+The medians of the tables this document had before, one after another, beside those of the second run of 2026-10-12, which are in the first table above. Between the two, the cells of a catalog came to be [read by a mapper written for them](largest-catalog-measurements.md). What else changed in the app in those two days was not taken apart from it.
 
 | | Cache off, 2026-10-10 | Cache off, now | On and holding it, 2026-10-10 | On and holding it, now |
 |---|---|---|---|---|
@@ -73,7 +73,7 @@ The medians of the tables this document had before, one after another, beside th
 
 **What is left is not the cache's to save.** The 83 ms that remain for the largest version go to finding the session and the person, to what describes the catalog, to validating it against the library of today, and to writing 1.8 million characters of JSON. They were not taken apart. On 2026-10-10 they were 68 ms, and a read from the cache took less then at the other two sizes as well. Why it takes more now was not looked into.
 
-**A read that finds the cache empty costs more than one without a cache.** It reads PostgreSQL as before and then gives the cache what it read, which for the largest version is 2 MB: a median of 128 against 96, and 123 against 117 in the first run. A seeded version takes 24 against 16, and a comparison 26 against 18. So at the two smaller sizes a read that fills the cache loses about as much as a read that finds it filled gains. The job that follows an approval gives the cache a new version before anyone opens it, so the reads that pay this are the first of a version after a day in which no one opened it, and the first after the demo reset.
+**A read that finds the cache empty costs more than one without a cache.** It reads PostgreSQL as before and then gives the cache what it read, which for the largest version is 2 MB: a median of 128 against 96, and 123 against 117 in the first run. A seeded version takes 24 against 16, and a comparison 26 against 18. So at the two smaller sizes a read that fills the cache loses about as much as a read that finds it filled gains. Not all of that need be the filling: to empty the cache, the script runs two Docker commands before every request of this column and of no other, so the API waits between its requests here, and what part of the difference that is was not measured. The job that follows an approval gives the cache a new version before anyone opens it, so the reads that pay this are the first of a version after a day in which no one opened it, and the first after the demo reset.
 
 **With the cache stopped, a read takes no longer than without one.** The first read after the stop waits for the cache, for 250 ms at the most. From then on no read asks it, and the app asks by itself every ten seconds whether it is back. One after another, the medians of the last column are at or below the first's, but for the largest version in the second run, 102 against 96. No request of either run failed.
 
