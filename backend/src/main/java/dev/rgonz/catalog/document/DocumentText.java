@@ -47,8 +47,10 @@ final class DocumentText {
 
   /**
    * The most that the pages of a PDF may unpack to, in bytes: sixteen times the largest file there
-   * may be. A PDF with as much text as a document may have unpacks to under a megabyte, and PDFBox
-   * reads through the whole of this in about a second.
+   * may be. A PDF with as much text as a document may have unpacks to under a megabyte. How long
+   * PDFBox reads this much for depends on what it is: about a second for drawing that does nothing,
+   * and nearly eight for a page that draws a small form millions of times. So the time a PDF is
+   * given stays.
    */
   static final long MOST_UNPACKED = 32L * 1024 * 1024;
 
@@ -174,8 +176,17 @@ final class DocumentText {
 
     @Override
     public void processPage(PDPage page) throws IOException {
-      for (var contents = page.getContentStreams(); contents.hasNext(); ) {
-        unpack(contents.next().getCOSObject());
+      // A page's contents are one stream or a list of them. Of a list PDFBox reads the parts that
+      // are streams and passes over the others, so those are the ones that count.
+      COSBase contents = page.getCOSObject().getDictionaryObject(COSName.CONTENTS);
+      if (contents instanceof COSStream whole) {
+        unpack(whole);
+      } else if (contents instanceof COSArray parts) {
+        for (int index = 0; index < parts.size(); index++) {
+          if (parts.getObject(index) instanceof COSStream part) {
+            unpack(part);
+          }
+        }
       }
       super.processPage(page);
     }

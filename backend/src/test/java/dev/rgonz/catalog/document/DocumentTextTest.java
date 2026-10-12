@@ -40,6 +40,14 @@ class DocumentTextTest {
   }
 
   @Test
+  void aPdfWhoseContentsHaveAPartThatIsNothingIsReadAsPdfBoxReadsIt() {
+    assertThat(
+            DocumentText.of(
+                Kind.PDF, Pdfs.ofContentsWithAPartThatIsNothing(List.of("Launch notes"))))
+        .contains("Launch notes");
+  }
+
+  @Test
   void aPdfOfPicturesAloneHasNoText() {
     assertThat(DocumentText.of(Kind.PDF, Pdfs.of(List.of(), List.of()))).isBlank();
   }

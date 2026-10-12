@@ -9,7 +9,10 @@ import java.util.List;
 import java.util.Random;
 import java.util.zip.Deflater;
 import java.util.zip.DeflaterOutputStream;
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.cos.COSArray;
 import org.apache.pdfbox.cos.COSName;
+import org.apache.pdfbox.cos.COSNull;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
@@ -112,6 +115,25 @@ public final class Pdfs {
       } else {
         page.setContents(drawing);
       }
+      var file = new ByteArrayOutputStream();
+      document.save(file);
+      return file.toByteArray();
+    } catch (IOException impossible) {
+      throw new UncheckedIOException(impossible);
+    }
+  }
+
+  /**
+   * A PDF of one page with these lines of text, whose contents are a list of two parts of which the
+   * second is nothing. PDFBox reads the parts that are contents and passes over the others.
+   */
+  public static byte[] ofContentsWithAPartThatIsNothing(List<String> lines) {
+    try (var document = Loader.loadPDF(of(lines))) {
+      var page = document.getPage(0).getCOSObject();
+      var parts = new COSArray();
+      parts.add(page.getDictionaryObject(COSName.CONTENTS));
+      parts.add(COSNull.NULL);
+      page.setItem(COSName.CONTENTS, parts);
       var file = new ByteArrayOutputStream();
       document.save(file);
       return file.toByteArray();
