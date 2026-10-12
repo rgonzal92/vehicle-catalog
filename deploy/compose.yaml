@@ -34,8 +34,9 @@ services:
       - settings.env
     environment:
       # The heap may grow to this and no further, which is twice the most it has held here. Left
-      # to itself, Java would let it have a quarter of the host's memory.
-      JAVA_TOOL_OPTIONS: -XX:MaxHeapSize=256m
+      # to itself, Java would let it have a quarter of the host's memory. When the heap is full,
+      # Java ends the API, and Docker starts it again: left running, it may answer nothing.
+      JAVA_TOOL_OPTIONS: -XX:MaxHeapSize=256m -XX:+ExitOnOutOfMemoryError
       DATABASE_URL: jdbc:postgresql://db:5432/catalog
       DATABASE_USER: catalog
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:?The database password is not set}
@@ -95,8 +96,9 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: worker
       # The heap may grow to this and no further. Left to itself, Java would let each of the two
-      # processes have a quarter of the host's memory.
-      JAVA_TOOL_OPTIONS: -XX:MaxHeapSize=192m
+      # processes have a quarter of the host's memory. When the heap is full, Java ends the
+      # worker, as it ends the API, and Docker starts it again.
+      JAVA_TOOL_OPTIONS: -XX:MaxHeapSize=192m -XX:+ExitOnOutOfMemoryError
       DATABASE_URL: jdbc:postgresql://db:5432/catalog
       DATABASE_USER: catalog
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:?The database password is not set}
