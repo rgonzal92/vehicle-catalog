@@ -13,10 +13,16 @@ import software.amazon.awssdk.services.sqs.model.Message;
 public final class Worker {
   private Worker() {}
 
-  /** Does what the worker does, once: sends what is unsent, and runs the jobs that wait. */
+  /**
+   * Does what the worker does, once: sends what is unsent, and runs the jobs that wait, one message
+   * after another until the queue has none to give.
+   */
   public static void runs(ApplicationContext application) {
     sends(application);
-    application.getBean(Consumer.class).receive(Duration.ZERO);
+    var consumer = application.getBean(Consumer.class);
+    while (consumer.receive(Duration.ZERO) > 0) {
+      // A message that was handled says there may be more.
+    }
   }
 
   /** Sends the unsent messages and does nothing else, and answers with how many there were. */
@@ -25,10 +31,11 @@ public final class Worker {
   }
 
   /**
-   * Receives what waits on the queue and then stops, as a worker that is stopped in the middle of a
-   * job does: nothing is run and nothing is deleted, so the queue delivers the messages again.
+   * Receives a message that waits on the queue and then stops, as a worker that is stopped in the
+   * middle of a job does: nothing is run and nothing is deleted, so the queue delivers the message
+   * again.
    *
-   * @return the bodies of the messages it received
+   * @return the body of the message it received, or nothing when none waited
    */
   public static List<String> takesAndStops(ApplicationContext application) {
     return application.getBean(JobQueue.class).receive(Duration.ZERO).stream()

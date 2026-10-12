@@ -3,12 +3,14 @@ package dev.rgonz.catalog.job;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doThrow;
 
 import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.core.Role;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -21,12 +23,14 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.ApplicationContext;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
+import software.amazon.awssdk.services.sqs.model.Message;
 
 /**
  * Checks what becomes of a job whose work fails: it is tried again, it has failed for good once the
  * queue gives its message up, and an admin sees it and can have it retried. A job fails here
  * because nothing does a job of its type, and is put right by giving it a type something does. The
- * queue of the tests delivers a message three times, a second apart.
+ * queue of the tests delivers a message three times, a second apart. A worker that is stopped in
+ * the middle of a job has used up one of those three for that job, and for no job that waits.
  */
 @ExtendWith(OutputCaptureExtension.class)
 class FailedJobsIT extends ApplicationIT {
@@ -35,6 +39,9 @@ class FailedJobsIT extends ApplicationIT {
   /** What follows an approval, which a test can have end as it likes. */
   @MockitoSpyBean(name = "afterApproval")
   JobHandler afterApproval;
+
+  /** The queue, whose answers a test can look at. */
+  @MockitoSpyBean JobQueue queue;
 
   @BeforeEach
   void noJobs() {
@@ -62,6 +69,31 @@ class FailedJobsIT extends ApplicationIT {
   /** Gives the job a type that something does: what follows an approval of no catalog at all. */
   private void putRight(long job) {
     jdbc.sql("UPDATE job SET type = 'AFTER_APPROVAL' WHERE id = :id").param("id", job).update();
+  }
+
+  /** Writes a job that something does, with its message, and answers with its id. */
+  private long aJobThatSomethingDoes() {
+    var job = aJobThatNothingDoes();
+    putRight(job);
+    return job;
+  }
+
+  /**
+   * Keeps, from here on, what the queue answers each request for messages with: of each message,
+   * how many times it has been delivered.
+   */
+  private List<List<Integer>> whatTheQueueAnswers() {
+    var answers = new ArrayList<List<Integer>>();
+    doAnswer(
+            request -> {
+              @SuppressWarnings("unchecked")
+              var messages = (List<Message>) request.callRealMethod();
+              answers.add(messages.stream().map(JobQueue::deliveriesOf).toList());
+              return messages;
+            })
+        .when(queue)
+        .receive(any());
+    return answers;
   }
 
   private String stands(long job) {
@@ -169,8 +201,9 @@ class FailedJobsIT extends ApplicationIT {
   void aJobThatEndsInAnErrorThatIsNoExceptionFailsAsAnyOtherAndCanBeRetried() {
     var job = aJobThatNothingDoes();
     putRight(job);
-    // An error such as running out of memory is no exception. This one is of the same kind, and
-    // unlike that one it does not stop the tests when it gets as far as them.
+    // A class that is not there is an error and no exception, and the worker catches it all the
+    // same. A full heap is an error too, and is not caught where Java is told to end a process
+    // whose heap is full, as it is on the host: the worker ends there and keeps nothing of the try.
     doThrow(new LinkageError("A class the job needs is not there"))
         .when(afterApproval)
         .handle(any());
@@ -212,6 +245,49 @@ class FailedJobsIT extends ApplicationIT {
     workUntil(job, "SUCCEEDED after 1");
     assertThat(Worker.sweeps(application)).isOne();
     assertThat(Worker.inTheDeadLetterQueue(application)).isEmpty();
+  }
+
+  @Test
+  void aWorkerThatIsStoppedInTheMiddleOfAJobHasTakenNoOtherJobsMessage() {
+    var one = aJobThatSomethingDoes();
+    var other = aJobThatSomethingDoes();
+    Worker.sends(application);
+    var answers = whatTheQueueAnswers();
+
+    var taken = Worker.takesAndStops(application);
+
+    assertThat(answers)
+        .as("how often each message the stopped worker had taken was delivered")
+        .containsExactly(List.of(1));
+    var left = taken.contains("{\"jobId\": %d}".formatted(one)) ? other : one;
+
+    // The worker is started again while the message it had taken is still hidden.
+    Worker.runs(application);
+
+    assertThat(stands(left)).isEqualTo("SUCCEEDED after 1");
+    assertThat(answers.get(1)).as("which was the first delivery of its message").containsExactly(1);
+  }
+
+  @Test
+  void tenJobsThatWaitTogetherAreAllDoneEachTakenByARequestOfItsOwn() {
+    for (int job = 0; job < 10; job++) {
+      aJobThatSomethingDoes();
+    }
+    assertThat(Worker.sends(application)).isEqualTo(10);
+    var answers = whatTheQueueAnswers();
+
+    Worker.runs(application);
+
+    assertThat(
+            jdbc.sql("SELECT count(*) FROM job WHERE status = 'SUCCEEDED' AND attempts = 1")
+                .query(Long.class)
+                .single())
+        .isEqualTo(10);
+    assertThat(answers)
+        .filteredOn(answer -> !answer.isEmpty())
+        .as("the requests that were answered with a message, and how often each was delivered")
+        .hasSize(10)
+        .containsOnly(List.of(1));
   }
 
   @Test

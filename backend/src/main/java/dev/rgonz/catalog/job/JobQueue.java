@@ -36,7 +36,10 @@ class JobQueue {
    */
   static final String MESSAGE = "message";
 
-  /** The most messages one request receives, which is the most SQS gives at once. */
+  /**
+   * The most messages that are sent in one go, and that one look at the dead-letter queue takes,
+   * which is the most SQS gives at once.
+   */
   static final int MOST_AT_ONCE = 10;
 
   /** How SQS names the place a queue is at: by its region. */
@@ -116,16 +119,18 @@ class JobQueue {
   }
 
   /**
-   * What waits on the queue, or what arrives while this waits for it. What it answers with stays
-   * hidden from other receivers for the time the queue sets, and is delivered again unless it is
-   * deleted by then.
+   * One of the messages that wait on the queue, or the first that arrives while this waits for it,
+   * and none when there was none. The queue counts a message as delivered when it answers with it,
+   * so no more is taken than the one whose job is about to be run: a worker that ends in the middle
+   * of a job has then cost no other job a delivery. What it answers with stays hidden from other
+   * receivers for the time the queue sets, and is delivered again unless it is deleted by then.
    */
   List<Message> receive(Duration wait) {
     return sqs.receiveMessage(
             request ->
                 request
                     .queueUrl(url)
-                    .maxNumberOfMessages(MOST_AT_ONCE)
+                    .maxNumberOfMessages(1)
                     .messageAttributeNames("All")
                     .messageSystemAttributeNames(
                         MessageSystemAttributeName.APPROXIMATE_RECEIVE_COUNT)
