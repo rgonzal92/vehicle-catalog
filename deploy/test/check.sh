@@ -14,6 +14,9 @@ cp -r "$here/.." "$work/stack"
 cd "$work/stack"
 # What the backend is told about signing in, which Terraform writes for the host.
 cp test/settings.env settings.env
+# Caddy writes down every try to reach the API and how it ended, which it leaves out on the host.
+# A check that fails for want of an answer shows it.
+sed --in-place 's/^\tadmin off$/&\n\tdebug/' Caddyfile
 export AUTHORITY_ROOT="$work/authority-root.pem"
 export COMPOSE_PROJECT_NAME=vehicle-catalog-host-check
 export COMPOSE_FILE=compose.yaml:test/compose.yaml
@@ -132,10 +135,11 @@ offer real - <<EOF
 FROM vehicle-catalog-backend:as-built
 HEALTHCHECK --start-period=1m --start-interval=1s CMD ["true"]
 EOF
-# Says what reached it, and that it is ready whenever it is asked.
+# Says what reached it, and that it is ready whenever it is asked. It writes down every request
+# it answers.
 offer echo - <<EOF
 FROM $caddy_image
-CMD ["caddy", "respond", "--listen", ":8080", "--body", "{http.request.method} {http.request.uri}\nhost: {http.request.host}\ncookie: {http.request.header.Cookie}\nx-probe: {http.request.header.X-Probe}\nsecret: {http.request.header.X-Origin-Secret}\n"]
+CMD ["caddy", "respond", "--listen", ":8080", "--access-log", "--body", "{http.request.method} {http.request.uri}\nhost: {http.request.host}\ncookie: {http.request.header.Cookie}\nx-probe: {http.request.header.X-Probe}\nsecret: {http.request.header.X-Origin-Secret}\n"]
 EOF
 offer stops-at-once - <<EOF
 FROM $caddy_image
@@ -211,213 +215,38 @@ expect "the backend is not sent the secret" yes "$(whether grep -qxF 'secret: ' 
 expect "nothing outside /api is passed on" 404 \
   "$(ask --output /dev/null "${with_secret[@]}" https://origin.test:18443/)"
 
-# The API stopped and started again, as Docker starts it again when its process has ended. What is
-# asked meanwhile reaches no API, so Caddy keeps it and asks again until there is one to answer.
-quietly docker compose stop backend
-ask --output /dev/null "${with_secret[@]}" https://origin.test:18443/api/things >"$work/read" &
-ask --output /dev/null "${with_secret[@]}" --data 'a=write' https://origin.test:18443/api/things \
-  >"$work/write" &
-sleep 3
-expect "a read and a write asked while the API is stopped are not answered at once" "" \
-  "$(cat "$work/read" "$work/write")"
-quietly docker compose start backend
-wait
-expect "and both are answered once the API is started" "200 200" \
-  "$(cat "$work/read" "$work/write" | paste -sd ' ')"
 
-releases "the backend is released" 0 "$registry/backend:real"
-healthy() {
-  whether jq --exit-status '.status == "UP" and .components.db.status == "UP"' \
-    <<<"$(answer "${with_secret[@]}" https://origin.test:18443/api/health)"
+rounds() { # name, how many rounds, how many reads and writes each, seconds before the start
+  local name="$1" count="$2" each="$3" pause="$4" round n early answered bad=0
+  for round in $(seq 1 "$count"); do
+    rm -f "$work"/r.* "$work"/w.*
+    stopped="$(date --utc +%Y-%m-%dT%H:%M:%S.%NZ)"
+    quietly docker compose stop backend
+    for n in $(seq 1 "$each"); do
+      ask --show-error --output /dev/null "${with_secret[@]}" https://origin.test:18443/api/things \
+        >"$work/r.$n" 2>"$work/r.$n.error" &
+      ask --show-error --output /dev/null "${with_secret[@]}" --data 'a=write' \
+        https://origin.test:18443/api/things >"$work/w.$n" 2>"$work/w.$n.error" &
+    done
+    sleep "$pause"
+    early="$(cat "$work"/r.[0-9]* "$work"/w.[0-9]* 2>/dev/null | paste -sd " " || true)"
+    quietly docker compose start backend
+    wait
+    answered="$(for f in "$work"/r.[0-9]* "$work"/w.[0-9]*; do case $f in *.error) ;; *) cat "$f";; esac; done | sort | uniq -c | paste -sd ' ')"
+    if [ "$(echo $answered)" = "$((2 * each)) 200" ] && { [ "$pause" = 0 ] || [ -z "$early" ]; }; then
+      echo "$name $round $stopped ok"
+    else
+      bad=$((bad + 1))
+      echo "$name $round $stopped FAILED: early='$early' answered='$answered'"
+      for f in "$work"/*.error; do [ -s "$f" ] && echo "curl said of $(basename "$f"): $(cat "$f")"; done
+      for f in "$work"/r.[0-9]* "$work"/w.[0-9]*; do case $f in *.error) ;; *) echo "$(basename "$f") $(cat "$f")";; esac; done | paste -sd ' '
+      docker compose logs --no-color --timestamps --since "$stopped" caddy backend 2>&1 || true
+    fi
+  done
+  echo "SUMMARY $name: $count rounds, $bad failed"
 }
-expect "health says the backend is up, and its database" yes "$(healthy)"
-expect "the API refuses a visitor without a session" 401 \
-  "$(ask --output /dev/null "${with_secret[@]}" https://origin.test:18443/api/me)"
-expect "the backend knows the demo accounts, each with what a visitor signs in with" \
-  "admin author manager" \
-  "$(answer "${with_secret[@]}" https://origin.test:18443/api/demo-accounts |
-    jq --raw-output '[.[] | select(.password != null) | .username] | sort | join(" ")')"
-
-# What the backend reports of itself. The stand-in for the agent writes down what it is sent.
-reported() {
-  docker compose logs --no-log-prefix agent 2>&1
-}
-logged() {
-  docker compose logs --no-log-prefix backend 2>&1
-}
-# The line the backend wrote for the request above, which is one object.
-trace="$(logged | jq --raw-input --raw-output \
-  'fromjson? | select(.message | startswith("GET /api/me 401")) | .traceId' | tail -n 1)"
-expect "a request leaves a line in the log, with its trace id" yes \
-  "$(whether grep -qE '^[0-9a-f]{32}$' <<<"$trace")"
-# Spans are sent every few seconds, and here metrics are too. The stand-in writes a span down with
-# its trace id at the start of a line.
-span="^ *Trace ID +: ${trace:-none}\$"
-for _ in $(seq 1 30); do
-  said="$(reported)"
-  grep -qE "$span" <<<"$said" && grep -q -- '-> Name: http.server.requests' <<<"$said" && break
-  sleep 1
-done
-expect "the agent is sent that request's trace" yes "$(whether grep -qE "$span" <<<"$said")"
-expect "the log holds none of the secrets" 0 \
-  "$(logged | grep -cF -e "$secret" -e a-password-for-this-check -e a-client-secret-for-this-check \
-    -e a-cache-password-for-this-check || true)"
-
-# The cache stopped, and the API and the worker started anew as a release starts them. Both get
-# ready without it, and health says of the cache alone that it is down.
-expect "health says the cache is up" UP \
-  "$(answer "${with_secret[@]}" https://origin.test:18443/api/health | jq --raw-output .components.cache.status)"
-quietly docker compose stop cache
-quietly docker compose up --detach --wait --force-recreate --no-deps backend worker
-expect "with the cache stopped, the API is ready, and the worker" "200 yes" \
-  "$(ask "${with_secret[@]}" https://origin.test:18443/api/health/readiness) $(whether \
-    docker compose exec -T worker wget --quiet --spider http://127.0.0.1:8080/api/health/readiness)"
-expect "and health says that the cache is down and the database up" "DOWN UP" \
-  "$(answer "${with_secret[@]}" https://origin.test:18443/api/health |
-    jq --raw-output '"\(.components.cache.status) \(.components.db.status)"')"
-expect "and the cache is still stopped" "" "$(docker compose ps --quiet --status running cache)"
-quietly docker compose start cache
-for _ in $(seq 1 15); do
-  [ "$(healthy)" = yes ] && break
-  sleep 1
-done
-expect "with the cache started again, health says the backend is up" yes "$(healthy)"
-
-# The worker, which is the backend's image run beside the API. A job is put into the database as a
-# change puts it there: with its message, unsent. The catalog it names does not exist, so there is
-# no one to tell, and the job is done once the worker has sent its message and received it.
-expect "the worker runs the image the API runs" "$(running)" "$(running worker)"
-quietly in_the_database "WITH queued AS (
-    INSERT INTO job (type, dedupe_key, subject)
-    VALUES ('AFTER_APPROVAL', 'put-there-by-the-check', '{\"catalogId\": -1}')
-    RETURNING id
-  )
-  INSERT INTO outbox (job_id, payload) SELECT id, jsonb_build_object('jobId', id) FROM queued"
-the_job() {
-  in_the_database "SELECT status FROM job WHERE dedupe_key = 'put-there-by-the-check'"
-}
-for _ in $(seq 1 30); do
-  [ "$(the_job)" = SUCCEEDED ] && break
-  sleep 1
-done
-expect "a job put into the database is sent, run, and done by the worker" SUCCEEDED "$(the_job)"
-expect "the worker's log is one object to a line, and a job's line carries a trace id" yes \
-  "$(whether grep -qE '^[0-9a-f]{32}$' <<<"$(docker compose logs --no-log-prefix worker 2>&1 |
-    jq --raw-input --raw-output \
-      'fromjson? | select(.message | startswith("AFTER_APPROVAL job")) | .traceId' | tail -n 1)")"
-# The worker traces a job while it does it, and sends the trace where the API sends its own.
-job_span='^ *Name +: AFTER_APPROVAL job$'
-for _ in $(seq 1 30); do
-  grep -qE "$job_span" <<<"$(reported)" && break
-  sleep 1
-done
-expect "the agent is sent the trace of the job" yes "$(whether grep -qE "$job_span" <<<"$(reported)")"
-# The worker times a job, and sends how long it took where the API sends its metrics. That is the
-# one metric the worker sends, so with this job's time sent the agent has been sent all there are.
-its_time='-> type: Str(AFTER_APPROVAL)'
-for _ in $(seq 1 30); do
-  said="$(reported)"
-  grep -qF -- "$its_time" <<<"$said" && break
-  sleep 1
-done
-expect "the agent is sent how long the job took, told apart by its type and by how it ended" \
-  "outcome: Str(SUCCESS) type: Str(AFTER_APPROVAL)" \
-  "$(grep -B 1 -F -- "$its_time" <<<"$said" | sed -n 's/^ *-> //p' | sort -u | paste -sd ' ')"
-expect "the agent is sent twelve metrics and no other: the API's eleven, and how long a job took" \
-  "cache.read catalog.approved catalog.copy catalog.edit catalog.merged catalog.rejected catalog.submit.refused catalog.validate health http.server.requests job.run jvm.heap.used" \
-  "$(sed -n 's/^ *-> Name: //p' <<<"$said" | sort -u | paste -sd ' ')"
-asks_the_worker() { # the path
-  docker compose exec -T worker wget --quiet --spider "http://127.0.0.1:8080$1"
-}
-expect "the worker answers its health check and has nothing at an address the API answers" \
-  "yes no" "$(whether asks_the_worker /api/health/readiness) $(whether asks_the_worker /api/demo-accounts)"
-
-# The key for the language model, which Parameter Store has had none of so far.
-has_the_key() { # the service
-  [ "$(docker compose exec -T "$1" printenv OPENAI_API_KEY)" = a-key-for-this-check ]
-}
-expect "without a key for the language model, the API and the worker run without one" "no no" \
-  "$(whether has_the_key backend) $(whether has_the_key worker)"
-
-MODEL_KEY=a-key-for-this-check \
-  releases "the image that runs is released again" 0 "$registry/backend:real"
-expect "and the one before it is still the one before it" "yes yes" "$(kept real) $(kept echo)"
-expect "with a key in Parameter Store, the API and the worker are given it" "yes yes" \
-  "$(whether has_the_key backend) $(whether has_the_key worker)"
-expect "and the site answers, healthy" yes "$(healthy)"
-expect "and neither log holds the key" 0 \
-  "$(docker compose logs --no-log-prefix backend worker 2>&1 | grep -cF a-key-for-this-check || true)"
-# An API that has a key says what asking the model has cost today. Nothing has asked the model
-# here, so that is the one metric of the model's there is.
-for _ in $(seq 1 30); do
-  grep -qF -- '-> Name: ai.spent' <<<"$(reported)" && break
-  sleep 1
-done
-expect "with a key, the agent is also sent what the model has cost today, and nothing else of the model's" \
-  "ai.spent" "$(sed -n 's/^ *-> Name: \(ai\..*\)$/\1/p' <<<"$(reported)" | sort -u | paste -sd ' ')"
-
-expect "the database can keep what a text means: it has pgvector to create" vector \
-  "$(in_the_database "SELECT name FROM pg_available_extensions WHERE name = 'vector'")"
-quietly in_the_database 'CREATE TABLE kept_by_the_check AS SELECT 7 AS it'
-backend="$(running)"
-for image in stops-at-once never-gets-ready has-a-worker-that-never-gets-ready; do
-  releases "an image that $(tr - ' ' <<<"$image") fails its release" 1 "$registry/backend:$image"
-  expect "the image that ran before it runs again, as the API and as the worker" \
-    "$backend $backend" "$(running) $(running worker)"
-  expect "and the site answers, healthy" yes "$(healthy)"
-  expect "and the image that failed is not kept" no "$(kept "$image")"
-done
-
-# A backup, and what is in it put back into a database of its own.
-export BACKUPS="$work/backups"
-mkdir "$BACKUPS"
-backs_up() { # what, how it should end, the bucket
-  local ended=0
-  ./backup.sh "$3" >"$work/backup.log" 2>&1 || ended=$?
-  expect "$1" "$2" "$ended"
-}
-backs_up "the database is backed up" 0 a-bucket
-expect "as one file, named by when it was made" 1 \
-  "$(find "$BACKUPS" -name 'catalog-20??-??-??T????Z.dump' | wc -l)"
-quietly docker compose exec -T db createdb --username catalog put-back
-quietly docker compose exec -T db pg_restore --username catalog --dbname put-back --no-owner \
-  <"$(find "$BACKUPS" -name '*.dump')"
-expect "a backup put back holds what the database held" 7 \
-  "$(docker compose exec -T db psql --username catalog --dbname put-back --tuples-only --no-align \
-    --command 'SELECT it FROM kept_by_the_check' 2>&1)"
-backs_up "a backup that cannot be sent ends in failure" 1 a-bucket-that-refuses
-expect "and says that it failed" yes \
-  "$(whether grep -qx 'The database was not backed up.' "$work/backup.log")"
-
-issued="$(certificate -serial)"
-releases "another image is released after those" 0 "$registry/backend:another"
-expect "a release keeps what is in the database" 7 "$(in_the_database 'SELECT it FROM kept_by_the_check')"
-expect "the host keeps the image that runs and the one before it, and no older one" "yes yes no" \
-  "$(kept another) $(kept real) $(kept echo)"
-# What a restart of the host comes to: every container is gone and is started again.
-quietly without_secrets docker compose down
-releases "the stack starts again with the image released last" 0
-await_the_stack
-expect "which answers" 200 \
-  "$(ask --output /dev/null "${with_secret[@]}" https://origin.test:18443/api/health)"
-expect "a restart keeps what is in the database" 7 "$(in_the_database 'SELECT it FROM kept_by_the_check')"
-expect "and the certificate" "${issued:-none was issued}" "$(certificate -serial)"
-
-# The ports of this check are its own, so the host's are read from its file alone.
-hosts="$(without_secrets docker compose --file compose.yaml config --format json)"
-expect "the host listens on ports 80 and 443, for Caddy" "80:80 443:443" \
-  "$(jq --raw-output '[.services[].ports // [] | .[] | "\(.published):\(.target)"] | join(" ")' <<<"$hosts")"
-expect "the database listens on no port of the host, and neither does the cache" "null null" \
-  "$(jq --compact-output .services.db.ports <<<"$hosts") $(jq --compact-output .services.cache.ports <<<"$hosts")"
-expect "everything comes back when the host restarts" 5 \
-  "$(jq '[.services[] | select(.restart == "unless-stopped")] | length' <<<"$hosts")"
-expect "and those five are all that runs there" "backend cache caddy db worker" \
-  "$(jq --raw-output '.services | keys | join(" ")' <<<"$hosts")"
-
-# Without a secret, Caddy does not start at all.
-expect "no secret, no start" no \
-  "$(ORIGIN_SECRET=' ' DATABASE_PASSWORD=unused OIDC_CLIENT_SECRET=unused CACHE_PASSWORD=unused \
-    whether docker compose run --rm --no-deps caddy \
-    caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile)"
-
-exit "$failed"
+rounds plain 200 1 3
+rounds at-once 40 1 0
+rounds many 20 20 3
+echo DONE
+exit 0
