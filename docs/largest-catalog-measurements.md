@@ -5,7 +5,7 @@ How the app behaves with the largest catalog there can be: 500 feature rows by 9
 Three things limit what they say:
 
 - **Half of the cells are stored.** The catalog measured has a Standard or an Available cell for 24,000 of its 48,000 cells; the rest are Not offered, which is no stored cell. Reading and copying a catalog grow with its stored cells, so a catalog with every cell stored has twice as many to read and to copy.
-- **The first measurements are of saves that did not validate.** The tables under "In the catalog editor", "Scrolling", and "Copying a catalog" are from 2026-10-06, when saving a cell stored it and recorded the change, and nothing validated a catalog. Since then every edit answers with the catalog's issues, worked out afresh. What that costs is under "Validating after every edit", measured on 2026-10-09.
+- **The first measurements are of saves that did not validate.** The tables under "In the catalog editor", "Scrolling", and "Copying a catalog" are from 2026-10-06, when saving a cell stored it and recorded the change, and nothing validated a catalog. Since then every edit answers with the catalog's issues, worked out afresh. What that costs is under "Validating after every edit", measured on 2026-10-09, and what it costs since the cells are read by a mapper written for them is there too, measured on 2026-10-12.
 - **The working copies measured are new.** None had more than 200 entries in its change history.
 
 ## Results
@@ -49,15 +49,39 @@ Inside the test's own process, with no server between:
 | Reading the catalog and validating it | 412 | 407 | 420 |
 | A save of one cell, with its answer | 746 | 720 | 772 |
 
-**Validating the whole catalog after every edit is not fast enough at this size.** A save that was answered in about 10 ms is answered in about half a second. A cell still shows its new value at once, since the page does not wait for the answer. What a person editing notices is what follows the answer: the marks and the counts of issues come half a second after the edit that causes them, and the editor sends one save at a time, so someone setting cells faster than two a second leaves a queue of saves behind them that the page works off afterwards.
+**As it was read on 2026-10-09, validating the whole catalog after every edit was not fast enough at this size.** A save that was answered in about 10 ms was answered in about half a second. A cell still showed its new value at once, since the page does not wait for the answer. What a person editing noticed is what follows the answer: the marks and the counts of issues came half a second after the edit that caused them, and the editor sends one save at a time, so someone setting cells faster than two a second left a queue of saves behind them that the page worked off afterwards.
 
-**Validation itself is not what takes the time.** It takes about 25 ms of the half second, chains included. Nearly all of the rest is reading the catalog's 24,000 stored cells back from the database to validate them: about 390 ms.
+**Validation itself is not what took the time.** It takes about 25 ms, chains included. Nearly all of the rest went to reading the catalog's 24,000 stored cells, about 390 ms, and not to the database: PostgreSQL answers the query for the cells in 3 to 4 ms. The API made a record of each row by handing Spring the record's class, and that mapping is what took the time.
 
-**The way out is to validate only the offerings an edit touches**, of which a cell edit touches one. These figures add a condition to it: the answer has to read only those offerings too. Validating one offering of a catalog that was read whole would save 25 ms of 510. One offering has 500 cells at most, a ninety-sixth of the catalog. Taking that way is a decision of its own, to be recorded as an ADR.
+**So the cells are read by a mapper written for them, and every edit still validates the whole catalog.** [The decision record](adr/0019-every-edit-still-validates-the-whole-catalog-which-is-read-fast-enough-for-it.md) has the parts measured one by one, and what validating only the offerings an edit touches would be, which stays the way to take when catalogs outgrow this.
 
-At the size of the seeded catalogs the cost is smaller and still there: a save of one cell of a working copy of the seeded sedan, 172 feature rows by 10 offerings, sent 40 times by a plain client on the same stack, was answered in a median of 70 ms, and in 186 ms at the longest. That was measured once, on a stack that also held the largest catalog.
+The save inside the test took longer than the same save through the running application, 746 ms against 512. What made the difference was not traced.
 
-The save inside the test takes longer than the same save through the running application, 746 ms against 512. What makes the difference was not traced.
+### With the cells read by a mapper written for them
+
+The same save and the same read, sent by a plain client through the web server on 2026-10-12: once on the application as it was, and once with the mapper, on a stack started anew for each.
+
+| | By the record's class, 2026-10-09 | By the record's class, 2026-10-12 | By a mapper written for the cells, 2026-10-12 |
+|---|---|---|---|
+| A save of one cell of the largest catalog, through the web server | median 512, 95th percentile 521, longest 533 | median 517, 95th percentile 592, longest 604 | median 57, 95th percentile 152, longest 166 |
+| Reading the largest catalog on its own, by a plain client | median 505, longest 528 | median 516, longest 580 | median 81, longest 129 |
+| A save of one cell of the seeded sedan, through the web server | median 70, longest 186 | median 38, 95th percentile 133, longest 142 | median 12, 95th percentile 13, longest 14 |
+
+Inside the test's own process, with no server between, from one run of the whole of the backend's tests on 2026-10-12:
+
+| | Median | Fastest | Slowest |
+|---|---|---|---|
+| Validation on its own, of a catalog already read | 31.6 | 28.1 | 44.7 |
+| Reading the catalog and validating it | 56.0 | 52.6 | 89.3 |
+| A save of one cell, with its answer | 66.6 | 61.9 | 93.5 |
+
+**A save of one cell of the largest catalog is answered in a median of 57 ms, where it took 517.** The marks and the counts of issues follow an edit that soon, and the editor, which sends one save at a time, keeps up with someone who sets seventeen cells a second.
+
+**Some answers take two or three times the median.** Of the 40 saves of the largest catalog with the mapper, at least three took 152 ms or more, and the longest 166. What they waited for was not traced. On this machine reads wait in stretches for [the disk](cache-measurements.md#the-long-reads), and whether these did is not known.
+
+**The seeded sedan gains too**, 172 feature rows by 10 offerings with 1,070 stored cells: a median of 12 ms where it was 38 on the same day. It was 70 on 2026-10-09, on a stack that also held the largest catalog, as both stacks of 2026-10-12 did. Why the same code took 70 then and 38 now was not looked into.
+
+The page was not measured again. Its figures in the table above, for setting a cell until the answer has arrived and for opening the editor, are of 2026-10-09.
 
 ### Scrolling
 
@@ -138,6 +162,21 @@ When a cell shows its new value was not timed again. The earlier figure, within 
 
 The seeded sedan was measured by a third script of the same kind: a working copy of Sedan 2027, and one of its cells saved 43 times to Not offered and to Available in turn, the last 40 timed.
 
+### With the cells read by a mapper written for them
+
+The stack was started with `LARGEST_CATALOG=true npm run stack:up` in `e2e/` twice on 2026-10-12, and removed after each: first with the application as it was before the change, which read the cells by their record's class, and then with the mapper. On each, one script, not kept in the repository, signed in as the demo author in a browser and then worked through a plain HTTP client with the session's cookies, at the web server's address:
+
+1. created a working copy of the largest catalog;
+2. read it six times, timing the last five from sending to the end of the answer;
+3. saved the cell of its first feature row in its first offering 43 times, to Standard and to Available in turn, timing the last 40;
+4. did the same with a working copy of Sedan 2027, saving to Not offered and to Available in turn.
+
+The last answer of each 43 listed one issue, where the catalog measured on 2026-10-09 had none: the cell that was saved is not one that can be set freely. Which issue it was, was not looked at.
+
+Each was measured once. The scripts of 2026-10-09 were not kept, so which cell they saved is not known.
+
+The figures inside the test's own process are the lines `LargestCatalogIT` logs, from one run of `./mvnw verify` in `backend/`, where the test ran among all the others.
+
 ### Copying a catalog, and a save inside the test
 
 `LargestCatalogIT` makes the largest catalog in the test's database and writes two sets of times to the log:
@@ -149,7 +188,7 @@ To repeat it, run `./mvnw verify -Dit.test=LargestCatalogIT` in `backend/` and r
 
 ## Environment
 
-- Measured on 2026-10-06. "Validating after every edit" was measured on 2026-10-09, on the same machine, with the application as the repository built it that day and one run of each script on one start of the stack, where the earlier figures are over two starts.
+- Measured on 2026-10-06. "Validating after every edit" was measured on 2026-10-09, on the same machine, with the application as the repository built it that day and one run of each script on one start of the stack, where the earlier figures are over two starts. "With the cells read by a mapper written for them" was measured on 2026-10-12, on the same machine.
 - AMD Ryzen 9 5900X, 32 GB of memory, Linux 7.2. Docker keeps its volumes on btrfs.
 - Chromium 153.0.8010.12, headless, in a 1600 by 900 window, driven by Playwright 1.63.
 - Angular 22.2.1 and PrimeNG 22.1.2 in a production build, served by Caddy 2.11.6.
