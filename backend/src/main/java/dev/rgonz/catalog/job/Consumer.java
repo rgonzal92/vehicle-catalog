@@ -54,9 +54,9 @@ class Consumer {
   }
 
   /**
-   * Handles the messages that wait on the queue, or that arrive while this waits for them, and
-   * answers with how many there were. A message whose job fails stays on the queue, which delivers
-   * it again.
+   * Handles one of the messages that wait on the queue, or the first that arrives while this waits
+   * for it, and answers with how many there were: one or none. A message whose job fails stays on
+   * the queue, which delivers it again.
    */
   int receive(Duration wait) {
     var messages = queue.receive(wait);
@@ -65,7 +65,9 @@ class Consumer {
         run(message.body(), JobQueue.attributesOf(message));
         queue.delete(message);
       } catch (RuntimeException | Error failure) {
-        // An error that is no exception, such as running out of memory, is a failed try too.
+        // An error that is no exception, such as a class that is not there, is a failed try too.
+        // A full heap is not caught where Java is told to end a process whose heap is full, as it
+        // is on the host: the worker ends there in the middle of the job.
         log.warn("A job was not done", failure);
         keepThatItFailed(message, failure);
       }
