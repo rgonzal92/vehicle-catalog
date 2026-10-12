@@ -54,7 +54,7 @@ It was tried once that day on the local stack, with the cache off, a limit of 64
 - Docker started the container again 0.2 seconds after its process had ended. Its restart count went from 0 to 1.
 - The same read, asked again four times a second, was answered 502 until the API had started, and 200 from 9.3 seconds after the process had ended. It was sent with the session of before, which the database keeps. The API said it was ready when asked next.
 
-So an API that would have answered nothing for as long as it was left alone was away for 9.3 seconds, on a machine with twelve cores. On the host a start takes longer.
+So an API that would have answered nothing for as long as it was left alone was away for 9.3 seconds, on a machine with twelve cores. A start there logged 7.7 seconds. On the host, which has two cores, the API's start of that day logged 20.1 seconds, so there it would be away for longer; how long was not tried.
 
 ## Considered Options
 
