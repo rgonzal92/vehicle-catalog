@@ -194,6 +194,20 @@ class DocumentTextTest {
         .contains("Launch notes");
   }
 
+  @Test
+  void aPdfWhosePageIsPackedInRowsOfAQuarterOfAGigabyteIsNotUnpacked() {
+    assertThat(
+            DocumentText.of(Kind.PDF, Pdfs.ofAPagePackedInRowsOf(1_000, List.of("Launch notes"))))
+        .contains("Launch notes");
+
+    assertThatThrownBy(
+            () ->
+                DocumentText.of(
+                    Kind.PDF, Pdfs.ofAPagePackedInRowsOf(268_435_455, List.of("Launch notes"))))
+        .isInstanceOf(DocumentText.Unreadable.class)
+        .hasMessage("It could not be read as a PDF.");
+  }
+
   /** A reading that goes on until its test is over, whatever it is told. */
   static String goesOnUntil(CountDownLatch over) {
     while (true) {

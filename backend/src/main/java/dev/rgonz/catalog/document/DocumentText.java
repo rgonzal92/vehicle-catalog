@@ -62,6 +62,7 @@ final class DocumentText {
    *
    * <p>All that PDFBox unpacks into memory of a PDF may come to as much, counted apart: its fonts,
    * the streams that hold its objects, and whatever else of it is unpacked on the way to its text.
+   * What PDFBox makes of what is unpacked is not counted, and can take many times the memory.
    */
   static final long MOST_UNPACKED = 32L * 1024 * 1024;
 
@@ -266,7 +267,8 @@ final class DocumentText {
     /**
      * The ways of packing that give a picture. PDFBox takes memory for the size the picture is said
      * to have before any of it is unpacked, so they cannot be counted as they go. Nothing that is
-     * read for a PDF's text is packed so, and what is, is not unpacked.
+     * read for a PDF's text is packed so, and what is, is not unpacked. The other ways of packing
+     * write what they unpack as they go, and take no memory first but for rows.
      */
     private static final Set<COSName> FOR_PICTURES =
         Set.of(
@@ -276,6 +278,14 @@ final class DocumentText {
             COSName.CCITTFAX_DECODE_ABBREVIATION,
             COSName.JBIG2_DECODE,
             COSName.JPX_DECODE);
+
+    /**
+     * The longest row that contents may be said to be packed in, in bytes. Flate and LZW can pack
+     * in rows, each told from the one above as a picture's are, and PDFBox takes memory for two
+     * rows of the length the file states before any of them is unpacked. The table of where a
+     * file's objects are is packed so in rows of a few bytes, and a picture's are some thousands.
+     */
+    private static final int LONGEST_ROW = 1024 * 1024;
 
     private final String tooMuch;
     private long left = MOST_UNPACKED;
@@ -295,6 +305,15 @@ final class DocumentText {
      * @throws IOException when the contents cannot be unpacked
      */
     void unpack(COSStream contents) throws IOException {
+      // What the file says of its packing is one set for the one filter or a list, one for each.
+      COSBase said = contents.getDictionaryObject(COSName.DP, COSName.DECODE_PARMS);
+      if (said instanceof COSArray each) {
+        for (int index = 0; index < each.size(); index++) {
+          refuseLongRows(each.getObject(index));
+        }
+      } else {
+        refuseLongRows(said);
+      }
       COSBase named = contents.getFilters();
       List<? extends COSBase> filters =
           named instanceof COSArray several
@@ -318,6 +337,21 @@ final class DocumentText {
       // Contents that are not packed are all that is left here, and count as they are.
       try (var whole = packed) {
         whole.transferTo(counted(OutputStream.nullOutputStream()));
+      }
+    }
+
+    /**
+     * Refuses contents that are said to be packed in rows longer than any are. The length of a row
+     * is worked out as PDFBox works it out, so that it is the memory PDFBox would take.
+     */
+    private static void refuseLongRows(COSBase said) throws IOException {
+      if (said instanceof COSDictionary rows && rows.getInt(COSName.PREDICTOR) > 1) {
+        int bitsInADot =
+            Math.min(rows.getInt(COSName.COLORS, 1), 32)
+                * rows.getInt(COSName.BITS_PER_COMPONENT, 8);
+        if ((rows.getInt(COSName.COLUMNS, 1) * bitsInADot + 7) / 8 > LONGEST_ROW) {
+          throw new IOException("Contents are packed in rows longer than any are.");
+        }
       }
     }
 

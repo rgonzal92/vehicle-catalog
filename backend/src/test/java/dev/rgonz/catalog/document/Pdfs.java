@@ -213,6 +213,37 @@ public final class Pdfs {
   }
 
   /**
+   * A PDF of one page with these lines of text, whose contents are packed as one row of a picture
+   * is, with a number before it that says how the row is told from the one above. PDFBox takes
+   * memory for two rows of the length the file states before it unpacks any of them.
+   *
+   * @param bytes how long the file says a row is, which is no shorter than the contents
+   */
+  public static byte[] ofAPagePackedInRowsOf(int bytes, List<String> lines) {
+    try (var document = Loader.loadPDF(of(lines))) {
+      var contents = document.getPage(0).getCOSObject().getCOSStream(COSName.CONTENTS);
+      byte[] drawing;
+      try (var unpacked = contents.createInputStream()) {
+        drawing = unpacked.readAllBytes();
+      }
+      try (var row = new DeflaterOutputStream(contents.createRawOutputStream())) {
+        row.write(0);
+        row.write(drawing);
+      }
+      var rows = new COSDictionary();
+      rows.setInt(COSName.PREDICTOR, 12);
+      rows.setInt(COSName.COLUMNS, bytes);
+      contents.setItem(COSName.FILTER, COSName.FLATE_DECODE);
+      contents.setItem(COSName.DECODE_PARMS, rows);
+      var file = new ByteArrayOutputStream();
+      document.save(file);
+      return file.toByteArray();
+    } catch (IOException impossible) {
+      throw new UncheckedIOException(impossible);
+    }
+  }
+
+  /**
    * A PDF of one page without contents, whose catalog, pages, and page are held in an object
    * stream, followed by spaces. PDFBox unpacks the stream into memory as it opens the file, to find
    * the catalog. The file is written here: PDFBox packs the object streams it writes itself.
