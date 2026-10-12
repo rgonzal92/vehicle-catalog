@@ -173,7 +173,7 @@ run "every_metric_that_is_sent_is_looked_at" {
       ] :
       anytrue([
         for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
-        strcontains(jsonencode(widget.properties.metrics), "Namespace=\\\"vehicle-catalog\\\" MetricName=\\\"${metric}\\\"")
+        strcontains(jsonencode(try(widget.properties.metrics, [])), "Namespace=\\\"vehicle-catalog\\\" MetricName=\\\"${metric}\\\"")
       ])
     ])
     error_message = "The dashboard shows each of the backend's metrics, found in the app's namespace by its name."
@@ -183,7 +183,7 @@ run "every_metric_that_is_sent_is_looked_at" {
     condition = one([
       for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
       [for metric in widget.properties.metrics : metric[0].expression]
-      if strcontains(jsonencode(widget.properties.metrics), "result=\\\"hit\\\"")
+      if strcontains(jsonencode(try(widget.properties.metrics, [])), "result=\\\"hit\\\"")
       ]) == [
       "SEARCH('Namespace=\"vehicle-catalog\" MetricName=\"cache.read\" result=\"hit\"', 'Sum', 60)",
       "SEARCH('Namespace=\"vehicle-catalog\" MetricName=\"cache.read\"', 'Sum', 60)",
@@ -196,7 +196,7 @@ run "every_metric_that_is_sent_is_looked_at" {
     condition = one([
       for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
       widget.properties.annotations.horizontal[0].value
-      if strcontains(jsonencode(widget.properties.metrics), "MetricName=\\\"ai.spent\\\"")
+      if strcontains(jsonencode(try(widget.properties.metrics, [])), "MetricName=\\\"ai.spent\\\"")
     ]) == 1
     error_message = "What the model has cost today is drawn against the day's allowance of a dollar."
   }
@@ -207,7 +207,7 @@ run "every_metric_that_is_sent_is_looked_at" {
     condition = alltrue([
       for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
       widget.properties.period == 60
-      if strcontains(jsonencode(widget.properties.metrics), "SEARCH(")
+      if strcontains(jsonencode(try(widget.properties.metrics, [])), "SEARCH(")
     ])
     error_message = "A chart that finds its metrics by name is drawn by the minute, which is how its metrics are asked for."
   }
@@ -232,6 +232,53 @@ run "every_metric_that_is_sent_is_looked_at" {
       for name, settings in local.agent.metrics.metrics_collected : name if name != "otlp"
     ] == ["disk", "mem"]
     error_message = "Of the host, the agent reports on memory and disk and on nothing else."
+  }
+}
+
+run "the_starts_of_the_api_and_the_worker_are_counted_from_the_backends_log" {
+  assert {
+    condition = [
+      for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+      split(" | ", widget.properties.query)[0] if widget.type == "log"
+    ] == ["SOURCE '/vehicle-catalog/backend'"]
+    error_message = "One chart of the dashboard is a query of the log, and the log it reads is the backend's."
+  }
+
+  assert {
+    # Spring Boot writes the line once a process has started, and names the application's class
+    # in it.
+    condition = (
+      strcontains(
+        one([
+          for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+          widget.properties.query if widget.type == "log"
+        ]),
+        " | filter @message like \"Started VehicleCatalogApplication in\"\n",
+      )
+      && fileexists("../backend/src/main/java/dev/rgonz/catalog/VehicleCatalogApplication.java")
+    )
+    error_message = "The chart counts the line that the API and the worker each write once they have started."
+  }
+
+  assert {
+    # Two counts by the hour and by nothing else, which is the form AWS's page on stats gives for
+    # several values drawn over time.
+    condition = (
+      endswith(
+        one([
+          for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+          widget.properties.query if widget.type == "log"
+        ]),
+        "\n| stats sum(@logStream = \"backend\") as API, sum(@logStream = \"worker\") as worker by bin(1h)",
+      )
+      && strcontains(file("../deploy/compose.yaml"), "awslogs-stream: backend\n")
+      && strcontains(file("../deploy/compose.yaml"), "awslogs-stream: worker\n")
+      && one([
+        for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+        widget.properties.view if widget.type == "log"
+      ]) == "timeSeries"
+    )
+    error_message = "The chart counts the starts by the hour, the API's and the worker's each, by the names Docker writes their logs under."
   }
 }
 
