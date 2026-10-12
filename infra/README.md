@@ -543,6 +543,23 @@ aws cloudwatch describe-alarms --alarm-names vehicle-catalog-backend-health \
   --query 'MetricAlarms[0].StateValue'
 ```
 
+An API that ends once and is started again is back well within those three minutes, and the worker
+sends no `health` at all, so the alarm says nothing of either. The dashboard's last chart does: it
+counts by the hour how often the API and the worker have each started, over the time the dashboard
+shows. A release is a start of each, and so is a process that ended and that Docker started again,
+which Java brings about when the heap is full (`docs/adr/0018`). Nothing is sent for it. Each
+start writes `Started VehicleCatalogApplication in … seconds` to the log, under the stream
+`backend` or `worker`, and the chart is a query that counts those lines. A process that ends
+before it has started writes no such line and is not counted.
+
+CloudWatch charges such a query by the log it reads, $0.005 a GB, each time the chart is drawn.
+After its first four days the whole log was 3 MB to read, which comes to about $0.000015.
+
+The chart does not say what ended a process. The log around a start does: for a full heap it is
+Java's line `Terminating due to java.lang.OutOfMemoryError`. The host's log has had no such line
+so far, and no process was ended there on purpose, so whether the line gets from the host to the
+log group was not tried.
+
 On the host, this says whether the agent runs, and its own log is in
 `/opt/aws/amazon-cloudwatch-agent/logs/`:
 
