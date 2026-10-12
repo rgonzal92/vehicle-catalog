@@ -1,6 +1,7 @@
 package dev.rgonz.catalog.catalog;
 
 import dev.rgonz.catalog.catalog.ApprovedContents.Contents;
+import dev.rgonz.catalog.catalog.CatalogSnapshot.Availability;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Cell;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.FeatureRow;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Offering;
@@ -423,16 +424,23 @@ class Catalogs {
             id,
             frozen,
             FeatureRow.class);
+    // Mapped by hand: by the record's class, 24,000 cells take a third of a second to map.
     var cells =
-        content(
-            """
-            SELECT feature_id, trim_id, region_code, availability
-            FROM catalog_cell
-            WHERE catalog_id = :id
-            """,
-            id,
-            frozen,
-            Cell.class);
+        jdbc.sql(
+                """
+                SELECT feature_id, trim_id, region_code, availability
+                FROM catalog_cell
+                WHERE catalog_id = :id
+                """)
+            .param("id", id)
+            .query(
+                (row, number) ->
+                    new Cell(
+                        row.getLong("feature_id"),
+                        row.getLong("trim_id"),
+                        row.getString("region_code"),
+                        Availability.valueOf(row.getString("availability"))))
+            .list();
 
     return new Contents(trims, regions, offerings, featureRows, cells, rules(id, frozen));
   }

@@ -11,7 +11,7 @@ At the largest size a catalog can have, 500 feature rows by 96 offerings, that a
 | Reading and validating it, which is what an edit's answer does | 417 | 45 |
 | A save of one cell with its answer, through the test's web layer | 746 | 54 |
 
-PostgreSQL answers the query for the cells in 3 to 4 ms, and the rows are in the application in 5. The figures are of a test's own process on 2026-10-11, with the catalog the measurements describe; the 746 is that document's, from 2026-10-09. What a save takes through the web server, where it took a median of 512 ms, has not been measured with the mapper. What inside Spring's mapping takes the time was not traced.
+PostgreSQL answers the query for the cells in 3 to 4 ms, and the rows are in the application in 5. The figures are of a test's own process on 2026-10-11, with the catalog the measurements describe; the 746 is that document's, from 2026-10-09. Through the web server, where a save took a median of 512 ms, it takes a median of 57 ms with the mapper, measured on 2026-10-12. What inside Spring's mapping takes the time was not traced.
 
 ## Considered Options
 

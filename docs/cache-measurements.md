@@ -7,7 +7,7 @@ Four things limit what they say:
 - **Everything ran on one machine.** The program that sent the requests, the web server, the API, PostgreSQL, and Redis shared a processor with twelve cores and had no network between them. The host has two processors, which it may use in full only for a while, and runs the worker and an agent beside them.
 - **One person read, and nobody wrote.** Every request was the same person's, and nothing else used the app. The API had answered the same requests before any was timed.
 - **The data is generated or seeded.** The largest catalog there can be is made by the app for measuring, and the demo has no catalog near its size. The seeded catalog measured has 151 feature rows and 7 offerings.
-- **They are two runs.** The tables are of the second, and the medians of both are below them. Both are of the code as it is.
+- **They are two runs.** The tables are of the second, and the medians of both are below them. Both are of the code as it was on 2026-10-10, when the cells of a catalog were made into records by handing Spring the record's class. Since they are read by a mapper written for them, a working copy of the largest catalog, which is never in the cache, is [read in a median of 81 ms](largest-catalog-measurements.md), where the largest version took 558 here without a cache. The tables were not measured again, so what the cache gains at that size today is not in them.
 
 ## Results
 
@@ -68,7 +68,7 @@ One after another, the medians of the two runs are close: none differs by more t
 
 **For the catalogs the demo has, the cache gains nothing that matters.** A seeded version opens in 34 ms without the cache and in 7 with it, and no one notices the 27 between them. What the cache is worth shows at sizes the demo does not have: at the largest size, nearly half a second for each opening.
 
-**It does nothing for editing.** A working copy is never in the cache. Saving a cell of the largest catalog answers with its issues after about half a second, [as measured before](largest-catalog-measurements.md), and does so still.
+**It does nothing for editing.** A working copy is never in the cache. Saving a cell of the largest catalog answered with its issues after about half a second when this was measured. It has been [answered in a median of 57 ms](largest-catalog-measurements.md) since the cells are read by a mapper written for them, which is no doing of the cache.
 
 ## Reads of one version that arrive together
 
