@@ -43,17 +43,31 @@ The log has `java.lang.OutOfMemoryError: Java heap space` for the requests answe
 
 So neither of the two things one might hope for happened. The requests that needed more did fail by themselves at first, and the API answered others meanwhile, slowly. But the error falls on whichever thread asks for memory next, and when that was one the API cannot do without, the API stopped answering for good and nothing started it again. This was tried once. Which thread the error falls on is chance, and another time the API may go on answering.
 
+## Java ends an API or a worker whose heap is full
+
+Since 2026-10-12 the API and the worker are started with `-XX:+ExitOnOutOfMemoryError` beside their heap limits. Java then ends the process at the first such error, and Docker starts it again, as it starts any container of the host's stack whose process ends.
+
+It was tried once that day on the local stack, with the cache off, a limit of 64 MiB, the flag, and for that trial the host's `restart: unless-stopped` on the API, which the local stack does not have:
+
+- Three reads of the largest version one after another were answered, in 380, 181, and 145 ms.
+- Of the first eight at once none was answered by the API: the web server in front of it answered each 502 within half a second. Java had written `Terminating due to java.lang.OutOfMemoryError: Java heap space` and ended with exit code 3.
+- Docker started the container again 0.2 seconds after its process had ended. Its restart count went from 0 to 1.
+- The same read, asked again four times a second, was answered 502 until the API had started, and 200 from 9.3 seconds after the process had ended. It was sent with the session of before, which the database keeps. The API said it was ready when asked next.
+
+So an API that would have answered nothing for as long as it was left alone was away for 9.3 seconds, on a machine with twelve cores. On the host a start takes longer.
+
 ## Considered Options
 
 - **No limit.** The heap could then grow to 462 MiB, and the host would have about 130 MiB to spare with everything at its limit, without swap.
 - **320 MiB.** The workload ran with it as it ran with 256 MiB, no nearer to the run without a limit. It would leave the host about 280 MiB to spare where 256 MiB leaves about 345.
 - **A smaller limit.** The largest catalog was read eight at once within 128 MiB and within 96, more slowly each time. The host does not need what a smaller limit would give back, and 256 MiB is twice the most the heap has held there.
-- **Having Java end the API when its heap is full.** Java can be told to end the process at the first such error, and Docker would then start the API again, as it does whenever the process ends. An API that answers nothing until someone restarts it would become one that is away for as long as it takes to start. It was not done here: it was not tried, and it would be the worker's to do as well.
+- **Having Java end the API when its heap is full.** Java can be told to end the process at the first such error, and Docker would then start the API again, as it does whenever the process ends. An API that answers nothing until someone restarts it would become one that is away for as long as it takes to start. It was not done with the limit, and was taken the day after for the API and the worker both, as above.
 
 ## Consequences
 
-- The limit is in the stack's file, `deploy/compose.yaml`, and an infrastructure test holds the API to having one.
-- A request that needs more heap than is left fails, and may take the API with it as above. An API in that state stays as it is until it is restarted by hand or by the next release. Whether the alarm on the backend's health goes off for it was not tried.
+- The limit and the flag are in the stack's file, `deploy/compose.yaml`, and an infrastructure test holds the API and the worker to having both.
+- A request that needs more heap than is left ends the API, and every request it was answering then is lost with it: the visitor is answered 502 until the API has started again. Nothing counts these restarts, and no alarm was tried on one.
+- A worker whose heap is full ends the same way, and the message of the job it was doing is delivered again, as after any stop. The worker then never gets to write down that the job failed for want of memory, which it wrote down while the error was one it could catch.
 - The limit is four times the 64 MiB that failed eight reads of the largest catalog at once, and more than twice the 96 MiB that answered them. On the host the heap has held half the limit at most. What would fill it was not looked for: more reads at once than eight, or something that holds more than a read of the largest catalog does.
 - The times are from one machine with twelve cores, and the host has two. They say that the limit changes little where it was measured, and nothing certain about the host.
-- The local stack has no limit unless one is asked for: `API_JAVA_OPTIONS=-XX:MaxHeapSize=256m` gives its API the host's.
+- The local stack has no limit unless one is asked for: `API_JAVA_OPTIONS=-XX:MaxHeapSize=256m` gives its API the host's. Its API is not started again when its process ends, either.

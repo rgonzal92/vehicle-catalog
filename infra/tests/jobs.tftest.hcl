@@ -242,17 +242,17 @@ run "the_host_runs_the_worker_beside_the_api" {
     # Left to itself, Java lets each process have a quarter of the machine's memory.
     condition = (
       aws_instance.host.instance_type == "t4g.small"
-      && can(regex("^-XX:MaxHeapSize=[0-9]+m$", yamldecode(file("../deploy/compose.yaml")).services.worker.environment.JAVA_TOOL_OPTIONS))
+      && can(regex("^-XX:MaxHeapSize=[0-9]+m -XX:\\+ExitOnOutOfMemoryError$", yamldecode(file("../deploy/compose.yaml")).services.worker.environment.JAVA_TOOL_OPTIONS))
     )
-    error_message = "On a host this small, the worker's heap has a limit of its own."
+    error_message = "On a host this small, the worker's heap has a limit of its own, and a worker whose heap is full ends, for Docker to start it again."
   }
 
   assert {
     condition = (
       aws_instance.host.instance_type == "t4g.small"
-      && can(regex("^-XX:MaxHeapSize=[0-9]+m$", yamldecode(file("../deploy/compose.yaml")).services.backend.environment.JAVA_TOOL_OPTIONS))
+      && can(regex("^-XX:MaxHeapSize=[0-9]+m -XX:\\+ExitOnOutOfMemoryError$", yamldecode(file("../deploy/compose.yaml")).services.backend.environment.JAVA_TOOL_OPTIONS))
     )
-    error_message = "On a host this small, the API's heap has a limit of its own, as the worker's has."
+    error_message = "On a host this small, the API's heap has a limit of its own, as the worker's has, and an API whose heap is full ends, for Docker to start it again."
   }
 
   assert {
