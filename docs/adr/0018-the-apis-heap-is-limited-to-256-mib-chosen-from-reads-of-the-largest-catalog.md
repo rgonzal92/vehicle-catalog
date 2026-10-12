@@ -56,18 +56,46 @@ It was tried once that day on the local stack, with the cache off, a limit of 64
 
 So an API that would have answered nothing for as long as it was left alone was away for 9.3 seconds, on a machine with twelve cores. A start there logged 7.7 seconds. On the host, which has two cores, the API's start of that day logged 20.1 seconds, so there it would be away for longer; how long was not tried.
 
+## What is asked while the API is away waits for it
+
+Since 2026-10-12 the host's web server, Caddy, keeps a request that finds no API to connect to and asks the API again four times a second, for 26 seconds (`lb_try_duration` in `deploy/Caddyfile`). Such a request never reached an API, so a write is kept as a read is. A request that did reach the API, and lost it, is answered 502 at once and is not sent a second time.
+
+The 26 seconds are from the host's log, which has 113 starts of the API from 2026-10-08 to 2026-10-12. The last twenty logged 18.4 to 21.8 seconds, and their processes had run for 19.6 to 23.2 seconds by then, 21.2 at the median. CloudFront, which is in front of Caddy, waits 30 seconds for an answer. A try may wait three seconds to connect, so with 26 seconds Caddy has answered after 29.25 at the latest.
+
+It was tried three times that day on the local stack, as the flag was: no cache, a limit of 64 MiB, the flag, the host's `restart: unless-stopped`, and the local web server passing requests on with the lines of the host's file. Each time eight reads of the largest version were sent at once, and as soon as Docker said the process had ended, three more requests were sent once each: the same read, a small read, and a write that creates a working copy.
+
+| | Each of the eight at once | The API ended | The same read, asked once | The small read | The write |
+|---|---|---|---|---|---|
+| Trying again as Caddy does unless told otherwise, for 27 seconds | 502 after 27.2 s | 4 times in 23 s | 502 after 27.1 s | 200 after 7.1 s | 201 after 7.1 s |
+| Nothing sent again that reached the API, 26 seconds | Seven 502 within 0.4 s, one 200 after 8.7 s | Once | 200 after 8.2 s | 200 after 7.7 s | 201 after 7.8 s |
+| And a connection of its own for every request, which is what the host has | 502 within 0.6 s | Once | 200 after 7.0 s | 200 after 6.7 s | 201 after 6.7 s |
+
+- **Asking a read again that the API was answering made things worse.** Unless told otherwise, Caddy sends a `GET` again when its connection breaks. The eight reads had filled the heap together, and were sent again together each time the API had started: it ended again 0.8 seconds after each of its next three starts, four times in all, and had started for good 30.7 seconds after it had first ended, where that takes 7 when it ends once. The small read and the write were answered in between.
+- **Telling Caddy to send nothing again was not enough.** One of the eight was answered 200 all the same. Its connection had carried a request before, and Go's HTTP client, which Caddy passes requests on with, sends a read again by itself when such a connection breaks before an answer has begun. Caddy then found no API to connect to and kept the request. A write is never sent again that way, unless it carries an `Idempotency-Key`, and the app sends none.
+- **With a connection of its own for every request, all eight were answered 502 and the API ended once.** The three requests asked while it was away were each asked once and answered 6.7 to 7.0 seconds later, the last of them 7.3 seconds after the process had ended. The write was saved once. Forty small reads one after another took 5 ms at the median that way, and 8 at the most.
+- **While the API was away Caddy saw three failures,** and kept the request through each: for a moment after the process had ended the name `backend` was not known, and looking it up ran into the three seconds a try has to connect, or was answered that there is no such host; after that the connection was refused, until the API listened.
+
+So on that machine a request waited the 7 seconds the API took to start. On the host it would wait about 22, by the starts in its log, which was not tried: the API was not ended there on purpose.
+
 ## Considered Options
 
 - **No limit.** The heap could then grow to 462 MiB, and the host would have about 130 MiB to spare with everything at its limit, without swap.
 - **320 MiB.** The workload ran with it as it ran with 256 MiB, no nearer to the run without a limit. It would leave the host about 280 MiB to spare where 256 MiB leaves about 345.
 - **A smaller limit.** The largest catalog was read eight at once within 128 MiB and within 96, more slowly each time. The host does not need what a smaller limit would give back, and 256 MiB is twice the most the heap has held there.
 - **Having Java end the API when its heap is full.** Java can be told to end the process at the first such error, and Docker would then start the API again, as it does whenever the process ends. An API that answers nothing until someone restarts it would become one that is away for as long as it takes to start. It was not done with the limit, and was taken the day after for the API and the worker both, as above.
+- **Sending a read again that the API was answering when it ended.** Caddy does so unless told otherwise, and an innocent read would then be answered where it is now lost. It was tried and not taken: the reads that had filled the heap were sent again with it and filled it again, as above.
 
 ## Consequences
 
 - The limit and the flag are in the stack's file, `deploy/compose.yaml`, and an infrastructure test holds the API and the worker to having both.
-- A request that needs more heap than is left ends the API, and every request it was answering then is lost with it: the visitor is answered 502 until the API has started again. Nothing counts these restarts, and no alarm was tried on one.
+- A request that needs more heap than is left ends the API. What happens to the other requests depends on whether they had reached it:
+  - **Held:** a request that arrives while the API is away, a read or a write, waits for it and is answered, as long as the API is back within 26 seconds. The same holds while a release replaces the API, which was not tried. The catalog editor waits less long than Caddy does: it gives up an edit that has gone unanswered for 20 seconds (`SAVE_PATIENCE` in `frontend/src/app/core/catalogs.ts`), shows "No answer says whether this change was saved", and sends no further edit, as it does after a 502. On the host, where the API would be away for about 22 seconds, an edit made in the first seconds after the API has ended is given up that way before the API is back. Whether such an edit is saved all the same once the API has started was not tried.
+  - **Asked again:** nothing that reached the API. Caddy asks only for a connection again.
+  - **Still lost:** every request the API was answering when it ended, which is answered 502 at once. A write among them may have been saved or not, and the person sees "Something went wrong" and tries again by hand. A request that has found no API for 26 seconds is answered 502 as well, which is 26 to 29.25 seconds after it was asked.
+- The 26 seconds leave little room on either side. The slowest of the last twenty starts on the host left about two of them, and a start logged about 16 seconds on 2026-10-09 and about 20 on 2026-10-12. A request that connects in the last of them has four seconds to be answered in before CloudFront gives up, and a write that takes longer would be saved and answered 504. Longer than this takes CloudFront waiting longer, which was not changed.
+- Caddy opens a connection to the API for every request, where it kept connections for two minutes. Both are on the host, and no difference showed in the trial.
+- Nothing counts these restarts, and no alarm was tried on one.
 - A worker whose heap is full ends the same way, and the message of the job it was doing is delivered again, as after any stop. The worker then never gets to write down that the job failed for want of memory, which it wrote down while the error was one it could catch.
 - The limit is four times the 64 MiB that failed eight reads of the largest catalog at once, and more than twice the 96 MiB that answered them. On the host the heap has held half the limit at most. What would fill it was not looked for: more reads at once than eight, or something that holds more than a read of the largest catalog does.
 - The times are from one machine with twelve cores, and the host has two. They say that the limit changes little where it was measured, and nothing certain about the host.
-- The local stack has no limit unless one is asked for: `API_JAVA_OPTIONS=-XX:MaxHeapSize=256m` gives its API the host's. Its API is not started again when its process ends, either.
+- The local stack has no limit unless one is asked for: `API_JAVA_OPTIONS=-XX:MaxHeapSize=256m` gives its API the host's. Its API is not started again when its process ends, either, and its web server keeps no request.
