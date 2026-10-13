@@ -103,6 +103,12 @@ resource "aws_cloudfront_distribution" "site" {
       https_port             = 443
       origin_protocol_policy = "https-only"
       origin_ssl_protocols   = ["TLSv1.2"]
+
+      # How many seconds CloudFront waits for the host to begin an answer, and then for each
+      # further part of it. Left unsaid it is 30. Caddy keeps a request that finds no API for 45
+      # seconds and has answered it by 48.25 (deploy/Caddyfile), so CloudFront is still waiting
+      # then, with time left for an API that has just started to answer.
+      origin_read_timeout = 60
     }
 
     custom_header {

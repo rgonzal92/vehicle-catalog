@@ -44,6 +44,8 @@ quietly() {
 
 # How long Caddy goes on asking for an API that is not there, in seconds, as its file says.
 held="$(sed -n 's/^\t*lb_try_duration \([0-9]*\)s$/\1/p' Caddyfile)"
+# How long CloudFront waits for the host's answer, in seconds, as the distribution is told.
+waited="$(sed -n 's/^ *origin_read_timeout *= *\([0-9]*\)$/\1/p' "$here/../../infra/frontend.tf")"
 # Asks the stack as CloudFront would, and prints what it answers. It waits a little longer than
 # Caddy does, so that an answer that comes late is seen to be late.
 answer() {
@@ -55,11 +57,12 @@ ask() {
 }
 with_secret=(--header "X-Origin-Secret: $secret")
 # What a stack without an API answers, and when: no sooner than Caddy gives up asking for one, and
-# before the 30 seconds are over that CloudFront waits for an answer.
+# before CloudFront has stopped waiting for an answer.
 without_an_api() {
   answer --output /dev/null --write-out '%{http_code} %{time_total}\n' "${with_secret[@]}" \
     https://origin.test:18443/api/health |
-    awk -v held="$held" '{ print $1, (held > 0 && $2 >= held && $2 < 30 ? "in time" : "after " $2 " seconds") }'
+    awk -v held="$held" -v waited="$waited" \
+      '{ print $1, (held > 0 && waited > 0 && $2 >= held && $2 < waited ? "in time" : "after " $2 " seconds") }'
 }
 failed=0
 expect() { # what, wanted, got
@@ -177,7 +180,7 @@ expect "and writes nothing to disk" "save  appendonly no" \
 expect "no secret is refused" 403 "$(ask --output /dev/null https://origin.test:18443/api/health)"
 expect "a wrong secret is refused" 403 \
   "$(ask --output /dev/null --header 'X-Origin-Secret: not-it' https://origin.test:18443/api/health)"
-expect "the API has no one to answer for it, which Caddy says once it has asked for $held seconds" \
+expect "the API has no one to answer for it, which Caddy says once it has asked for $held seconds, before the $waited are over that CloudFront waits" \
   "502 in time" "$(without_an_api)"
 expect "a request that names another host is turned away, with the secret or without" "421 421" \
   "$(ask --output /dev/null --header 'Host: elsewhere.test' https://origin.test:18443/api/) $(ask \
