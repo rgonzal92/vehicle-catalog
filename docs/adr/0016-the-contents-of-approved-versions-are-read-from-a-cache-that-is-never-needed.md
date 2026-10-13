@@ -2,7 +2,7 @@
 
 A read of an Approved version takes its contents from Redis when Redis holds them, and from PostgreSQL otherwise, after which Redis is given them. The contents are the version's trims, regions, offerings, feature rows, cells, and rules, as they read with the labels and the order of its approval. They are kept as JSON by the catalog's id, for a day.
 
-What is kept can never be wrong, so nothing ever has to be taken out of the cache. An Approved version is never edited. [Its labels and its order are recorded when it is approved](0004-labels-freeze-at-approval-validation-stays-live.md), so nothing an admin does to the library changes how it reads. An id is never given to a second catalog, also after the demo reset.
+What is kept can never be wrong, so nothing ever has to be taken out of the cache. An Approved version is never edited. [Its labels and its order are recorded when it is approved](0004-labels-freeze-at-approval-validation-stays-live.md), so nothing an admin does to the library changes how it reads. Its offerings and its cells are read in the order of their keys, so it reads the same however PostgreSQL goes about reading their rows, and the cache answers as the database would, order included. An id is never given to a second catalog, also after the demo reset.
 
 Everything that could change is read from PostgreSQL on every read: whether there is such a catalog and whether the person may open it, its name, who approved it, which version is its lineage's current one, and its issues, which validation works out against the library of today. A working copy is never in the cache, in any status.
 
