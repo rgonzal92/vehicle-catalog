@@ -174,6 +174,23 @@ class DocumentTextTest {
   }
 
   @Test
+  void aPdfOfAKilobyteWhoseFontMapNamesTwoThousandMillionCodesFailsSoonAndLeavesNoReadingBehind() {
+    var pdf = Pdfs.ofAFontMapWithARangeOf(Integer.MAX_VALUE, List.of("Launch notes"));
+
+    assertThat(pdf.length).isLessThan(2_000);
+    failsSoonAndLeavesNoReadingBehind(pdf, "It takes more memory to read than a PDF may.");
+  }
+
+  @Test
+  void aPdfWhoseObjectStreamHoldsMillionsOfEmptyListsFailsSoonAndLeavesNoReadingBehind() {
+    // The lists unpack to 31 MB, which is within what a PDF may unpack to.
+    var pdf = Pdfs.ofAnObjectStreamWithAListOfEmptyLists(15_500_000);
+
+    assertThat(pdf.length).isLessThan(40_000);
+    failsSoonAndLeavesNoReadingBehind(pdf, "It takes more memory to read than a PDF may.");
+  }
+
+  @Test
   void aPdfWhoseFontMapAndObjectStreamUnpackToLittleIsRead() {
     assertThat(
             DocumentText.of(
