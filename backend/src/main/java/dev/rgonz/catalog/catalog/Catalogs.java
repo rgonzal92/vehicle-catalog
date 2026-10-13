@@ -251,7 +251,7 @@ class Catalogs {
             .query(Boolean.class)
             .single();
     if (approved) {
-      approvedContents.keep(id, contents(id, true));
+      approvedContents.keep(id, contents(id, true, true));
     }
   }
 
@@ -354,10 +354,11 @@ class Catalogs {
    */
   private CatalogSnapshot snapshot(
       long id, long lineageId, Status status, long revision, boolean frozen) {
+    boolean approved = status == Status.APPROVED;
     var held =
-        frozen && status == Status.APPROVED
-            ? approvedContents.of(id, () -> contents(id, true))
-            : contents(id, frozen);
+        frozen && approved
+            ? approvedContents.of(id, () -> contents(id, true, true))
+            : contents(id, frozen, approved);
 
     return new CatalogSnapshot(
         id,
@@ -372,8 +373,19 @@ class Catalogs {
         held.rules());
   }
 
-  /** A catalog's contents as the database holds them, read with one query for each table. */
-  private Contents contents(long id, boolean frozen) {
+  /**
+   * A catalog's contents as the database holds them, read with one query for each table. The
+   * offerings are read in the order of their key, and so are the cells of an Approved version, so
+   * that a version reads the same every time, from the database as from the cache: left to itself,
+   * PostgreSQL gives rows in one order when it reads along an index and in another when it reads
+   * the table. A working copy's cells are read as PostgreSQL gives them: every edit reads them
+   * again, and sorting 24,000 of them takes PostgreSQL 11 ms where reading them takes 3. One list
+   * goes by their order: an update from Approved finds its conflicts over cells by going through
+   * the working copy's, so two of those conflicts can change places from one read to the next.
+   *
+   * @param approved whether the catalog is an Approved version
+   */
+  private Contents contents(long id, boolean frozen, boolean approved) {
     var trims =
         content(
             """
@@ -405,7 +417,12 @@ class Catalogs {
             Region.class);
     var offerings =
         content(
-            "SELECT trim_id, region_code FROM catalog_trim_region WHERE catalog_id = :id",
+            """
+            SELECT trim_id, region_code
+            FROM catalog_trim_region
+            WHERE catalog_id = :id
+            ORDER BY trim_id, region_code
+            """,
             id,
             frozen,
             Offering.class);
@@ -431,7 +448,9 @@ class Catalogs {
                 SELECT feature_id, trim_id, region_code, availability
                 FROM catalog_cell
                 WHERE catalog_id = :id
-                """)
+                %s
+                """
+                    .formatted(approved ? "ORDER BY feature_id, trim_id, region_code" : ""))
             .param("id", id)
             .query(
                 (row, number) ->

@@ -83,6 +83,28 @@ Inside the test's own process, with no server between, from one run of the whole
 
 The page was not measured again. Its figures in the table above, for setting a cell until the answer has arrived and for opening the editor, are of 2026-10-09.
 
+### Reading the cells in the order of their key
+
+An Approved version's cells are read in the order of their key, by feature, trim, and region, so that it reads the same every time. What the order costs PostgreSQL at this size goes by how it reads the rows, measured on 2026-10-13 with `EXPLAIN ANALYZE` in the test's database:
+
+| The query for the 24,000 cells, median of nine | Without the order | With the order |
+|---|---|---|
+| The Approved version, in a table PostgreSQL has not counted yet | 3.10 | 14.29 |
+| A working copy of it, in the same table | 2.94 | 14.55 |
+| The Approved version, after `ANALYZE` | 3.08 | 3.11 |
+| A working copy of it, after `ANALYZE` | 3.08 | 3.11 |
+
+**Along the key's index the order costs 0.03 ms, and where PostgreSQL sorts, 11 ms.** For a table it has not counted it expects 151 cells of the catalog, finds them through the index, reads them as they are stored, and sorts all 24,000, which takes 11.2 to 11.6 ms on top of the 3 of reading them. Once it has counted the table it reads the cells along the index, in the key's order, and sorts nothing. Told after `ANALYZE` not to read along the index, it sorts again: 13.74 ms where the read alone took 3.10. Read into the application, the Approved version's cells take a median of 17.4 ms sorted where they took 7.5, and 8.4 along the index where they took 8.4.
+
+**So a working copy's cells are read without an order.** Every edit reads the working copy again, and 11 ms is more than reading them takes. One list goes by the order of its cells: an update from Approved finds its conflicts over cells by going through the working copy's, so two of those conflicts can change places from one read to the next. An Approved version's cells are sorted when PostgreSQL does not read them along the index, which only a read that the cache does not answer pays. The offerings, 96 at most, are read in the order of their key for every catalog.
+
+Inside the test's own process, from `LargestCatalogIT` run alone on 2026-10-13, once for each column:
+
+| Median | No order | Every catalog's cells in order, which was not kept | An Approved version's cells in order |
+|---|---|---|---|
+| Reading the working copy and validating it | 45.8 | 54.6 | 47.3 |
+| A save of one cell, with its answer | 54.1 | 64.5 | 55.2 |
+
 ### Scrolling
 
 The screen refreshes every 16.7 ms. A frame that lasts one refresh is as smooth as it gets, and a pause becomes noticeable at about three. The table counts frames by how many refreshes they lasted, over three passes.
@@ -177,6 +199,14 @@ Each was measured once. The scripts of 2026-10-09 were not kept, so which cell t
 
 The figures inside the test's own process are the lines `LargestCatalogIT` logs, from one run of `./mvnw verify` in `backend/`, where the test ran among all the others.
 
+### Reading the cells in the order of their key
+
+A test that is not kept in the repository made the largest catalog and a working copy of it in the test's database, where `catalog_cell` then held 52,102 rows: the two of 24,000 and the seeded catalogs' 4,102. It had PostgreSQL explain the query for a catalog's cells with `EXPLAIN ANALYZE`, as the application sends it and with `ORDER BY feature_id, trim_id, region_code`, eleven times each, and took the execution time of the last nine. It did so with the table as the test leaves it, which PostgreSQL has never counted, then after `ANALYZE catalog_cell`, and then with the planner told in one transaction to leave the index alone. In the first two states it also sent both queries thirty times in turn, after ten that are not timed, and read the rows into the application with the mapper it uses.
+
+The plans, in that order: a bitmap heap scan, and the same under a sort; a sequential scan, and an index scan of the primary key with no sort; a sequential scan, and the same under a sort. Each sort was a quicksort in 1,894 kB of memory.
+
+The figures inside the test's own process are the two lines `LargestCatalogIT` logs, from `./mvnw verify -Dit.test=LargestCatalogIT` in `backend/`, run once for each column. Which way PostgreSQL read the cells in that test was not looked at; the 8.8 ms between the first two columns fit a sort. No other build ran on the machine, and its load average was between 1.3 and 3.2 on 24 threads, from the runs that came before.
+
 ### Copying a catalog, and a save inside the test
 
 `LargestCatalogIT` makes the largest catalog in the test's database and writes two sets of times to the log:
@@ -188,7 +218,7 @@ To repeat it, run `./mvnw verify -Dit.test=LargestCatalogIT` in `backend/` and r
 
 ## Environment
 
-- Measured on 2026-10-06. "Validating after every edit" was measured on 2026-10-09, on the same machine, with the application as the repository built it that day and one run of each script on one start of the stack, where the earlier figures are over two starts. "With the cells read by a mapper written for them" was measured on 2026-10-12, on the same machine.
+- Measured on 2026-10-06. "Validating after every edit" was measured on 2026-10-09, on the same machine, with the application as the repository built it that day and one run of each script on one start of the stack, where the earlier figures are over two starts. "With the cells read by a mapper written for them" was measured on 2026-10-12, and "Reading the cells in the order of their key" on 2026-10-13, on the same machine.
 - AMD Ryzen 9 5900X, 32 GB of memory, Linux 7.2. Docker keeps its volumes on btrfs.
 - Chromium 153.0.8010.12, headless, in a 1600 by 900 window, driven by Playwright 1.63.
 - Angular 22.2.1 and PrimeNG 22.1.2 in a production build, served by Caddy 2.11.6.

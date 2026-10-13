@@ -11,7 +11,11 @@ import java.util.List;
  *
  * @param regions in the order they had in the library when an Approved version was approved, and in
  *     the library's order of today for a working copy
- * @param cells only Standard and Available; a missing cell is Not offered
+ * @param offerings in the order of their key when the catalog is read: by the id of the trim, then
+ *     by the code of the region. The matrix's order is {@link #offeringsInOrder()}
+ * @param cells only Standard and Available; a missing cell is Not offered. An Approved version's
+ *     are in the order of their key: by the id of the feature, then of the trim, then by the code
+ *     of the region. A working copy's are in no order
  * @param rules the rules that belong to the catalog, by the code of their source
  */
 record CatalogSnapshot(
