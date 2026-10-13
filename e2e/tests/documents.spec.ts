@@ -50,3 +50,68 @@ test('an admin uploads a document, sees it become ready, and deletes it', async 
   await question.getByRole('button', { name: 'Delete' }).click();
   await expect(row).toHaveCount(0);
 });
+
+/**
+ * A PDF of one page with this line of text, written out as the format has it: its five objects,
+ * and then the table of where in the file each of them starts. The line is ASCII without brackets
+ * or a backslash.
+ */
+function pdfOf(line: string): Buffer {
+  const drawing = `BT /F1 11 Tf 56 740 Td (${line}) Tj ET`;
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R ' +
+      '/Resources << /Font << /F1 5 0 R >> >> >>',
+    `<< /Length ${drawing.length} >>\nstream\n${drawing}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
+  ];
+  let file = '%PDF-1.4\n';
+  let table = `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  objects.forEach((object, index) => {
+    table += `${String(file.length).padStart(10, '0')} 00000 n \n`;
+    file += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const trailer = `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n`;
+
+  return Buffer.from(`${file}${table}${trailer}startxref\n${file.length}\n%%EOF\n`, 'ascii');
+}
+
+test("an admin uploads a PDF, which the worker reads from the image's jar, and deletes it", async ({
+  page,
+}) => {
+  const title = unique('Towing notes');
+  await signIn(page, 'admin');
+  await page
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link', { name: 'Documents' })
+    .click();
+
+  const form = page.getByRole('region', { name: 'Upload a document' });
+  await form.getByLabel('File').setInputFiles({
+    name: 'towing-notes.pdf',
+    mimeType: 'application/pdf',
+    buffer: pdfOf('The tow hitch follows in the spring.'),
+  });
+  await form.getByLabel('Title').fill(title);
+  await choose(form, 'Vehicle line', 'Compact SUV');
+  await choose(form, 'Model year', '2026');
+  await form.getByRole('button', { name: 'Upload' }).click();
+
+  // The worker runs from the backend's image here, as on the host, and starts a process for each
+  // PDF from the image's one jar, through Spring Boot's launcher. The backend's own tests start
+  // that process from class directories, so this is the test that fails when a PDF is no longer
+  // read from the jar: its row then says "Failed" and "It could not be read as a PDF."
+  const row = page.getByRole('row').filter({ hasText: title });
+  await expect(row, "The worker reads a PDF from the image's jar").toContainText('Ready', {
+    timeout: 30_000,
+  });
+  await expect(row).toContainText('1 passage');
+
+  await row.getByRole('button', { name: `Delete the document: ${title}` }).click();
+  await page
+    .getByRole('dialog', { name: 'Delete document' })
+    .getByRole('button', { name: 'Delete' })
+    .click();
+  await expect(row).toHaveCount(0);
+});
