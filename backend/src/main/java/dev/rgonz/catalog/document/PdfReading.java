@@ -53,7 +53,11 @@ final class PdfReading {
 
   /**
    * Spring Boot's launcher, which is what finds the classes inside the one jar the image holds. It
-   * is on the class path there and nowhere else.
+   * is on the class path there and nowhere else, so no test of the backend starts the process
+   * through it. The browser test "an admin uploads a PDF, which the worker reads from the image's
+   * jar, and deletes it" in {@code e2e/tests/documents.spec.ts} does, since its worker runs from
+   * the image. With a name here that is not the launcher's, every PDF fails in the image as one
+   * that could not be read, and that test with it.
    */
   private static final String LAUNCHER =
       "org.springframework.boot.loader.launch.PropertiesLauncher";
