@@ -133,8 +133,10 @@ final class PdfReading {
               () -> {
                 byte[] all = process.getInputStream().readNBytes(MOST_WRITTEN + 1);
                 if (all.length > MOST_WRITTEN) {
-                  // More than any text may be. It is not waited for.
-                  process.destroyForcibly();
+                  // More than any text may be, so no more of it is read, and the process may be
+                  // waiting to write it. It is ended through its handle: ending it as a process
+                  // closes its errors under the thread that still reads them.
+                  process.toHandle().destroyForcibly();
                 }
                 return all;
               });
@@ -142,7 +144,13 @@ final class PdfReading {
 
       int ended = process.waitFor();
       said.get();
-      var text = new String(written.get(), StandardCharsets.UTF_8);
+      byte[] all = written.get();
+      if (all.length > MOST_WRITTEN) {
+        // Whatever the process ended with: it may have written the last of it and ended by itself.
+        log.warn("The process that read a PDF wrote more than a text may be");
+        throw new Unreadable(NO_PDF);
+      }
+      var text = new String(all, StandardCharsets.UTF_8);
       if (ended == 0) {
         return text;
       }

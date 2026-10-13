@@ -58,6 +58,19 @@ class PdfReadingTest {
   }
 
   @Test
+  void aProcessThatWritesMoreThanATextMayBeFailsItsFileAsOneThatCouldNotBeRead() {
+    // The most text a document may have comes to 1,440,000 bytes. One byte more may all be written
+    // before the process is ended, and it then ends by itself. Of two million it waits to write
+    // the rest.
+    for (var bytes : List.of("1440001", "2000000")) {
+      assertThatThrownBy(() -> PdfReading.read(A_PDF, List.of("head", "-c", bytes, "/dev/zero")))
+          .isInstanceOf(DocumentText.Unreadable.class)
+          .hasMessage("It could not be read as a PDF.");
+      assertThat(aProcessIsLeft()).isFalse();
+    }
+  }
+
+  @Test
   void theProcessIsGivenNothingOfTheEnvironment() throws Exception {
     assertThat(System.getenv("HOME")).isNotEmpty();
 
