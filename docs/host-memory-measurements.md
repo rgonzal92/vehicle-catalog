@@ -1,10 +1,10 @@
 # Memory the host's stack uses
 
-How much memory the host uses with the whole stack running on it: Caddy, the API, the worker, the database, the cache, and the CloudWatch agent beside them. The host is a `t4g.small`, which has 2 GiB of memory, of which Linux has 1,840 MiB to give out, and no swap. The decisions on the host's size rest on these numbers: [that it is a `t4g.small`](adr/0009-the-host-is-a-t4g-small-chosen-from-its-measured-memory.md), [that the worker runs on it beside the API](adr/0012-the-worker-runs-beside-the-api-on-the-t4g-small-with-a-limit-on-its-heap.md), [that the cache runs on it too](adr/0017-the-cache-runs-on-the-host-within-64-mb.md), and [that the API's heap is limited to 256 MiB](adr/0018-the-apis-heap-is-limited-to-256-mib-chosen-from-reads-of-the-largest-catalog.md).
+How much memory the host uses with the whole stack running on it: Caddy, the API, the worker, the database, the cache, and the CloudWatch agent beside them. The host is a `t4g.small`, which has 2 GiB of memory, of which Linux has 1,840 MiB to give out, and no swap. The decisions on the host's size rest on these numbers: [that it is a `t4g.small`](adr/0009-the-host-is-a-t4g-small-chosen-from-its-measured-memory.md), [that the worker runs on it beside the API](adr/0012-the-worker-runs-beside-the-api-on-the-t4g-small-with-a-limit-on-its-heap.md), [that the cache runs on it too](adr/0017-the-cache-runs-on-the-host-within-64-mb.md), [that the API's heap is limited to 256 MiB](adr/0018-the-apis-heap-is-limited-to-256-mib-chosen-from-reads-of-the-largest-catalog.md), and [that a PDF is read in a process of its own](adr/0021-a-pdf-is-read-in-a-process-of-its-own-which-java-ends-in-the-workers-place.md).
 
-It was measured three times: on 2026-10-09, before there was a cache; on 2026-10-11, with the cache running; and five hours later, with the API's heap limited to 256 MiB.
+It was measured three times: on 2026-10-09, before there was a cache; on 2026-10-11, with the cache running; and five hours later, with the API's heap limited to 256 MiB. On 2026-10-13 it was measured once more, for what [the process that reads a PDF](#with-a-process-that-reads-a-pdf) takes while it is there.
 
-Four things limit what they say:
+Four things limit what the first three say:
 
 - **The API had run for 15 minutes and the worker for 12.** The API had answered about 650 requests in that time: signing in as each demo account, every lineage, version, catalog, and change history read 25 times over, and one catalog made, submitted, approved, and exported. The worker had done two jobs: what follows an approval, and an export. Processes that have run for days and served more people at once will have grown their heaps further, up to the limits below. The second time both had run for 15 minutes, the API had answered about 470 requests of the same kinds, and the worker had done three jobs: the summary of a submission, what follows an approval, and an export. The third time the API had run for 15 minutes and the worker for 18, the API had answered about 430 requests of the same kinds, all of them reads but one, and the worker had done one job, an export.
 - **More than the cache came between the first two.** After the first measurement the app came to ask a language model, to read uploaded documents and search them, and to read through the cache. What the two Java processes use more the second time is the sum of all three, and was not taken apart. Between the second and the third came the limit on the API's heap and five hours of smaller changes to the app.
@@ -85,6 +85,30 @@ The API's heap held 57 MiB of the 97 it had taken from the system, and the worke
 
 With the two heaps and the cache all at their limits, the host would use about 1,495 MiB of its 1,840, which leaves about 345 where there were about 130.
 
+## With a process that reads a PDF
+
+Since 2026-10-13 the worker reads a PDF in [a process of its own](adr/0021-a-pdf-is-read-in-a-process-of-its-own-which-java-ends-in-the-workers-place.md): a third Java process, with a heap of 64 MiB, that is there for as long as that one PDF is read. The host can be measured with it only once it runs the image that holds it. So this was measured after the release that brought it, on 2026-10-13 from 07:15 to 07:20 UTC. That release had started the API at 07:10:23 and the worker at 07:10:49.
+
+| The PDF | The process was there for | Most it had resident, MiB | Least available to the host meanwhile, MiB |
+|---|---|---|---|
+| 3 pages of text, 2,394 bytes, uploaded by the demo admin | 1.36 s | 76 | 474 |
+| 60 pages of text, 37,675 bytes and 248,510 characters, uploaded so | 2.07 s | 78 | 424 |
+| A font map that names a range of 2,147,483,647 codes, 1,194 bytes, given to a process started by hand | 1.73 s | 115 | 378 |
+| An object stream that holds 15.5 million empty lists, 30,545 bytes, given so | 1.60 s | 113 | 376 |
+
+- **The first two are ordinary PDFs.** Each was ready on the page Documents at its look 7.1 and 6.6 seconds after the click on Upload, with 7 and 177 passages. Their jobs were done in 4.3 and 5.6 seconds after one try, the embedding model asked included. Both were deleted afterwards.
+- **The last two are made to fill the process's heap,** which is the most such a process can take: Java ended each with exit code 3 when its heap was full. They were not uploaded to the deployed app. The process was started by hand in the worker's container, as the container's user, with the command line and the empty environment that the worker's own process was seen with.
+- **With the two heaps and the cache all at their limits and such a process at its worst, the host would use about 1,610 MiB of its 1,840, which leaves about 230** of the 345 above.
+- The host had 529 MiB available before the first upload, 477 before the two started by hand, and 474 after them. At 07:20:03 it used 1,177 MiB and had 488 available, 453 held files that can be dropped at need, and 209 were free. The API's container used 385 MiB then, the worker's 403, the database's 84, Caddy's 16, and the cache's 7.
+- The API's and the worker's containers had the start times above, and no restart counted, before and after.
+
+Four things limit what this says:
+
+- **Each figure is one reading,** of an API and a worker that had run for five to nine minutes. Nothing was sent to them for it but the sign-ins and the two uploads, and the worker had read no document since its start. The two heaps were not looked at, so the 345 MiB are those of 2026-10-11.
+- **The worker's own process grew over the two jobs.** It had 368 MiB resident before the first PDF and 413 at the most after the second. Its container used 403 MiB afterwards, where it used 415 when the 345 were worked out.
+- **The host had all its processor credits,** 576, which is the most a `t4g.small` keeps. With its credits spent, a process would be there for longer. What a process costs the API's answers while both run was not measured.
+- **What a process has resident is what Linux counts for it,** with the pages of the files it has in memory, which were not told apart from the rest.
+
 ## How it was measured
 
 On the host, through Systems Manager:
@@ -97,3 +121,5 @@ On the host, through Systems Manager:
 - `redis-cli info memory` and `redis-cli dbsize`, run in the cache's container, for what the cache held.
 
 The requests before it were sent from a browser, signed in as the demo author, the demo manager, and the demo admin in turn. On 2026-10-11 the stack had been started with the cache at 03:55 UTC, by the apply that brought the cache to the host. The API was started with its limit at 08:52 UTC, by the apply that brought the limit, and the worker at 08:49 by the release before it. The requests before the third measurement were sent within two minutes of the API's start.
+
+The process that reads a PDF was measured on 2026-10-13 by a command on the host, through Systems Manager, that reads `/proc` and nothing else. Twenty times a second for 80 seconds around each upload, and fifty times a second for 45 seconds around the two started by hand, it wrote down `MemAvailable` from `/proc/meminfo` and, for every `java` process, `VmRSS` and `VmHWM` from its `status`. The most a process had resident is its `VmHWM` at the last look at it, which was the largest `VmRSS` looked at as well, for all four. How long it was there is from the first look that saw it to the last. The two ordinary PDFs were uploaded from a browser signed in as the demo admin. The two made to fill memory were each piped to `docker exec -i` in the worker's container, which ran `env -i` and the process's command line. `free -m` and `docker stats --no-stream` gave the host and the containers at 07:20:03, and CloudWatch's `CPUCreditBalance` the credits.
