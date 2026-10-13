@@ -156,6 +156,48 @@ public final class Pdfs {
   }
 
   /**
+   * A PDF of one page with these lines of text, in a font whose map from codes to characters names
+   * one range of codes in one line, and is not packed. The file is about a kilobyte whatever the
+   * range. PDFBox keeps an entry for every code of it.
+   *
+   * @param codes how many codes the range names
+   */
+  public static byte[] ofAFontMapWithARangeOf(int codes, List<String> lines) {
+    try (var document = Loader.loadPDF(of(lines))) {
+      var fonts = document.getPage(0).getResources().getCOSObject().getCOSDictionary(COSName.FONT);
+      var map = new PDStream(document);
+      try (var raw = map.getCOSObject().createRawOutputStream()) {
+        raw.write(
+            """
+            /CIDInit /ProcSet findresource begin
+            12 dict begin
+            begincmap
+            /CMapName /Adobe-Identity-UCS def
+            /CMapType 2 def
+            1 begincodespacerange
+            <00000000> <FFFFFFFF>
+            endcodespacerange
+            1 beginbfrange
+            <00000000> <%08X> <0041>
+            endbfrange
+            endcmap
+            CMapName currentdict /CMap defineresource pop
+            end
+            end
+            """
+                .formatted(codes - 1)
+                .getBytes(StandardCharsets.US_ASCII));
+      }
+      fonts.getCOSDictionary(fonts.keySet().iterator().next()).setItem(COSName.TO_UNICODE, map);
+      var file = new ByteArrayOutputStream();
+      document.save(file);
+      return file.toByteArray();
+    } catch (IOException impossible) {
+      throw new UncheckedIOException(impossible);
+    }
+  }
+
+  /**
    * A PDF of one page with this line of text, in a font whose file and maps the PDF holds, as most
    * PDFs do. The font is the one that PDFBox brings along.
    */
@@ -251,11 +293,38 @@ public final class Pdfs {
    * @param bytes how many bytes the object stream unpacks to
    */
   public static byte[] ofAnObjectStreamThatUnpacksTo(long bytes) {
-    var held =
+    return ofAnObjectStreamThatHolds(
         List.of(
             "<< /Type /Catalog /Pages 3 0 R >>",
             "<< /Type /Pages /Kids [4 0 R] /Count 1 >>",
-            "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 612 792] >>");
+            "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 612 792] >>"),
+        bytes);
+  }
+
+  /**
+   * A PDF of one page without contents, whose catalog, pages, and page are held in an object
+   * stream, and with them a list of empty lists that nothing uses. Each empty list is two bytes
+   * unpacked, and PDFBox makes an object of each as it opens the file.
+   *
+   * @param lists how many empty lists the list holds
+   */
+  public static byte[] ofAnObjectStreamWithAListOfEmptyLists(int lists) {
+    return ofAnObjectStreamThatHolds(
+        List.of(
+            "<< /Type /Catalog /Pages 3 0 R >>",
+            "<< /Type /Pages /Kids [4 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 612 792] >>",
+            "[" + "[]".repeat(lists) + "]"),
+        0);
+  }
+
+  /**
+   * A PDF whose objects from the second on are these, held in an object stream and followed there
+   * by spaces, and whose table of where the objects are is a stream as well.
+   *
+   * @param bytes how many bytes the object stream unpacks to, when the objects are not more
+   */
+  private static byte[] ofAnObjectStreamThatHolds(List<String> held, long bytes) {
     // The stream starts with the number of each object it holds and where in it the object is.
     var where = new StringBuilder();
     var objects = new StringBuilder();
@@ -277,8 +346,9 @@ public final class Pdfs {
       file.write("\nendstream\nendobj\n".getBytes(StandardCharsets.US_ASCII));
       int tableAt = file.size();
       // The table of where the objects are, six bytes for each: object 0 is none, 1 is the object
-      // stream, 2 to 4 are held in it, and 5 is the table.
-      var table = ByteBuffer.allocate(36);
+      // stream, the ones from 2 on are held in it, and the one after them is the table.
+      int all = held.size() + 3;
+      var table = ByteBuffer.allocate(6 * all);
       table.put((byte) 0).putInt(0).put((byte) 0);
       table.put((byte) 1).putInt(streamAt).put((byte) 0);
       for (int index = 0; index < held.size(); index++) {
@@ -286,7 +356,8 @@ public final class Pdfs {
       }
       table.put((byte) 1).putInt(tableAt).put((byte) 0);
       file.write(
-          "5 0 obj\n<< /Type /XRef /Size 6 /W [1 4 1] /Root 2 0 R /Length 36 >>\nstream\n"
+          "%d 0 obj\n<< /Type /XRef /Size %d /W [1 4 1] /Root 2 0 R /Length %d >>\nstream\n"
+              .formatted(all - 1, all, 6 * all)
               .getBytes(StandardCharsets.US_ASCII));
       file.write(table.array());
       file.write(

@@ -41,7 +41,7 @@ import org.apache.pdfbox.text.PDFTextStripper;
 /**
  * Reads the text of an uploaded file. Markdown and plain text are their own text. A PDF's is taken
  * out of it, which anyone's file may make slow or impossible, so it is given a time to be done in
- * and a size to unpack to.
+ * and a size to unpack to, and is read in a process of its own.
  */
 final class DocumentText {
   /** The longest a PDF is read for, its wait for the PDF before it included. */
@@ -95,19 +95,22 @@ final class DocumentText {
       }
       return text;
     }
-    return within(LONGEST_READ, () -> textOfPdf(file));
+    return within(LONGEST_READ, () -> PdfReading.of(file));
   }
 
   /**
    * The text that a reading of a PDF gives, when it gives it within a time.
    *
-   * <p>PDFBox does not stop when it is told to. So a reading whose time is over is left to end by
-   * itself, on a thread of its own that nothing waits for, and the document has failed. One PDF is
-   * read at a time, and a reading that was left behind is that one until it ends: the next PDF
-   * waits for it within its own time, and fails when that is over. So there is never more than one
-   * reading, and a worker that is started again has none.
+   * <p>The reading runs on a thread of its own and is told to stop when its time is over. A PDF is
+   * read by {@linkplain PdfReading a process of its own}, which its reading waits for and ends when
+   * it is told to stop, so nothing of it is left and the document has failed. One PDF is read at a
+   * time. A reading that does not stop when it is told is left to end by itself, on its thread that
+   * nothing waits for, and is that one until it ends: the next PDF waits for it within its own
+   * time, and fails when that is over. So there is never more than one reading.
    *
-   * @throws Unreadable when the reading fails, or the time is over first
+   * @throws Unreadable when the reading says why the file cannot be read, or the time is over first
+   * @throws IllegalStateException when the reading fails in any other way, which is not the file's
+   *     doing: nothing of a PDF is read here
    */
   static String within(Duration longest, Callable<String> text) {
     long over = System.nanoTime() + longest.toNanos();
@@ -135,9 +138,10 @@ final class DocumentText {
         reading.cancel(true);
         throw new Unreadable("It took too long to read.");
       } catch (ExecutionException failed) {
-        throw failed.getCause() instanceof Unreadable unreadable
-            ? unreadable
-            : new Unreadable("It could not be read as a PDF.");
+        if (failed.getCause() instanceof Unreadable unreadable) {
+          throw unreadable;
+        }
+        throw new IllegalStateException("A PDF's reading failed", failed.getCause());
       }
     } catch (InterruptedException interrupted) {
       Thread.currentThread().interrupt();
@@ -145,7 +149,16 @@ final class DocumentText {
     }
   }
 
-  private static String textOfPdf(byte[] file) throws IOException {
+  /**
+   * The text of a PDF, as PDFBox reads it within the limits here. It is run by {@linkplain
+   * PdfReading the process that reads a PDF} and not by the worker, whose heap PDFBox takes nothing
+   * of.
+   *
+   * @throws Unreadable when it has a password, more text than a document may have, or unpacks to
+   *     more than it may
+   * @throws IOException when PDFBox cannot read it
+   */
+  static String textOfPdf(byte[] file) throws IOException {
     var text = new StringWriter();
     // Stops the reading once there is more text than a document may have.
     var bounded =

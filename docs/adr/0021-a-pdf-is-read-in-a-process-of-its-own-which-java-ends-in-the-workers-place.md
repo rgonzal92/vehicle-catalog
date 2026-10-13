@@ -2,13 +2,13 @@
 
 A PDF is read by a second Java process, which the worker starts for that one PDF. The worker gives it the file and takes back the text, or the reason the file cannot be read. That process has a heap of 64 MiB, and Java ends it when its heap is full, as [it ends the worker](0012-the-worker-runs-beside-the-api-on-the-t4g-small-with-a-limit-on-its-heap.md). The worker then fails the document, with "It takes more memory to read than a PDF may.", and goes on to its next job: its own heap never held what PDFBox made of the file. Text and Markdown files are read by the worker itself, as before.
 
-The worker does not read PDFs so yet. Until it does, a small PDF made to fill memory ends the worker three times, as the first trial below found.
+The worker reads PDFs so, and [what the build showed](#what-the-build-showed) is below. Until it did, a small PDF made to fill memory ended the worker three times, as the first trial below found.
 
 What is counted of a PDF is [what it unpacks to](0015-documents-are-searched-in-postgresql-by-what-their-passages-mean.md), and not what PDFBox makes of it in memory. Two files within every limit are known to fill a heap as large as the worker's: one of 1,175 bytes whose font map names a range of 2,147,483,647 codes in one line, and one of 30,554 bytes whose object stream unpacks to 31,000,167 bytes and holds a list of 15.5 million empty lists. PDFBox 3.0.8 has no limit for either. There will be others of the kind, by what a page draws with or by what a font's file says of itself, that nobody has made yet. A process of its own need not know them: whatever fills its heap ends it, and nothing else.
 
-Everything below was tried on 2026-10-12 and 2026-10-13, on the machine with twelve cores that the other measurements were made on, with throwaway programs that are not kept. The two files were made again for it, to the byte counts above.
+Everything below was tried on 2026-10-12 and 2026-10-13, on the machine with twelve cores that the other measurements were made on. Up to [what the build showed](#what-the-build-showed) it was tried with throwaway programs that are not kept, and the two files were made again for it, to the byte counts above.
 
-## What such a PDF does today
+## What such a PDF did while the worker read it itself
 
 Each file was first read once by `DocumentText` in a process of its own with the worker's options, `-XX:MaxHeapSize=192m -XX:+ExitOnOutOfMemoryError`. Each ended it with `Terminating due to java.lang.OutOfMemoryError: Java heap space` and exit code 3, each 0.7 seconds after its process was started.
 
@@ -77,7 +77,7 @@ So the child is given its options on its command line, all of them, and `JAVA_TO
 
 **Against the host's room.** With the two heaps and the cache all at their limits the host has [about 345 MiB to spare](../host-memory-measurements.md). A child at its worst, with its heap full, had 123 MiB resident in the image, so about 220 would be left with every limit reached and a PDF being read. A child of 128 MiB had 181 at its worst from plain jars, which would leave about 160. The worker is not near its own limit while it waits for a child: it holds the file, of 2 MB at most, and the text.
 
-All of this is of a machine with twelve cores and an x86-64 processor. The host has two cores of another kind, and the API's start, which logs 7.7 seconds on this machine, logs about 20 there. By that a child would take well over a second on the host for a small PDF. That is a guess from one ratio, and the host's memory for a child was not measured at all: both are measured on the host when this is built, as [the record of the worker](0012-the-worker-runs-beside-the-api-on-the-t4g-small-with-a-limit-on-its-heap.md) asks for a third process.
+All of this is of a machine with twelve cores and an x86-64 processor. The host has two cores of another kind, and the API's start, which logs 7.7 seconds on this machine, logs about 20 there. By that a child would take well over a second on the host for a small PDF. That is a guess from one ratio, and the host's memory for a child was not measured at all: both are to be measured on the host once it runs the image that holds the child, as [the record of the worker](0012-the-worker-runs-beside-the-api-on-the-t4g-small-with-a-limit-on-its-heap.md) asks for a third process.
 
 ## What a worker without the flag does with the two files
 
@@ -94,6 +94,35 @@ Each file was read in a process with the worker's heap limit and without `-XX:+E
 So a reading that is refused memory does end, its thread ends with it, what it held is given back, and the next PDF is read. But the error does not fall on the reading's thread alone. The font map's range fails by one request for a large table, which leaves the rest of the heap free for everyone else. The list of lists fills the heap to the last small object, and then whichever thread asks next is refused: the thread beside the reading was, twice in one of two runs. It caught the error and went on, because the trial's program had it do so.
 
 What a thread of the worker's own does when it is refused was not tried. [The API's trial](0018-the-apis-heap-is-limited-to-256-mib-chosen-from-reads-of-the-largest-catalog.md) has what one did: a thread the API cannot do without ended, and the API answered nothing for as long as it was left. The worker has such threads too: the ones that send the jobs' messages and wait on the queue, the ones that keep its connections to the database and to AWS, and the server that says whether it is ready.
+
+## What the build showed
+
+Tried on 2026-10-13, on the same machine, with the worker starting the child itself. The tests' `Pdfs` makes the two files, at 1,194 and 30,545 bytes on this machine. The pipeline's run made the first at 1,192.
+
+**From class directories, as the tests run.** There is no jar there, so the child is started by its class's name, with the worker's class path and the same options. Each of the two files failed with "It takes more memory to read than a PDF may.", after 1.2 and 0.4 seconds, and the PDF after each was read in under 0.4 seconds, a tenth of which is the test's own wait. The tests that were there pass as they were. A file that is refused for what it unpacks to now takes about 0.2 seconds to fail, where it took 5 ms, and the PDF after it 0.37 seconds, where it took 0.1: each is a start of Java.
+
+**From the image's jar, on the local stack,** once, with the host's options and restart policy given to the worker. The demo admin uploaded the two files and then a PDF of 6,590 bytes in a font of its own, on the page Documents.
+
+| | The font map's range | The list of lists | The PDF uploaded next |
+|---|---|---|---|
+| What the page said | "Waiting", then "Failed" and "It takes more memory to read than a PDF may." at its look 3.1 seconds after the click on Upload | The same | "Waiting", then "Ready" and "1 passage" at its look after 3.1 seconds |
+| The job | Done in 762 ms, after one try | Done in 708 ms, after one try | Done in 503 ms, after one try |
+
+- The worker's container had the start time it had before, and no restart counted. Its log had one start and no end for want of memory.
+- The queue and the dead-letter queue held no message, before and after.
+- While each PDF was read the container held a second `java` process, started by the worker as the image's user: `/usr/lib/jvm/java-25-amazon-corretto/bin/java -Xmx64m -XX:+ExitOnOutOfMemoryError -XX:TieredStopAtLevel=1 -XX:+UseSerialGC -Dloader.main=dev.rgonz.catalog.document.PdfReading -cp /app/app.jar org.springframework.boot.loader.launch.PropertiesLauncher`.
+
+**What the child has of the environment.** The worker gives it none: not `JAVA_TOOL_OPTIONS`, and not the passwords and keys the worker holds, since the child reads a file anyone may have made. In the image the child was seen to hold one name all the same, `LD_LIBRARY_PATH`, in 105 bytes. Java's launcher there sets it for itself, to Java's own two directories, and starts itself again: a `java` started with an empty environment in a container of the image alone held the same. The child runs as the worker's user. So this keeps the worker's secrets out of what the child is handed, and is not meant as a wall between the two processes: what one process of a user can read of another's was not tried.
+
+**Started as the worker starts it from that jar, with an empty environment, on this machine and outside the image,** one start each. The PDF of 6,590 bytes was read in 501 ms with 90 MiB resident at most. The two files ended the child with 3 after 760 and 659 ms, with 121 and 119 MiB. The figures above, of the trials before the build, were 521 ms and 91 MiB in the image, and 123 and 120 MiB at its worst.
+
+**What the record had left open.**
+
+- A child that cannot be started is no fault of the file: the reading fails as the job's own failure does, and not with a reason for the document. A test holds that. That the job is then tried again is how every other failure of a job goes, and was not run for this one.
+- A child that a signal ended fails its file as one that could not be read as a PDF, and the worker logs how it ended: 137 in the test, for a child that was killed.
+- A reading that was given a tenth of a second for a PDF that takes far longer failed as one that took too long, and its child was gone within a second.
+- The file, the text, and the child's errors each travel on a thread of their own in the worker, so that neither side waits for the other to take what it writes. The worker takes of the child's output the most text a document may have, in bytes, which is 1,440,000. A child that writes more is ended, and its file fails as one that could not be read as a PDF, also when the child had written the last of it and ended with 0 by itself. A test holds both, with a process that writes one byte more and one that writes two million. Such a child is ended through its handle, which leaves the worker's ends of its output and errors open: ended as a process, its errors were closed under the thread that read them, and the reading failed as the job's own failure does. Of its errors the worker passes the first 8 KiB on to its own log, as one warning, and reads the rest without keeping it. No test that is kept reaches that limit. A throwaway one did, with 100,000 bytes of errors: the text came back, with one warning that ended "and 91,808 bytes more that are not kept".
+- A worker that is told to stop while a child reads waits for that job as for any other, within the ten seconds Docker gives it. A child cannot outlast the worker's container, whose processes end with its first. That was reasoned and not tried. What is so outside a container: a job's thread that is interrupted while a child reads gets "It was not read to its end.", as before, and nothing ends its child, which reads on until it is done. A throwaway test saw that child alive half a second later.
 
 ## Considered Options
 
@@ -117,14 +146,14 @@ What a thread of the worker's own does when it is refused was not tried. [The AP
 
 - What is built, and no more:
   - The backend's jar has a second class to start, which reads a PDF from its input and writes the text to its output. It reads as `DocumentText` reads today, with the two limits of 32 MB, the most text a document may have, and what is refused before it is unpacked. PDFBox is no longer run in the worker.
-  - The worker starts it with the Java it runs on itself and `-Xmx64m -XX:+ExitOnOutOfMemoryError -XX:TieredStopAtLevel=1 -XX:+UseSerialGC`, from its own jar through Spring Boot's launcher, with `JAVA_TOOL_OPTIONS` taken out of the child's environment. The image is not changed.
-  - A child that ends with 0 gave the text. One that ends with a code of its own gave the reason, which is one of those a document fails with today. One that Java ended for a full heap, with 3, fails the document with "It takes more memory to read than a PDF may." Any other end fails it as one that could not be read as a PDF.
+  - The worker starts it with the Java it runs on itself and `-Xmx64m -XX:+ExitOnOutOfMemoryError -XX:TieredStopAtLevel=1 -XX:+UseSerialGC`, from its own jar through Spring Boot's launcher, and gives it none of its own environment: `JAVA_TOOL_OPTIONS` is not in it, and neither is anything else the worker holds. Where the worker runs from class directories, as in the tests, the child's class is started by its name. The image is not changed.
+  - A child that ends with 0 gave the text. One that ends with a code of its own gave the reason, which is one of those a document fails with today. One that Java ended for a full heap, with 3, fails the document with "It takes more memory to read than a PDF may." Any other end fails it as one that could not be read as a PDF. A child that cannot be started is no end of a child: it is the job's failure, and not the file's.
   - A child that has not ended when the 30 seconds are over is ended by the worker, and the document fails as one that took too long, as today. No reading is left behind any more, so the next PDF no longer waits for one. One PDF is read at a time, as before.
-  - The child logs to its errors, which the worker passes on to its own log.
+  - The child logs to its errors, and of what PDFBox logs, the warnings and errors. The worker passes the start of them on to its own log.
 - A document that fails so fails once, and for good: the job is done, as for [every file that cannot be read](0015-documents-are-searched-in-postgresql-by-what-their-passages-mean.md). So one such upload costs one child, for a second or two, where it cost three starts of the worker. Nothing reaches the dead-letter queue.
-- Every PDF takes about half a second longer to read, measured here, and more on the host. The page shows a document's status when it next looks, every 3 seconds.
-- While a PDF is read the host holds a third Java process, of 91 MiB for a small PDF and about 123 at its worst, measured in the image on this machine. With every limit reached that leaves about 220 MiB of the 345. If the host's own measurement says it does not fit, this is not built.
+- Every PDF takes about half a second longer to read, measured here, and more on the host. As built, the job of a PDF of 6,590 bytes was done in 503 ms on the local stack, where the job of such a PDF was done in 94 ms when the worker read it itself. The page shows a document's status when it next looks, every 3 seconds.
+- While a PDF is read the host holds a third Java process, of 91 MiB for a small PDF and about 123 at its worst, measured in the image on this machine. With every limit reached that leaves about 220 MiB of the 345. If the host's own measurement says it does not fit, the build is taken back.
 - A PDF that needs more than 64 MiB to be read is refused where the worker's 192 read it. The two files of noughts are, and nothing else that was tried is. The limit is one number on the child's command line.
 - Still open: such an upload takes a child's memory and a second or two of a processor each time, and anyone signed in as the demo's admin can make one. What a child costs the host's two cores while the API answers was not measured.
 - A PDF made to fill memory by a way nobody has thought of ends the child as these two do. Nothing has to be known about it first, and nothing here leans on how PDFBox is built inside. The count of what is unpacked stays, for the files it refuses in milliseconds.
-- When it is built, [the record of documents](0015-documents-are-searched-in-postgresql-by-what-their-passages-mean.md) says what holds for the two files, the tests' `Pdfs` makes both, and [the measurements](../host-memory-measurements.md) have the host with a child on it.
+- [The record of documents](0015-documents-are-searched-in-postgresql-by-what-their-passages-mean.md) says what holds for the two files, and the tests' `Pdfs` makes both. [The measurements](../host-memory-measurements.md) do not have the host with a child on it yet: the host can be measured only once it runs the image that holds the child, and until then every figure here is of this machine.
