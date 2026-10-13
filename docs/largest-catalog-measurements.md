@@ -96,9 +96,9 @@ An Approved version's cells are read in the order of their key, by feature, trim
 
 **Along the key's index the order costs 0.03 ms, and where PostgreSQL sorts, 11 ms.** For a table it has not counted it expects 151 cells of the catalog, finds them through the index, reads them as they are stored, and sorts all 24,000, which takes 11.2 to 11.6 ms on top of the 3 of reading them. Once it has counted the table it reads the cells along the index, in the key's order, and sorts nothing. Told after `ANALYZE` not to read along the index, it sorts again: 13.74 ms where the read alone took 3.10. Read into the application, the Approved version's cells take a median of 17.4 ms sorted where they took 7.5, and 8.4 along the index where they took 8.4.
 
-**So a working copy's cells are read without an order.** Every edit reads the working copy again, nothing goes by the order of its cells, and 11 ms is more than reading them takes. An Approved version's are sorted when PostgreSQL does not read them along the index, which only a read that the cache does not answer pays. The offerings, 96 at most, are read in the order of their key for every catalog.
+**So a working copy's cells are read without an order.** Every edit reads the working copy again, and 11 ms is more than reading them takes. One list goes by the order of its cells: an update from Approved finds its conflicts over cells by going through the working copy's, so two of those conflicts can change places from one read to the next. An Approved version's cells are sorted when PostgreSQL does not read them along the index, which only a read that the cache does not answer pays. The offerings, 96 at most, are read in the order of their key for every catalog.
 
-Inside the test's own process, from `LargestCatalogIT` run alone three times on 2026-10-13:
+Inside the test's own process, from `LargestCatalogIT` run alone on 2026-10-13, once for each column:
 
 | Median | No order | Every catalog's cells in order, which was not kept | An Approved version's cells in order |
 |---|---|---|---|

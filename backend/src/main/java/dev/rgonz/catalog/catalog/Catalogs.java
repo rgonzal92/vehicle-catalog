@@ -378,9 +378,10 @@ class Catalogs {
    * offerings are read in the order of their key, and so are the cells of an Approved version, so
    * that a version reads the same every time, from the database as from the cache: left to itself,
    * PostgreSQL gives rows in one order when it reads along an index and in another when it reads
-   * the table. A working copy's cells are read as PostgreSQL gives them. Nothing goes by their
-   * order, every edit reads them again, and sorting 24,000 of them takes PostgreSQL 11 ms where
-   * reading them takes 3.
+   * the table. A working copy's cells are read as PostgreSQL gives them: every edit reads them
+   * again, and sorting 24,000 of them takes PostgreSQL 11 ms where reading them takes 3. One list
+   * goes by their order: an update from Approved finds its conflicts over cells by going through
+   * the working copy's, so two of those conflicts can change places from one read to the next.
    *
    * @param approved whether the catalog is an Approved version
    */
