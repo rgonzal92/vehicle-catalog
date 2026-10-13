@@ -39,10 +39,11 @@
 			header_up -X-Origin-Secret
 
 			# A request that finds no API to connect to is kept, and the API is asked again four
-			# times a second, for as long as this. That is longer than the API takes to start
-			# again. One try may wait three seconds to connect, so Caddy has given up within 30
-			# seconds, which is how long CloudFront waits for an answer.
-			lb_try_duration 26s
+			# times a second, for as long as this. That is longer than a release leaves the host
+			# without an API, which was 28.5 seconds at the most in the four that were watched.
+			# One try may wait three seconds to connect, so Caddy has given up within 48.25
+			# seconds. CloudFront waits 60 for an answer, as infra/frontend.tf tells it.
+			lb_try_duration 45s
 
 			# A request that reached the API is not sent a second time, and no path is one that
 			# would be. The API ended while it answered: a write may have been saved, and a read

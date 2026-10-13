@@ -313,6 +313,28 @@ run "the_distribution_sends_the_api_to_the_host_and_keeps_nothing_of_it" {
   }
 }
 
+# Caddy keeps a request that finds no API to connect to for as long as its file says. Its last try
+# begins up to a quarter second after that time is over, and may wait three seconds to connect.
+run "a_request_kept_for_the_api_outlasts_a_release_and_is_answered_before_the_distribution_gives_up" {
+  assert {
+    condition = (
+      strcontains(aws_ssm_association.host_stack.parameters.commands, file("../deploy/Caddyfile"))
+      && tonumber(regex("\tlb_try_duration ([0-9]+)s\n", file("../deploy/Caddyfile"))[0]) > 28.5
+    )
+    error_message = "The Caddyfile the host is given keeps a request for longer than a release was seen to leave the host without an API, which was 28.5 seconds at the most."
+  }
+
+  assert {
+    condition = (
+      tonumber(regex("\tlb_try_duration ([0-9]+)s\n", file("../deploy/Caddyfile"))[0]) + 3.25
+      < one([
+        for origin in aws_cloudfront_distribution.site.origin : origin if origin.origin_id == "host"
+      ]).custom_origin_config[0].origin_read_timeout
+    )
+    error_message = "Caddy has given up and answered, three and a quarter seconds after its time is over at the latest, before the distribution stops waiting for the host."
+  }
+}
+
 run "the_key_for_the_language_model_reaches_the_stack_and_is_kept_out_of_terraform" {
   assert {
     condition = (
