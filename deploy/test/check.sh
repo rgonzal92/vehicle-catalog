@@ -132,10 +132,11 @@ offer real - <<EOF
 FROM vehicle-catalog-backend:as-built
 HEALTHCHECK --start-period=1m --start-interval=1s CMD ["true"]
 EOF
-# Says what reached it, and that it is ready whenever it is asked.
+# Says what reached it, and that it is ready whenever it is asked. It writes down every request
+# it answers.
 offer echo - <<EOF
 FROM $caddy_image
-CMD ["caddy", "respond", "--listen", ":8080", "--body", "{http.request.method} {http.request.uri}\nhost: {http.request.host}\ncookie: {http.request.header.Cookie}\nx-probe: {http.request.header.X-Probe}\nsecret: {http.request.header.X-Origin-Secret}\n"]
+CMD ["caddy", "respond", "--listen", ":8080", "--access-log", "--body", "{http.request.method} {http.request.uri}\nhost: {http.request.host}\ncookie: {http.request.header.Cookie}\nx-probe: {http.request.header.X-Probe}\nsecret: {http.request.header.X-Origin-Secret}\n"]
 EOF
 offer stops-at-once - <<EOF
 FROM $caddy_image
@@ -211,19 +212,51 @@ expect "the backend is not sent the secret" yes "$(whether grep -qxF 'secret: ' 
 expect "nothing outside /api is passed on" 404 \
   "$(ask --output /dev/null "${with_secret[@]}" https://origin.test:18443/)"
 
+# What Caddy and the API wrote down from a moment on, shown when a check of the two below fails.
+wrote_down_since() { # the moment
+  docker compose logs --no-color --timestamps --since "$1" caddy backend 2>&1 || true
+}
 # The API stopped and started again, as Docker starts it again when its process has ended. What is
 # asked meanwhile reaches no API, so Caddy keeps it and asks again until there is one to answer.
+# Each request leaves its status in one file and what curl said of an error in another.
+stopped="$(date --utc +%Y-%m-%dT%H:%M:%S.%NZ)"
 quietly docker compose stop backend
-ask --output /dev/null "${with_secret[@]}" https://origin.test:18443/api/things >"$work/read" &
-ask --output /dev/null "${with_secret[@]}" --data 'a=write' https://origin.test:18443/api/things \
-  >"$work/write" &
+ask --show-error --output /dev/null "${with_secret[@]}" https://origin.test:18443/api/things \
+  >"$work/read" 2>"$work/read.error" &
+ask --show-error --output /dev/null "${with_secret[@]}" --data 'a=write' \
+  https://origin.test:18443/api/things >"$work/write" 2>"$work/write.error" &
 sleep 3
 expect "a read and a write asked while the API is stopped are not answered at once" "" \
   "$(cat "$work/read" "$work/write")"
 quietly docker compose start backend
 wait
-expect "and both are answered once the API is started" "200 200" \
-  "$(cat "$work/read" "$work/write" | paste -sd ' ')"
+answered="$(cat "$work/read" "$work/write" | paste -sd ' ')"
+expect "and both are answered once the API is started" "200 200" "$answered"
+if [ "$answered" != "200 200" ]; then
+  for request in read write; do
+    echo "curl said of the $request: $(grep . "$work/$request.error" || echo nothing)"
+  done
+  wrote_down_since "$stopped"
+fi
+
+# Writes, forty at a time. The API here answers a write before Caddy has passed all of it on, and
+# Caddy 2.11.6 ended at that, now and then, with every request it was answering or keeping: the
+# write was answered and the read beside it was not. Docker starts Caddy again and counts it.
+began="$(date --utc +%Y-%m-%dT%H:%M:%S.%NZ)"
+for _ in $(seq 1 10); do
+  for _ in $(seq 1 40); do
+    ask --output /dev/null "${with_secret[@]}" --data 'a=write' https://origin.test:18443/api/things &
+  done
+  wait
+done >"$work/writes"
+ended="$(docker inspect --format '{{.RestartCount}}' "$(docker compose ps --all --quiet caddy)")"
+expect "400 writes at the API, forty at a time, are all answered" "400 200" \
+  "$(sort "$work/writes" | uniq --count | xargs)"
+expect "and Caddy has not ended since the stack was started" 0 "$ended"
+if [ "$ended" != 0 ]; then
+  wrote_down_since "$began" | grep --max-count=1 --after-context=12 'panic: ' || true
+  await_the_stack
+fi
 
 releases "the backend is released" 0 "$registry/backend:real"
 healthy() {

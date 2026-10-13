@@ -8,7 +8,7 @@
 # CloudWatch agent, which runs on the host itself and not in this stack.
 services:
   caddy:
-    image: caddy:2.11.6-alpine
+    image: caddy:2.11.7-alpine
     restart: unless-stopped
     environment:
       ORIGIN_NAME: origin-catalog.rgonz.dev
