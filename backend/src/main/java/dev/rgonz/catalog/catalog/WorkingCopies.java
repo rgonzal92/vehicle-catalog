@@ -11,6 +11,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.List;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -117,17 +118,75 @@ class WorkingCopies {
         .single();
   }
 
-  /** The person's working copies, the one changed last first. */
-  List<WorkingCopy> ownedBy(long ownerId) {
+  /**
+   * The person's working copies, the one changed last first, each with whether it is stale and with
+   * the counts of Errors and Warnings kept for it, when they were kept at the revision it is at and
+   * the revision the library is at.
+   */
+  List<Listed> ownedBy(long ownerId) {
     return jdbc.sql(
-            SUMMARY
-                + """
-                WHERE c.owner_id = :owner AND c.status <> 'APPROVED'
-                ORDER BY c.updated_at DESC, c.id DESC
-                """)
+            """
+            SELECT c.id, c.name, v.name AS vehicle_line, l.model_year, c.status, c.revision,
+                   c.updated_at,
+                   l.current_catalog_id IS NOT NULL
+                       AND l.current_catalog_id IS DISTINCT FROM c.base_catalog_id AS stale,
+                   k.error_count, k.warning_count
+            FROM catalog c
+            JOIN lineage l ON l.id = c.lineage_id
+            JOIN vehicle_line v ON v.id = l.vehicle_line_id
+            LEFT JOIN working_copy_count k
+                ON k.catalog_id = c.id AND k.revision = c.revision
+                AND k.library_revision = (SELECT revision FROM library_state)
+            WHERE c.owner_id = :owner AND c.status <> 'APPROVED'
+            ORDER BY c.updated_at DESC, c.id DESC
+            """)
         .param("owner", ownerId)
-        .query(WorkingCopy.class)
+        .query(
+            (row, number) ->
+                new Listed(
+                    new WorkingCopy(
+                        row.getLong("id"),
+                        row.getString("name"),
+                        row.getString("vehicle_line"),
+                        row.getInt("model_year"),
+                        Status.valueOf(row.getString("status")),
+                        row.getLong("revision"),
+                        row.getTimestamp("updated_at").toInstant()),
+                    row.getBoolean("stale"),
+                    row.getObject("error_count") == null
+                        ? null
+                        : new Counts(row.getLong("error_count"), row.getLong("warning_count"))))
         .list();
+  }
+
+  /**
+   * Keeps a working copy's counts with the revisions they were worked out at. Counts kept at a
+   * later revision of the working copy or of the library are kept instead, and a working copy
+   * deleted since it was read keeps nothing.
+   */
+  void keepCounts(long catalogId, long revision, long libraryRevision, Counts counts) {
+    try {
+      jdbc.sql(
+              """
+              INSERT INTO working_copy_count
+                  (catalog_id, revision, library_revision, error_count, warning_count)
+              VALUES (:catalog, :revision, :library, :errors, :warnings)
+              ON CONFLICT (catalog_id) DO UPDATE
+              SET revision = EXCLUDED.revision, library_revision = EXCLUDED.library_revision,
+                  error_count = EXCLUDED.error_count, warning_count = EXCLUDED.warning_count,
+                  counted_at = now()
+              WHERE working_copy_count.revision <= EXCLUDED.revision
+                AND working_copy_count.library_revision <= EXCLUDED.library_revision
+              """)
+          .param("catalog", catalogId)
+          .param("revision", revision)
+          .param("library", libraryRevision)
+          .param("errors", counts.errors())
+          .param("warnings", counts.warnings())
+          .update();
+    } catch (DataIntegrityViolationException deleted) {
+      // The working copy went between its reading and now, and its counts with it.
+    }
   }
 
   /**
@@ -297,4 +356,16 @@ class WorkingCopies {
       Status status,
       long revision,
       Instant updatedAt) {}
+
+  /**
+   * A working copy as its owner's list has it.
+   *
+   * @param stale whether its base is no longer its lineage's current Approved
+   * @param counts what validation found in it, when that was kept at the revision it is at and the
+   *     one the library is at; null otherwise
+   */
+  record Listed(WorkingCopy copy, boolean stale, Counts counts) {}
+
+  /** How many Errors and how many Warnings validation found in a catalog. */
+  record Counts(long errors, long warnings) {}
 }

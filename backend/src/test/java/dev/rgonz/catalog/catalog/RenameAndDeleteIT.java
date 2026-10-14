@@ -129,6 +129,8 @@ class RenameAndDeleteIT extends WorkingCopyTests {
     jdbc.sql("INSERT INTO submission_summary (catalog_id, revision) VALUES (:catalog, 1)")
         .param("catalog", copy)
         .update();
+    // Its counts of Errors and Warnings, which its owner's list keeps.
+    assertThat(mvc.get().uri("/api/catalogs?scope=mine").with(ana())).hasStatusOk();
     var approved = approved("COMPACT_SUV", 2026, 2);
     var sibling = workingCopy(ben(), "COMPACT_SUV", 2026);
     var lineages = jdbc.sql("SELECT * FROM lineage ORDER BY id").query().listOfRows();
