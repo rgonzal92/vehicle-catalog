@@ -333,17 +333,18 @@ those its history gives, in UTC:
 The topic's counts from 17:02 to 17:07 UTC, asked for by the minute and summed:
 `NumberOfMessagesPublished` 6, one at 17:02, two at 17:04, and one each at 17:05, 17:06, and
 17:07; `NumberOfNotificationsDelivered` 6, in the same minutes; and `NumberOfNotificationsFailed`
-datapoints of 0. The delivery of 17:07 was counted at 17:08:59, about a minute and a half after
-that email was sent. The minute 17:01 has one delivered and nothing published: the email to
-confirm, sent again.
+datapoints of 0. The delivery of 17:07 first showed in an answer at 17:08:59, about a minute and a
+half after that email was sent. The minute 17:01 has one delivered and nothing published: the
+email to confirm, sent again.
 
 ### What the maintainer saw
 
 He answered at about 17:12 UTC on 2026-10-14: all six emails of the trial after the click came,
 all six to his inbox. He pasted two of them, the health alarm's going off and its clearing, and in
 both the alarm's description shows whole, all 884 characters. The other four were counted, and
-not read here. The email opens with a link to the alarm in the console. In the email of a clearing
-the reason is CloudWatch's own, that the alarm's limit was crossed, and not the reason set by hand.
+not read here. Both open with a link to the alarm in the console, and in the clearing one the
+reason is CloudWatch's own, that the alarm's limit was crossed, and not the one set by hand, since
+the alarm returned by itself.
 
 ### What limits this
 
@@ -388,7 +389,7 @@ the disk.
 
 ### The trial's commands
 
-One alarm at a time, with all three `OK` and no Deploy running, set to `ALARM` by hand with a
+One alarm at a time, with all six `OK` and no Deploy running, set to `ALARM` by hand with a
 reason that says it is a trial, and left to return to `OK` by itself:
 
 ```sh
