@@ -481,6 +481,11 @@ Every night at 02:30 UTC the host writes a copy of the database to the bucket
 `rgonz-vehicle-catalog-backups`, named by when it was made. That is half an hour before the demo
 reset, so a backup holds the day's work. A backup is kept for thirty days.
 
+Once the bucket has a backup, the script reports its size in bytes to CloudWatch as `backup.size`,
+which the dashboard draws under The host. A size that cannot be reported leaves the backup in the
+bucket: the journal then says that the database is backed up and that its size was not reported,
+and the run ends without failure.
+
 The host writes backups and does nothing else with them, so one is listed and fetched from a
 workstation. On the host, this says how the last run went and when the next is due, and makes a
 backup now:
@@ -594,17 +599,18 @@ It all goes to Amazon CloudWatch.
   list of twenty working copies, three to a job that checks an Approved version, and about
   twenty-three to a demo reset.
 - **Its metrics** go to the same agent, which publishes them under the namespace
-  `vehicle-catalog` together with two of the host's own. The dashboard `vehicle-catalog` shows
-  them, in groups under headings in the order a fault is looked for: the alarms' states, whether
-  the API is up, requests, catalogs, jobs and queues, the language model, the cache, the host.
+  `vehicle-catalog` together with two of the host's own; the backup script publishes `backup.size`
+  there too ([Backups](#backups)). The dashboard `vehicle-catalog` shows them, in groups under
+  headings in the order a fault is looked for: the alarms' states, whether the API and the worker
+  are up, requests, catalogs, jobs and queues, the language model, the cache, the host.
   `docs/dashboard-and-alarms.md` has the order, each chart's unit, and a picture of each chart of
   metrics before this order and after it. The API sends the first eleven of these and the five of
-  the language model. The worker sends `job.run` and, of the model's, `ai.call`, `ai.tokens`, and
-  `ai.refused`: it calls no tools, and the API says what the day has cost.
+  the language model. The worker sends `worker.health`, `job.run`, and, of the model's, `ai.call`,
+  `ai.tokens`, and `ai.refused`: it calls no tools, and the API says what the day has cost.
 
 | Metric | What it says | Told apart by |
 | --- | --- | --- |
-| `health` | 1 while the backend is ready, 0 while it is not | nothing |
+| `health` | 1 while the API is ready, 0 while it is not | nothing |
 | `http.server.requests` | how many requests there were and how long each took | `outcome`, of which requests ordinarily have four |
 | `jvm.heap.used` | the memory the backend's heap uses | nothing |
 | `catalog.edit` | how long saving an edit of a working copy took | nothing |
@@ -615,6 +621,7 @@ It all goes to Amazon CloudWatch.
 | `catalog.rejected` | how many catalogs were rejected | nothing |
 | `catalog.merged` | how many working copies were updated from Approved | nothing |
 | `cache.read` | how many reads of an Approved version's contents there were | `result`, of which there are three: `hit` when the cache answered, `miss` when it had nothing, `fallback` when it failed |
+| `worker.health` | 1 while the worker is ready, 0 while it is not | nothing |
 | `job.run` | how many jobs the worker handled and how long each took | `type`, of which there are five, and `outcome`: `SUCCESS` or `FAILURE` |
 | `ai.call` | how many requests the language model was sent and how long each took | `purpose`, of which there are five: `RULE_SUGGESTION`, `SUBMISSION_SUMMARY`, `ANALYST`, `DOCUMENT_EMBEDDING`, `QUESTION_EMBEDDING`, and `outcome`: `SUCCESS` or `FAILURE` |
 | `ai.tokens` | how many tokens the model was sent and answered with | `direction`: `in` or `out` |
@@ -623,11 +630,13 @@ It all goes to Amazon CloudWatch.
 | `ai.spent` | what asking the model has come to today, reserved and spent, in US dollars | nothing |
 | `mem_used_percent` | the share of the host's memory in use | nothing |
 | `disk_used_percent` | the share of the host's disk in use | nothing that varies |
+| `backup.size` | the size in bytes of each backup, once the bucket has it | nothing |
 
 CloudWatch counts a metric once for every value of what it is told apart by, which makes up to
-forty-seven of these, seventeen of them the language model's and three the cache's, and charges for
-each one beyond ten: up to thirty-seven, at about $0.30 a month each, which is at most about $11 a
-month. So the backend
+forty-nine of these, seventeen of them the language model's and three the cache's, and charges for
+each one beyond ten: up to thirty-nine, at about $0.30 a month each, which is at most about $12 a
+month. A metric is charged by the hours it is sent in, so `backup.size`, sent in one hour of each
+night, comes to about a cent of that. So the backend
 sends no metric that the alarm or the dashboard does not use: `Telemetry.java` in the backend turns
 down every other. A metric is there once it has first been sent, so the three times and the fourth
 outcome, a request that fails in the backend, appear when there has been one, and `job.run` counts
@@ -674,7 +683,8 @@ What to do, in order:
 It clears by itself some minutes after the API is ready again, three and a half in the one trial.
 
 An API that ends once and is started again is back well within the three minutes the settings ask
-for, and the worker sends no `health` at all, so the alarm says nothing of either. The dashboard's
+for, and the worker's readiness is `worker.health`, which the alarm does not ask for, so the alarm
+says nothing of either. The dashboard's
 chart of starts, beside the one of readiness at the top of the page, does: it counts by the hour how
 often the API and the worker have each started, over the time the dashboard shows. A release is a
 start of each,

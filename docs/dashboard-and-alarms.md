@@ -7,13 +7,13 @@ What the CloudWatch dashboard `vehicle-catalog` shows, in what order, and how ea
 The page reads from top to bottom in the order a fault is looked for. Each group below the first stands under a heading of its own.
 
 1. **The alarms**: one row with the state of every alarm the Terraform makes, three today: `vehicle-catalog-backend-health`, `vehicle-catalog-jobs-failed`, and `vehicle-catalog-jobs-waiting`.
-2. **Is the API up**: whether the API is ready, and the starts of the API and of the worker by the hour, counted from the log.
+2. **Are the API and the worker up**: whether the API is ready and whether the worker is, and the starts of the API and of the worker by the hour, counted from the log.
 3. **Requests**: requests a minute by outcome, and how long a request that succeeds takes.
 4. **Catalogs**: how long saving an edit and copying a catalog take; how long reading a catalog and working out its issues takes; catalogs approved, rejected, and updated from Approved; submits refused by reason.
 5. **Jobs and queues**: jobs a minute by type and outcome; how long a job takes; messages that wait on the jobs' queue and in the dead-letter queue; how long the oldest message has waited, against the 600 seconds at which the alarm goes off.
 6. **The language model**: requests a minute; how long a request takes; tokens in and out; tool calls and refusals; what the day has cost, against the day's allowance.
 7. **The cache**: reads of an Approved version's contents by how the cache answered, and the share of those reads the cache answered.
-8. **The host**: the share of its memory and disk in use; its processor time and the credits it has saved up; the API's heap, against the most it may grow to.
+8. **The host**: the share of its memory and disk in use; its processor time and the credits it has saved up; the API's heap, against the most it may grow to; the size of each backup of the database.
 
 Every chart says in its title what it measures and, where the figures have one, in what unit. Every chart of metrics names its left axis after its unit, and the host's processor chart its right one too, in place of what CloudWatch would say there. Every line that is drawn has a label of its own. A line is drawn at each limit, read from where the limit is set: the alarm's threshold for the oldest message, the API's heap in `deploy/compose.yaml`, and `app.ai.allowance.daily` in `backend/src/main/resources/application.properties`.
 

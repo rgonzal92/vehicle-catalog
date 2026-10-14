@@ -205,7 +205,7 @@ run "the_pipeline_plans_with_the_topic_in_place" {
 run "every_metric_that_is_sent_is_looked_at" {
   assert {
     # Tests in backend/ hold the API to the first eleven and the last five, and the worker to
-    # job.run and the model's requests, tokens, and refusals.
+    # worker.health, job.run, and the model's requests, tokens, and refusals.
     condition = alltrue([
       for metric in [
         "health",
@@ -219,6 +219,7 @@ run "every_metric_that_is_sent_is_looked_at" {
         "catalog.rejected",
         "catalog.merged",
         "cache.read",
+        "worker.health",
         "job.run",
         "ai.call",
         "ai.tokens",
@@ -232,6 +233,30 @@ run "every_metric_that_is_sent_is_looked_at" {
       ])
     ])
     error_message = "The dashboard shows each of the backend's metrics, found in the app's namespace by its name."
+  }
+
+  assert {
+    condition = one([
+      for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+      [for metric in widget.properties.metrics : metric[0].expression]
+      if strcontains(jsonencode(try(widget.properties.metrics, [])), "MetricName=\\\"health\\\"")
+      ]) == [
+      "SEARCH('Namespace=\"vehicle-catalog\" MetricName=\"health\"', 'Minimum', 60)",
+      "SEARCH('Namespace=\"vehicle-catalog\" MetricName=\"worker.health\"', 'Minimum', 60)",
+    ]
+    error_message = "One chart shows whether the API is ready and whether the worker is, each by the least it said in a minute."
+  }
+
+  assert {
+    # backup.sh sends the size with no labels, and the agent adds none to what it does not send, so
+    # the chart names the metric outright.
+    condition = one([
+      for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets : [
+        for line in widget.properties.metrics : slice(line, 0, length(line) - 1)
+        if try(line[1], null) == "backup.size"
+      ] if strcontains(jsonencode(try(widget.properties.metrics, [])), "\"backup.size\"")
+    ]) == [["vehicle-catalog", "backup.size"]]
+    error_message = "The dashboard shows the size of each backup, by the metric's name in the app's namespace and nothing else."
   }
 
   assert {
@@ -330,7 +355,7 @@ run "every_chart_says_what_it_measures_and_stands_where_a_fault_is_looked_for" {
       ])
       ] == [
       "the alarms",
-      "## Is the API up",
+      "## Are the API and the worker up",
       "health Minimum",
       "the starts",
       "## Requests",
@@ -359,8 +384,9 @@ run "every_chart_says_what_it_measures_and_stands_where_a_fault_is_looked_for" {
       "mem_used_percent",
       "CPUUtilization",
       "jvm.heap.used Average",
+      "backup.size",
     ]
-    error_message = "The page reads in the order a fault is looked for: the alarms, then whether the API is up, requests, catalogs, jobs and queues, the language model, the cache, and the host, each group under a heading of its own."
+    error_message = "The page reads in the order a fault is looked for: the alarms, then whether the API and the worker are up, requests, catalogs, jobs and queues, the language model, the cache, and the host, each group under a heading of its own."
   }
 
   assert {

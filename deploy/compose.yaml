@@ -110,8 +110,8 @@ services:
       CACHE_HOST: cache
       CACHE_PASSWORD: ${CACHE_PASSWORD:?The cache's password is not set}
       LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
-      # Its traces go to the agent, as the API's do, and so does its one metric: how long each job
-      # took.
+      # Its traces go to the agent, as the API's do, and so do its metrics: whether it is ready,
+      # how long each job took, and what a job asks of the language model.
       MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "true"
       MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://host.docker.internal:4318/v1/metrics
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://host.docker.internal:4328/v1/traces

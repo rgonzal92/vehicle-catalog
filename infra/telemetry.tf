@@ -70,8 +70,9 @@ resource "aws_cloudwatch_log_resource_policy" "spans" {
   })
 }
 
-# What reporting takes: the host writes the backend's log, and its CloudWatch agent publishes
-# metrics under the app's namespace and sends traces. It does none of this anywhere else.
+# What reporting takes: the host writes the backend's log, its CloudWatch agent publishes metrics
+# under the app's namespace and sends traces, and its backup script publishes each backup's size
+# under the same namespace. It does none of this anywhere else.
 resource "aws_iam_role_policy" "host_report" {
   name = "report"
   role = aws_iam_role.host.id
@@ -152,9 +153,10 @@ resource "aws_cloudwatch_metric_alarm" "backend_health" {
 }
 
 # The page reads from top to bottom in the order a fault is looked for: the alarms' states, then
-# under a heading each whether the API is up, requests, catalogs, jobs and queues, the language
-# model, the cache, and the host. The backend's metrics are found by name, as the alarm finds its
-# own. The host's processor time is among them at no charge: EC2 reports it for every machine.
+# under a heading each whether the API and the worker are up, requests, catalogs, jobs and queues,
+# the language model, the cache, and the host. The backend's metrics are found by name, as the
+# alarm finds its own. The host's processor time is among them at no charge: EC2 reports it for
+# every machine.
 # Every chart says what it measures and in what unit, names its axis after the unit in place of
 # what CloudWatch would say there, and gives each line a label of its own; a line is drawn where a
 # limit is set. The page is 24 columns wide and a chart stands 12 of them.
@@ -178,20 +180,27 @@ resource "aws_cloudwatch_dashboard" "backend" {
       },
       {
         type       = "text", x = 0, y = 4, width = 24, height = 1
-        properties = { markdown = "## Is the API up" }
+        properties = { markdown = "## Are the API and the worker up" }
       },
       {
         type = "metric", x = 0, y = 5, width = 12, height = 6
         properties = {
-          title  = "Whether the API is ready (1) or not (0)"
+          title  = "Whether the API and the worker are ready (1) or not (0)"
           region = data.aws_region.current.region
           view   = "timeSeries"
           period = 60
-          metrics = [[{
-            expression = "SEARCH('${local.backend_metric} MetricName=\"health\"', 'Minimum', 60)"
-            id         = "health"
-            label      = "ready"
-          }]]
+          metrics = [
+            [{
+              expression = "SEARCH('${local.backend_metric} MetricName=\"health\"', 'Minimum', 60)"
+              id         = "health"
+              label      = "API ready"
+            }],
+            [{
+              expression = "SEARCH('${local.backend_metric} MetricName=\"worker.health\"', 'Minimum', 60)"
+              id         = "worker"
+              label      = "worker ready"
+            }],
+          ]
           yAxis = { left = { label = "1 ready, 0 not", showUnits = false } }
         }
       },
@@ -608,6 +617,25 @@ resource "aws_cloudwatch_dashboard" "backend" {
           annotations = {
             horizontal = [{ label = "the most it may grow to", value = local.api_heap_mib }]
           }
+        }
+      },
+      # deploy/backup.sh sends the size of each backup once the bucket has it, with no labels, so
+      # the chart names the metric outright. One point a night, in the bytes the bucket lists, so
+      # the chart shows the last seven days whatever the page shows: a page of three hours would
+      # show one point or none.
+      {
+        type = "metric", x = 12, y = 77, width = 12, height = 6
+        properties = {
+          title  = "Size of each backup of the database, in bytes"
+          region = data.aws_region.current.region
+          view   = "timeSeries"
+          stat   = "Maximum"
+          period = 3600
+          start  = "-P7D"
+          metrics = [
+            [local.telemetry_namespace, "backup.size", { label = "backup" }],
+          ]
+          yAxis = { left = { label = "bytes", showUnits = false } }
         }
       },
     ]
