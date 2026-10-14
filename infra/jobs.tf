@@ -66,12 +66,13 @@ resource "aws_cloudwatch_metric_alarm" "jobs_failed" {
 # worker that runs and is stuck, one that stopped with a message still on the queue, or one that
 # works and has more jobs than it gets through. A worker that stopped with the queue empty does not
 # set it off: the worker is also what sends the messages, so new jobs then wait in the database and
-# nothing reaches the queue. A message whose job fails is delivered three times, two minutes apart,
+# nothing reaches the queue; the worker's alarm in telemetry.tf, vehicle-catalog-worker-health,
+# notices a stopped worker. A message whose job fails is delivered three times, two minutes apart,
 # and has left the queue well before that. Like the alarm above, it emails the maintainer when it
 # goes off and when it clears, and SQS reports what it watches at no charge.
 resource "aws_cloudwatch_metric_alarm" "jobs_waiting" {
   alarm_name        = "vehicle-catalog-jobs-waiting"
-  alarm_description = "A message has been on the jobs' queue for more than ten minutes. That is a worker that runs and is stuck, one that stopped with a message still on the queue, or one that works and has more jobs than it gets through. A worker that stopped with the queue empty does not set it off: new jobs then wait in the database and nothing reaches the queue. First, see whether the worker runs and what its log says, under the stream worker of the log group /vehicle-catalog/backend, then how many messages wait on the queue. It clears by itself once no message on the queue is that old. infra/README.md has the commands under this alarm's name."
+  alarm_description = "A message has been on the jobs' queue for more than ten minutes. That is a worker that runs and is stuck, one that stopped with a message still on the queue, or one that works and has more jobs than it gets through. A worker that stopped with the queue empty does not set it off: new jobs then wait in the database and nothing reaches the queue, and the alarm vehicle-catalog-worker-health notices the worker. First, see whether the worker runs and what its log says, under the stream worker of the log group /vehicle-catalog/backend, then how many messages wait on the queue. It clears by itself once no message on the queue is that old. infra/README.md has the commands under this alarm's name."
 
   alarm_actions = [aws_sns_topic.alarms.arn]
   ok_actions    = [aws_sns_topic.alarms.arn]
