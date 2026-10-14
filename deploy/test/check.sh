@@ -3,8 +3,9 @@
 # authority, the image registry, Parameter Store, the CloudWatch agent, and the queue of the jobs,
 # and checks what it does: who is answered, how an image is released, what happens to one that
 # does not come up healthy, what the backend reports of itself, that the worker does a job, that
-# the key for the language model reaches the stack when there is one, and that the cache asks for
-# its password and is not waited for.
+# the key for the language model reaches the stack when there is one, that the cache asks for
+# its password and is not waited for, and that a backup is put back on a machine of its own and
+# over the stack's own database.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 
@@ -28,6 +29,8 @@ without_secrets() {
   ORIGIN_SECRET=unused DATABASE_PASSWORD=unused OIDC_CLIENT_SECRET=unused CACHE_PASSWORD=unused "$@"
 }
 trap 'without_secrets docker compose down --volumes >/dev/null 2>&1
+  docker ps --all --quiet --filter name=restore-catalog- | xargs --no-run-if-empty docker rm --force >/dev/null 2>&1
+  docker network ls --quiet --filter name=restore-catalog- | xargs --no-run-if-empty docker network rm >/dev/null 2>&1
   docker rmi --force vehicle-catalog-backend:current vehicle-catalog-backend:previous \
     vehicle-catalog-backend:as-built >/dev/null 2>&1
   rm -rf "$work"' EXIT
@@ -428,7 +431,9 @@ for image in stops-at-once never-gets-ready has-a-worker-that-never-gets-ready; 
   expect "and the image that failed is not kept" no "$(kept "$image")"
 done
 
-# A backup, and what is in it put back into a database of its own.
+# A backup, and what is in it put back by the restore script as on a clean machine: into an empty
+# database of its own, with the API started on it. The stand-in for the AWS CLI answers the fetch
+# with what was sent to the bucket.
 export BACKUPS="$work/backups"
 mkdir "$BACKUPS"
 # Where the stand-in writes down each size a backup reports.
@@ -445,12 +450,72 @@ expect "as one file, named by when it was made" 1 \
 expect "and reports its size once, under the app's namespace, in the bytes of the file it sent" \
   "--namespace $(jq --raw-output .metrics.namespace agent.json) --metric-name backup.size --value $(stat --format %s "$(find "$BACKUPS" -name '*.dump')")" \
   "$(cat "$REPORTED")"
-quietly docker compose exec -T db createdb --username catalog put-back
-quietly docker compose exec -T db pg_restore --username catalog --dbname put-back --no-owner \
-  <"$(find "$BACKUPS" -name '*.dump')"
-expect "a backup put back holds what the database held" 7 \
-  "$(docker compose exec -T db psql --username catalog --dbname put-back --tuples-only --no-align \
-    --command 'SELECT it FROM kept_by_the_check' 2>&1)"
+backup="$(basename "$(find "$BACKUPS" -name '*.dump')")"
+quietly in_the_database 'INSERT INTO kept_by_the_check VALUES (8)'
+# The database's image as the stack's file names it, and the backend's image from the registry, as
+# the clean machine is given them.
+restored=0
+DATABASE_IMAGE="$(jq --raw-output .services.db.image <<<"$(without_secrets docker compose config --format json)")" \
+  ./restore.sh a-bucket "$backup" "$registry/backend:real" >"$work/restore.log" 2>&1 || restored=$?
+expect "the restore script puts the backup back into an empty database and starts the API on it" 0 "$restored"
+if [ "$restored" != 0 ]; then
+  cat "$work/restore.log"
+fi
+# What the script timed, for the record of a restore.
+grep -E ' in [0-9.]+ s\.$' "$work/restore.log" | sed 's/^/  /'
+expect "and says that pg_restore ended with 0" yes \
+  "$(whether grep -qx 'pg_restore ended with 0.' "$work/restore.log")"
+put_back() { # what to ask the database the script started
+  docker exec --interactive "restore-${backup%.dump}-db" psql --username catalog --dbname catalog \
+    --tuples-only --no-align --command "$1" 2>&1
+}
+expect "a row made before the backup is there, and one made after it is not" 7 \
+  "$(put_back "SELECT string_agg(it::text, ' ' ORDER BY it) FROM kept_by_the_check")"
+expect "and the script counted the rows of that table, and the migrations" "kept_by_the_check 1 yes" \
+  "$(grep -x 'kept_by_the_check [0-9]*' "$work/restore.log") $(whether grep -qx '1 1 people and sessions t' "$work/restore.log")"
+restored_api() { # the path, then anything else curl is to be told
+  curl --silent --max-time 5 "${@:2}" "http://127.0.0.1:18090$1"
+}
+expect "the API it started is ready, and says its database is up" "200 UP" \
+  "$(restored_api /api/health/readiness --output /dev/null --write-out '%{http_code}') $(restored_api /api/health |
+    jq --raw-output .components.db.status)"
+told="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "restore-${backup%.dump}-api")"
+expect "that API is told of no queue, bucket, cache, user pool, or key, and its demo reset is off" \
+  "0 APP_DEMORESET_CRON=-" \
+  "$(grep -cE 'QUEUE|BUCKET|CACHE|POOL|KEY' <<<"$told" || true) $(grep '^APP_DEMORESET_CRON=' <<<"$told")"
+quietly docker rm --force "restore-${backup%.dump}-api" "restore-${backup%.dump}-db"
+quietly docker network rm "restore-${backup%.dump}"
+quietly docker rmi "$registry/backend:real"
+expect "and nothing of it is left behind" "" \
+  "$(docker ps --all --quiet --filter "name=restore-${backup%.dump}")$(docker network ls --quiet --filter "name=restore-${backup%.dump}")"
+
+# The backup put back over this stack's own database, with the commands infra/README.md gives for
+# the host's, but for the file's name: the API and the worker stopped, the backup put back, the
+# cache started anew, and both started. The row made after the backup is gone with it.
+set +e
+(
+  set -e
+  docker compose stop backend worker
+  docker compose exec -T db pg_restore --username catalog --dbname catalog --clean --if-exists --no-owner <"$BACKUPS/$backup"
+  docker compose up --detach --force-recreate --no-deps cache
+  docker compose start backend worker
+) >"$work/put-back.log" 2>&1
+put_back_over=$?
+set -e
+expect "the README's commands put the backup back over the stack's own database" 0 "$put_back_over"
+if [ "$put_back_over" != 0 ]; then
+  cat "$work/put-back.log"
+fi
+for _ in $(seq 1 90); do
+  [ "$(healthy)" = yes ] && asks_the_worker /api/health/readiness && break
+  sleep 1
+done
+expect "after them the API is healthy, and the worker" "yes yes" \
+  "$(healthy) $(whether asks_the_worker /api/health/readiness)"
+expect "and the row made after the backup is gone" 7 \
+  "$(in_the_database "SELECT string_agg(it::text, ' ' ORDER BY it) FROM kept_by_the_check")"
+
+# A backup that fails, and one whose size cannot be reported.
 backs_up "a backup that cannot be sent ends in failure" 1 a-bucket-that-refuses
 expect "and says that it failed" yes \
   "$(whether grep -qx 'The database was not backed up.' "$work/backup.log")"
