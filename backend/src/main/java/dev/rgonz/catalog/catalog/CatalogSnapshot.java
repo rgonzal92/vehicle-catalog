@@ -38,16 +38,22 @@ record CatalogSnapshot(
 
   /** The catalog's offerings as its matrix has them: region by region, and trims in order. */
   List<Offering> offeringsInOrder() {
+    return offerings.stream().sorted(matrixOrder(regions, trims)).toList();
+  }
+
+  /**
+   * The matrix's order of offerings: region by region, in the order of the regions given, and
+   * within a region by the trim's place and then by its id. For offerings of those regions and
+   * trims alone.
+   */
+  static Comparator<Offering> matrixOrder(List<Region> regions, List<Trim> trims) {
     var regionPlaces = new HashMap<String, Integer>();
     regions.forEach(region -> regionPlaces.put(region.code(), regionPlaces.size()));
     var trimPlaces = new HashMap<Long, Integer>();
     trims.forEach(trim -> trimPlaces.put(trim.id(), trim.sortOrder()));
-    return offerings.stream()
-        .sorted(
-            Comparator.comparing((Offering offering) -> regionPlaces.get(offering.regionCode()))
-                .thenComparing(offering -> trimPlaces.get(offering.trimId()))
-                .thenComparing(Offering::trimId))
-        .toList();
+    return Comparator.comparing((Offering offering) -> regionPlaces.get(offering.regionCode()))
+        .thenComparing(offering -> trimPlaces.get(offering.trimId()))
+        .thenComparing(Offering::trimId);
   }
 
   /** Whether a catalog is a working copy, in Draft or Submitted, or an Approved version. */

@@ -1,6 +1,7 @@
 package dev.rgonz.catalog.catalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertAll;
 
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Availability;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Cell;
@@ -14,6 +15,8 @@ import dev.rgonz.catalog.catalog.Merge.Conflict;
 import dev.rgonz.catalog.catalog.Merge.Side;
 import dev.rgonz.catalog.library.RuleKind;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +40,13 @@ class MergeTest {
   private static final Trim BASE = new Trim(1, "Base", 1);
   private static final Trim SPORT = new Trim(2, "Sport", 2);
   private static final Trim TOURING = new Trim(3, "Touring", 3);
+
+  /** Before Base by its place, after it by its id. */
+  private static final Trim ENTRY = new Trim(4, "Entry", 0);
+
+  /** At Sport's place, with a higher id. */
+  private static final Trim RALLY = new Trim(5, "Rally", 2);
+
   private static final Region NORTH_AMERICA = new Region("NA", "North America");
   private static final Region EUROPE = new Region("EU", "Europe");
   private static final Region ASIA = new Region("ASIA", "Asia");
@@ -739,5 +749,135 @@ class MergeTest {
 
     assertThat(merge.conflicts()).isEmpty();
     assertThat(merge.merged().trims()).containsExactly(BASE, SPORT);
+  }
+
+  /**
+   * The catalog's offerings and cells in the order of their keys, as the database can give them.
+   */
+  private static void inKeyOrder(Contents contents) {
+    contents.offerings.sort(
+        Comparator.comparing(Offering::trimId).thenComparing(Offering::regionCode));
+    contents.cells.sort(
+        Comparator.comparing(Cell::featureId)
+            .thenComparing(Cell::trimId)
+            .thenComparing(Cell::regionCode));
+  }
+
+  @Test
+  void conflictsComeInTheSameOrderWhateverOrderMinesCellsAndOfferingsAreHandedOverIn() {
+    Consumer<Contents> sold = contents -> contents.sell(SPORT, EUROPE);
+    var base = catalog(sold);
+    var theirs =
+        catalog(
+            sold.andThen(
+                contents -> {
+                  contents.stopSelling(BASE, EUROPE);
+                  contents.stopSelling(SPORT, EUROPE);
+                  contents.set(TOW, BASE, NORTH_AMERICA, Availability.A);
+                  contents.set(HITCH, SPORT, NORTH_AMERICA, Availability.N);
+                }));
+    // Mine keeps both offerings in Europe with a cell changed beneath each, and sets the two cells
+    // in North America otherwise than theirs.
+    Consumer<Contents> mine =
+        sold.andThen(
+                contents -> {
+                  contents.set(COOLING, BASE, EUROPE, Availability.A);
+                  contents.set(TOW, SPORT, EUROPE, Availability.S);
+                  contents.set(TOW, BASE, NORTH_AMERICA, Availability.S);
+                  contents.set(HITCH, SPORT, NORTH_AMERICA, Availability.A);
+                })
+            .andThen(MergeTest::inKeyOrder);
+
+    var first = ids(Merge.of(base, catalog(mine), theirs, Map.of()));
+    var cellsLastFirst =
+        ids(
+            Merge.of(
+                base,
+                catalog(mine.andThen(contents -> Collections.reverse(contents.cells))),
+                theirs,
+                Map.of()));
+    var offeringsLastFirst =
+        ids(
+            Merge.of(
+                base,
+                catalog(mine.andThen(contents -> Collections.reverse(contents.offerings))),
+                theirs,
+                Map.of()));
+
+    assertThat(first)
+        .containsExactlyInAnyOrder("offering:1:EU", "offering:2:EU", "cell:8:1:NA", "cell:9:2:NA");
+    assertAll(
+        () ->
+            assertThat(cellsLastFirst)
+                .as("with mine's cells handed over the last first")
+                .isEqualTo(first),
+        () ->
+            assertThat(offeringsLastFirst)
+                .as("with mine's offerings handed over the last first")
+                .isEqualTo(first));
+  }
+
+  @Test
+  void conflictsOverOfferingsComeAsTheMatrixHasItsColumnsAndOverCellsByFeatureCodeThenOffering() {
+    Consumer<Contents> sold =
+        contents -> {
+          contents.trims.addAll(List.of(ENTRY, RALLY));
+          contents.sell(ENTRY, NORTH_AMERICA);
+          contents.sell(RALLY, NORTH_AMERICA);
+          contents.sell(ENTRY, EUROPE);
+          contents.sell(SPORT, EUROPE);
+        };
+    var base = catalog(sold);
+    // Mine stops selling Base in North America, keeps four offerings theirs stops selling with a
+    // cell changed beneath each, and sets four cells in the other two offerings otherwise than
+    // theirs.
+    var mine =
+        catalog(
+            sold.andThen(
+                contents -> {
+                  contents.stopSelling(BASE, NORTH_AMERICA);
+                  contents.set(TOW, SPORT, NORTH_AMERICA, Availability.S);
+                  contents.set(TOW, RALLY, NORTH_AMERICA, Availability.S);
+                  contents.set(TOW, ENTRY, EUROPE, Availability.S);
+                  contents.set(TOW, BASE, EUROPE, Availability.S);
+                  contents.set(COOLING, ENTRY, NORTH_AMERICA, Availability.A);
+                  contents.set(COOLING, SPORT, EUROPE, Availability.A);
+                  contents.set(TOW, ENTRY, NORTH_AMERICA, Availability.A);
+                  contents.set(TOW, SPORT, EUROPE, Availability.A);
+                  // Handed over with the higher trim id first.
+                  Collections.reverse(contents.offerings);
+                }));
+    var theirs =
+        catalog(
+            sold.andThen(
+                contents -> {
+                  contents.set(TOW, BASE, NORTH_AMERICA, Availability.S);
+                  contents.stopSelling(SPORT, NORTH_AMERICA);
+                  contents.stopSelling(RALLY, NORTH_AMERICA);
+                  contents.stopSelling(ENTRY, EUROPE);
+                  contents.stopSelling(BASE, EUROPE);
+                  contents.set(COOLING, ENTRY, NORTH_AMERICA, Availability.S);
+                  contents.set(COOLING, SPORT, EUROPE, Availability.S);
+                  contents.set(TOW, ENTRY, NORTH_AMERICA, Availability.S);
+                  contents.set(TOW, SPORT, EUROPE, Availability.S);
+                }));
+
+    var merge = Merge.of(base, mine, theirs, Map.of());
+
+    // Base in North America, which the merged catalog lacks, stands by its region and its trim;
+    // Sport before Rally by its id; Entry before Base in Europe by its place. The cells go by the
+    // code, COOLING before PACKAGE_TOW, and then by the offering.
+    assertThat(merge.merged().offerings()).doesNotContain(new Offering(1, "NA"));
+    assertThat(ids(merge))
+        .containsExactly(
+            "offering:1:NA",
+            "offering:2:NA",
+            "offering:5:NA",
+            "offering:4:EU",
+            "offering:1:EU",
+            "cell:10:4:NA",
+            "cell:10:2:EU",
+            "cell:8:4:NA",
+            "cell:8:2:EU");
   }
 }

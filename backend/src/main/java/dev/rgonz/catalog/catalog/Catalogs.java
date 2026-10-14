@@ -379,9 +379,10 @@ class Catalogs {
    * that a version reads the same every time, from the database as from the cache: left to itself,
    * PostgreSQL gives rows in one order when it reads along an index and in another when it reads
    * the table. A working copy's cells are read as PostgreSQL gives them: every edit reads them
-   * again, and sorting 24,000 of them takes PostgreSQL 11 ms where reading them takes 3. One list
-   * goes by their order: an update from Approved finds its conflicts over cells by going through
-   * the working copy's, so two of those conflicts can change places from one read to the next.
+   * again, and sorting 24,000 of them takes PostgreSQL 11 ms where reading them takes 3. Nothing
+   * goes by their order: an update from Approved lists its conflicts in an order of its own, by the
+   * feature's code and then by the offering as the matrix has them, and everything else looks the
+   * cells up.
    *
    * @param approved whether the catalog is an Approved version
    */

@@ -76,9 +76,15 @@ final class Merge {
    * What a merge comes to.
    *
    * @param merged the working copy's contents after the update, with the labels the working copy
-   *     shows where it has them
+   *     shows where it has them, its offerings in the matrix's order and its cells by the code of
+   *     the feature and then by the offering in that order
    * @param conflicts every conflict, settled or not, in the order a catalog is read: trims,
-   *     regions, offerings, feature rows, cells, rules
+   *     regions, offerings, feature rows, cells, rules. Within a kind, the same every time the same
+   *     catalogs are merged: trims, regions, feature rows, and rules as the working copy has them
+   *     and then what only the Approved version has; offerings region by region as the merged
+   *     catalog has its regions, and within a region by the trim's place and then by its id, an
+   *     offering the merged catalog lacks by its region and its trim like every other; cells by the
+   *     code of the feature and then by the offering in that same order
    */
   record Result(CatalogSnapshot merged, List<Conflict> conflicts) {
     /** The conflicts the owner has still to settle. */
@@ -253,11 +259,23 @@ final class Merge {
           regions.add(region);
         }
       }
-      for (Offering offering : union(side -> side.offerings)) {
-        // An offering goes with its trim and with its region.
-        if (!trims.contains(offering.trimId()) || !regions.contains(offering.regionCode())) {
-          continue;
-        }
+      var trimsInOrder =
+          trims.stream()
+              .map(id -> labelled(side -> side.trims.get(id)))
+              .sorted(Comparator.comparing(Trim::sortOrder).thenComparing(Trim::id))
+              .toList();
+      var regionsInOrder =
+          regions.stream().map(code -> labelled(side -> side.regions.get(code))).toList();
+      // An offering goes with its trim and with its region. Those that have both are taken in the
+      // matrix's order, so that the conflicts over them are listed in it.
+      var offeringsInOrder =
+          union(side -> side.offerings).stream()
+              .filter(
+                  offering ->
+                      trims.contains(offering.trimId()) && regions.contains(offering.regionCode()))
+              .sorted(CatalogSnapshot.matrixOrder(regionsInOrder, trimsInOrder))
+              .toList();
+      for (Offering offering : offeringsInOrder) {
         var above = settledAbove("trim:" + offering.trimId(), "region:" + offering.regionCode());
         boolean kept =
             above.present()
@@ -295,9 +313,15 @@ final class Merge {
         }
       }
 
-      var cells = cells();
+      var featuresInOrder =
+          features.stream()
+              .map(id -> labelled(side -> side.features.get(id)))
+              .sorted(Comparator.comparing(FeatureRow::code))
+              .toList();
+      var cells = cells(featuresInOrder);
       var rules = rules();
-      // Listed as a catalog is read, whatever order they were found in.
+      // Listed as a catalog is read, whatever order the kinds were found in. Within a kind they
+      // stay in the order they were found in, which is the order the walks above give them.
       conflicts.sort(Comparator.comparing(Conflict::kind));
 
       return new Result(
@@ -306,16 +330,10 @@ final class Merge {
               mine.snapshot.lineageId(),
               mine.snapshot.status(),
               mine.snapshot.revision(),
-              trims.stream()
-                  .map(id -> labelled(side -> side.trims.get(id)))
-                  .sorted(Comparator.comparing(Trim::sortOrder).thenComparing(Trim::id))
-                  .toList(),
-              regions.stream().map(code -> labelled(side -> side.regions.get(code))).toList(),
+              trimsInOrder,
+              regionsInOrder,
               List.copyOf(offerings),
-              features.stream()
-                  .map(id -> labelled(side -> side.features.get(id)))
-                  .sorted(Comparator.comparing(FeatureRow::code))
-                  .toList(),
+              featuresInOrder,
               cells,
               rules),
           List.copyOf(conflicts));
@@ -402,34 +420,32 @@ final class Merge {
     }
 
     /**
-     * The merged cells. A cell goes with its feature row and with its offering. Beneath something
-     * whose removal was a conflict it is as the side that conflict was settled for has it, and
-     * otherwise it is merged by its availability.
+     * The merged cells. A cell goes with its feature row and with its offering, so the merged
+     * feature rows are walked in their order and the merged offerings in theirs, which lists the
+     * conflicts over cells in that order whatever order the three catalogs' cells came in. Beneath
+     * something whose removal was a conflict a cell is as the side that conflict was settled for
+     * has it, and otherwise it is merged by its availability.
      */
-    private List<Cell> cells() {
-      var keys = new LinkedHashSet<CellKey>();
-      for (var side : List.of(mine, theirs, base)) {
-        keys.addAll(side.cells.keySet());
-      }
+    private List<Cell> cells(List<FeatureRow> featuresInOrder) {
       var merged = new ArrayList<Cell>();
-      for (CellKey key : keys) {
-        if (!features.contains(key.featureId()) || !offerings.contains(key.offering())) {
-          continue;
-        }
-        var above =
-            settledAbove(
-                "feature:" + key.featureId(),
-                "offering:" + key.trimId() + ":" + key.regionCode(),
-                "trim:" + key.trimId(),
-                "region:" + key.regionCode());
-        Availability value;
-        if (above.present()) {
-          value = above.isOpen() ? mine.value(key) : side(above.side()).value(key);
-        } else {
-          value = cell(key);
-        }
-        if (value != Availability.N) {
-          merged.add(new Cell(key.featureId(), key.trimId(), key.regionCode(), value));
+      for (FeatureRow feature : featuresInOrder) {
+        for (Offering offering : offerings) {
+          var key = new CellKey(feature.id(), offering.trimId(), offering.regionCode());
+          var above =
+              settledAbove(
+                  "feature:" + key.featureId(),
+                  "offering:" + key.trimId() + ":" + key.regionCode(),
+                  "trim:" + key.trimId(),
+                  "region:" + key.regionCode());
+          Availability value;
+          if (above.present()) {
+            value = above.isOpen() ? mine.value(key) : side(above.side()).value(key);
+          } else {
+            value = cell(key);
+          }
+          if (value != Availability.N) {
+            merged.add(new Cell(key.featureId(), key.trimId(), key.regionCode(), value));
+          }
         }
       }
       return merged;
