@@ -348,6 +348,29 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 expect "the agent is sent the trace of the job" yes "$(whether grep -qE "$job_span" <<<"$(reported)")"
+# Each span the stand-in was sent, as one line: its trace, its parent, and its name.
+spans() {
+  reported | awk '
+    /^ *Trace ID *: / { trace = $NF }
+    /^ *Parent ID *: / { parent = ($NF == ":") ? "" : $NF }
+    /^ *Name *: / { sub(/^ *Name *: /, ""); print trace "\t" parent "\t" $0 }'
+}
+# The steps the stand-in was sent in the trace of a job, each under a span of that trace. The
+# jobs that validate the seeded Approved versions read each one through the same steps as a
+# request that opens it.
+steps_of_a_job() {
+  spans | awk -F '\t' '
+    $3 ~ / job$/ { job[$1] = 1 }
+    $2 != "" && $3 ~ /^catalog\./ { step[NR] = $3; trace[NR] = $1 }
+    END { for (n in step) if (trace[n] in job) seen[step[n]] = 1; for (s in seen) print s }' |
+    sort | paste -sd ' '
+}
+for _ in $(seq 1 30); do
+  [ "$(steps_of_a_job)" = "catalog.issues catalog.library catalog.read" ] && break
+  sleep 1
+done
+expect "the agent is sent the steps of a job's read of a catalog, each in the job's trace and under a span of it" \
+  "catalog.issues catalog.library catalog.read" "$(steps_of_a_job)"
 # The worker times a job, and sends how long it took where the API sends its metrics. That is the
 # one metric the worker sends, so with this job's time sent the agent has been sent all there are.
 its_time='-> type: Str(AFTER_APPROVAL)'
@@ -430,6 +453,13 @@ releases "another image is released after those" 0 "$registry/backend:another"
 expect "a release keeps what is in the database" 7 "$(in_the_database 'SELECT it FROM kept_by_the_check')"
 expect "the host keeps the image that runs and the one before it, and no older one" "yes yes no" \
   "$(kept another) $(kept real) $(kept echo)"
+# Every span the stand-in was sent so far, by name, with how many of each, to be read in the log
+# of any run: a name here that is no request's and no job's is a span that says nothing.
+echo "the agent was sent these spans, by name:"
+spans | cut -f 3 | sort | uniq -c | sort -rn
+expect "the question the API and the worker put to the cache every ten seconds leaves no span" 0 \
+  "$(spans | cut -f 3 | grep -c asksAgain || true)"
+
 # What a restart of the host comes to: every container is gone and is started again.
 quietly without_secrets docker compose down
 releases "the stack starts again with the image released last" 0

@@ -8,6 +8,7 @@ import dev.rgonz.catalog.catalog.CatalogSnapshot.Trim;
 import dev.rgonz.catalog.core.ResetCleanup;
 import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.observation.ObservationPredicate;
 import java.time.Duration;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -26,11 +27,13 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.HealthIndicator;
 import org.springframework.boot.health.contributor.Status;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.support.ScheduledTaskObservationContext;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
@@ -231,6 +234,18 @@ class ApprovedContents implements HealthIndicator, ResetCleanup {
       }
     }
     log.warn("The cache does not answer, so Approved versions are read from the database.");
+  }
+
+  /**
+   * The question below runs every ten seconds in the API and in the worker, and each run left a
+   * trace that said nothing: 17,174 of the 18,008 spans of one day. So a run is not observed, as
+   * the worker's loops are not.
+   */
+  @Bean
+  static ObservationPredicate theQuestionToTheCacheIsNotObserved() {
+    return (name, context) ->
+        !(context instanceof ScheduledTaskObservationContext run
+            && run.getTargetClass() == ApprovedContents.class);
   }
 
   /** Asks the cache again every ten seconds for as long as it is not known to answer. */
