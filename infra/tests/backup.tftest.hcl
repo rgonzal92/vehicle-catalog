@@ -85,3 +85,55 @@ run "each_backup_reports_its_size_where_the_host_may_publish" {
     error_message = "The backup script reports a backup's size under the namespace the agent's file names, which is the one the host may publish under."
   }
 }
+
+run "a_night_without_a_backup_sets_off_an_alarm" {
+  assert {
+    # The size is named outright, in the namespace the script reports under, which is the agent's:
+    # nothing adds labels to it, so no query by name is needed.
+    condition = (
+      one([for query in aws_cloudwatch_metric_alarm.backup_missing.metric_query : query if query.id == "size"]).metric[0].namespace
+      == regex("aws cloudwatch put-metric-data --namespace ([^ ]+) --metric-name backup\\.size --value ", file("../deploy/backup.sh"))[0]
+      && one([for query in aws_cloudwatch_metric_alarm.backup_missing.metric_query : query if query.id == "size"]).metric[0].namespace == jsondecode(file("../deploy/agent.json")).metrics.namespace
+      && one([for query in aws_cloudwatch_metric_alarm.backup_missing.metric_query : query if query.id == "size"]).metric[0].metric_name == "backup.size"
+      && one([for query in aws_cloudwatch_metric_alarm.backup_missing.metric_query : query if query.id == "size"]).metric[0].dimensions == null
+      && one([for query in aws_cloudwatch_metric_alarm.backup_missing.metric_query : query if query.id == "size"]).return_data == false
+    )
+    error_message = "The alarm watches backup.size in the namespace the script reports under, by the metric's name and nothing else."
+  }
+
+  assert {
+    # An hour in which no size arrived is a zero, which FILL was seen to give for every hour of a
+    # window with no value at all. The alarm goes off when all 26 hours are zero.
+    condition = (
+      one([for query in aws_cloudwatch_metric_alarm.backup_missing.metric_query : query if query.id == "size"]).metric[0].period == 3600
+      && one([for query in aws_cloudwatch_metric_alarm.backup_missing.metric_query : query if query.id == "size"]).metric[0].stat == "Maximum"
+      && [for query in aws_cloudwatch_metric_alarm.backup_missing.metric_query : query.expression if query.return_data] == ["FILL(size, 0)"]
+      && aws_cloudwatch_metric_alarm.backup_missing.comparison_operator == "LessThanOrEqualToThreshold"
+      && aws_cloudwatch_metric_alarm.backup_missing.threshold == 0
+      && aws_cloudwatch_metric_alarm.backup_missing.evaluation_periods == 26
+      && aws_cloudwatch_metric_alarm.backup_missing.datapoints_to_alarm == 26
+      && aws_cloudwatch_metric_alarm.backup_missing.treat_missing_data == "breaching"
+    )
+    error_message = "The alarm goes off when no hour of the last 26 has a size in it: a night without a backup, and not a backup that is an hour late."
+  }
+
+  assert {
+    # A backup is due every 24 hours; 26 lets one be late by an hour and still be found in the
+    # window, and is within the seven days an alarm may look back over.
+    condition = (
+      strcontains(aws_ssm_association.host_stack.parameters.commands, "OnCalendar=*-*-* 02:30:00 UTC\n")
+      && aws_cloudwatch_metric_alarm.backup_missing.evaluation_periods * one([for query in aws_cloudwatch_metric_alarm.backup_missing.metric_query : query if query.id == "size"]).metric[0].period > 25 * 3600
+      && aws_cloudwatch_metric_alarm.backup_missing.evaluation_periods * one([for query in aws_cloudwatch_metric_alarm.backup_missing.metric_query : query if query.id == "size"]).metric[0].period <= 7 * 24 * 3600
+    )
+    error_message = "The alarm's window outlasts a day by more than the hour a nightly backup may run late."
+  }
+
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.backup_missing.alarm_actions == toset([aws_sns_topic.alarms.arn])
+      && aws_cloudwatch_metric_alarm.backup_missing.ok_actions == toset([aws_sns_topic.alarms.arn])
+      && aws_cloudwatch_metric_alarm.backup_missing.insufficient_data_actions == null
+    )
+    error_message = "The alarm tells the topic when it goes off and when it clears, and nothing for want of data."
+  }
+}

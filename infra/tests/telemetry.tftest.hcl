@@ -55,9 +55,11 @@ run "the_host_publishes_metrics_under_the_apps_namespace_alone" {
   assert {
     condition = (
       strcontains(one(aws_cloudwatch_metric_alarm.backend_health.metric_query).expression, " FROM \"vehicle-catalog\"")
+      && strcontains(one(aws_cloudwatch_metric_alarm.worker_health.metric_query).expression, " FROM \"vehicle-catalog\"")
+      && aws_cloudwatch_metric_alarm.host_disk.namespace == "vehicle-catalog"
       && local.agent.metrics.namespace == "vehicle-catalog"
     )
-    error_message = "The agent publishes under the namespace the alarm looks in."
+    error_message = "The agent publishes under the namespace the three alarms of this file look in."
   }
 
   assert {
@@ -153,6 +155,87 @@ run "a_backend_that_is_not_ready_or_says_nothing_sets_off_the_alarm" {
       aws_cloudwatch_metric_alarm.backend_health.alarm_actions == toset([aws_sns_topic.alarms.arn])
       && aws_cloudwatch_metric_alarm.backend_health.ok_actions == toset([aws_sns_topic.alarms.arn])
       && aws_cloudwatch_metric_alarm.backend_health.insufficient_data_actions == null
+    )
+    error_message = "The alarm tells the topic when it goes off and when it clears, and nothing for want of data."
+  }
+}
+
+run "a_worker_that_is_not_ready_or_says_nothing_sets_off_an_alarm" {
+  assert {
+    # By name alone, as the API's alarm asks, and in double quotes, which a name with a dot takes
+    # in a query. The API's alarm still asks for health alone.
+    condition = (
+      one(aws_cloudwatch_metric_alarm.worker_health.metric_query).expression == "SELECT MIN(\"worker.health\") FROM \"vehicle-catalog\""
+      && one(aws_cloudwatch_metric_alarm.backend_health.metric_query).expression == "SELECT MIN(health) FROM \"vehicle-catalog\""
+      && aws_cloudwatch_metric_alarm.worker_health.comparison_operator == "LessThanThreshold"
+      && aws_cloudwatch_metric_alarm.worker_health.threshold == 1
+    )
+    error_message = "The alarm goes off when the least the worker said of its readiness in a minute is below one, whatever labels the metric carries, and the API's alarm goes on asking for the API's alone."
+  }
+
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.worker_health.treat_missing_data == "breaching"
+    error_message = "A worker that says nothing is taken for one that is not ready."
+  }
+
+  assert {
+    # Three minutes, as the API's alarm has: a release stops the worker for less than that.
+    condition = (
+      one(aws_cloudwatch_metric_alarm.worker_health.metric_query).period == 60
+      && aws_cloudwatch_metric_alarm.worker_health.evaluation_periods == 3
+    )
+    error_message = "The alarm looks at three minutes, as the API's does."
+  }
+
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.worker_health.alarm_actions == toset([aws_sns_topic.alarms.arn])
+      && aws_cloudwatch_metric_alarm.worker_health.ok_actions == toset([aws_sns_topic.alarms.arn])
+      && aws_cloudwatch_metric_alarm.worker_health.insufficient_data_actions == null
+    )
+    error_message = "The alarm tells the topic when it goes off and when it clears, and nothing for want of data."
+  }
+}
+
+run "a_disk_that_is_nearly_full_sets_off_an_alarm" {
+  assert {
+    # The series the dashboard draws, named in full: the agent reports the share with the path and
+    # the file system as its labels, and an alarm that named the path alone would read nothing.
+    condition = (
+      aws_cloudwatch_metric_alarm.host_disk.namespace == local.agent.metrics.namespace
+      && aws_cloudwatch_metric_alarm.host_disk.metric_name == "disk_used_percent"
+      && aws_cloudwatch_metric_alarm.host_disk.dimensions == tomap({ path = "/", fstype = "xfs" })
+      && contains(local.agent.metrics.metrics_collected.disk.resources, "/")
+      && contains(local.agent.metrics.metrics_collected.disk.measurement, "used_percent")
+      && strcontains(aws_cloudwatch_dashboard.backend.dashboard_body, "[\"vehicle-catalog\",\"disk_used_percent\",\"path\",\"/\",\"fstype\",\"xfs\"")
+    )
+    error_message = "The alarm watches the share of the host's one disk in use, the series the dashboard draws, by the labels the agent gives it."
+  }
+
+  assert {
+    # 80 percent leaves about 6 GB of the 30. The disk was 15 percent full on 2026-10-14.
+    condition = (
+      aws_cloudwatch_metric_alarm.host_disk.statistic == "Average"
+      && aws_cloudwatch_metric_alarm.host_disk.comparison_operator == "GreaterThanThreshold"
+      && aws_cloudwatch_metric_alarm.host_disk.threshold == 80
+      && aws_cloudwatch_metric_alarm.host_disk.period == 60
+      && aws_cloudwatch_metric_alarm.host_disk.evaluation_periods == 5
+      && aws_cloudwatch_metric_alarm.host_disk.datapoints_to_alarm == 5
+    )
+    error_message = "The alarm goes off when the disk has been more than 80 percent full for five minutes running."
+  }
+
+  assert {
+    # An agent that says nothing sets off the API's alarm and the worker's.
+    condition     = aws_cloudwatch_metric_alarm.host_disk.treat_missing_data == "notBreaching"
+    error_message = "A minute in which the host reported nothing is no fault of the disk's."
+  }
+
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.host_disk.alarm_actions == toset([aws_sns_topic.alarms.arn])
+      && aws_cloudwatch_metric_alarm.host_disk.ok_actions == toset([aws_sns_topic.alarms.arn])
+      && aws_cloudwatch_metric_alarm.host_disk.insufficient_data_actions == null
     )
     error_message = "The alarm tells the topic when it goes off and when it clears, and nothing for want of data."
   }
@@ -448,8 +531,13 @@ run "every_chart_says_what_it_measures_and_stands_where_a_fault_is_looked_for" {
         widget.properties.annotations.horizontal[0].value
         if strcontains(jsonencode(try(widget.properties.metrics, [])), "MetricName=\\\"ai.spent\\\"")
       ]) == tonumber(regex("\napp\\.ai\\.allowance\\.daily=([0-9.]+)\n", file("../backend/src/main/resources/application.properties"))[0])
+      && one([
+        for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+        widget.properties.annotations.horizontal[0].value
+        if strcontains(jsonencode(try(widget.properties.metrics, [])), "\"disk_used_percent\"")
+      ]) == aws_cloudwatch_metric_alarm.host_disk.threshold
     )
-    error_message = "A line is drawn at each limit as it is set: the alarm's threshold on the oldest message, the API's heap in deploy/compose.yaml in MiB, and the day's allowance in application.properties."
+    error_message = "A line is drawn at each limit as it is set: the alarm's threshold on the oldest message, the API's heap in deploy/compose.yaml in MiB, the day's allowance in application.properties, and the disk alarm's threshold."
   }
 
   assert {
@@ -466,8 +554,11 @@ run "every_chart_says_what_it_measures_and_stands_where_a_fault_is_looked_for" {
       && alltrue([
         for arn in [
           aws_cloudwatch_metric_alarm.backend_health.arn,
+          aws_cloudwatch_metric_alarm.worker_health.arn,
           aws_cloudwatch_metric_alarm.jobs_failed.arn,
           aws_cloudwatch_metric_alarm.jobs_waiting.arn,
+          aws_cloudwatch_metric_alarm.backup_missing.arn,
+          aws_cloudwatch_metric_alarm.host_disk.arn,
         ] :
         contains(try(one([
           for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :

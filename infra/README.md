@@ -2,8 +2,8 @@
 
 What the app needs in AWS, as Terraform. Everything is in the region `us-east-1`.
 
-- `backup.tf`: the bucket that keeps the nightly backups of the database, and the host's leave to
-  write them.
+- `backup.tf`: the bucket that keeps the nightly backups of the database, the host's leave to
+  write them, and the alarm that goes off when a night passes without one.
 - `budget.tf`: an alert by email once the account's costs for the month pass US$60.
 - `frontend.tf`: the site at `catalog.rgonz.dev`. The Angular build is in a private bucket, and a
   CloudFront distribution serves it under a certificate for that name.
@@ -18,8 +18,9 @@ What the app needs in AWS, as Terraform. Everything is in the region `us-east-1`
 - `release.tf`: where the backend's images are kept, and the one thing the pipeline can have the
   host do, which is to release one of them.
 - `telemetry.tf`: where the backend's log, traces, and metrics are kept in Amazon CloudWatch, the
-  alarm that goes off when the API is not ready, the topic through which the three alarms email
-  the maintainer, and the dashboard.
+  alarms that go off when the API is not ready, when the worker is not ready, and when the host's
+  disk is nearly full, the topic through which the six alarms email the maintainer, and the
+  dashboard.
 
 DNS for `rgonz.dev` is kept at Cloudflare and changed by hand. Every record named here is a
 DNS-only record there. Cloudflare makes a new record a proxied one unless told otherwise, and a
@@ -297,7 +298,7 @@ around the times of its deliveries is where to look.
 
 `vehicle-catalog-jobs-failed` goes off while the queue of that name holds a message, which is a
 job that has failed for good, within a minute or two of the third failed try. It emails the
-maintainer when it goes off and when it clears, as the three alarms all do
+maintainer when it goes off and when it clears, as the six alarms all do
 ([What the alarms tell](#what-the-alarms-tell)).
 
 ```sh
@@ -335,8 +336,10 @@ stuck, one that stopped with a message still on the queue, or one that works and
 than it gets through: the worker takes one message at a time, so enough jobs written at once leave
 the last of them waiting that long with nothing stuck. A worker that stopped with the queue empty
 does not set it off: the worker is also what sends the messages, so new jobs then wait in the
-database and nothing reaches the queue. A job that fails every time has left the queue after about
-six minutes, so this alarm is not that. It has not been seen to go off for its cause. It emails
+database and nothing reaches the queue; `vehicle-catalog-worker-health`
+([The alarm on the worker's health](#the-alarm-on-the-workers-health)) notices a worker that
+stopped. A job that fails every time has left the queue after about six minutes, so this alarm is
+not that. It has not been seen to go off for its cause. It emails
 the maintainer when it goes off and when it clears.
 
 ```sh
@@ -517,6 +520,35 @@ sudo docker compose start backend
 A backup made by a newer backend holds tables an older one does not know, so the image released
 is the one that made the backup, or a later one.
 
+### The alarm on a night without a backup
+
+`vehicle-catalog-backup-missing` goes off when no hour of the last 26 has a backup's size in it.
+The 26 hours move with every look the alarm takes, so by its settings it goes off about 26 hours
+after the last size arrived: at about 04:30 UTC after a night without a backup, later by the time
+the dump took, and a backup that runs an hour late sets nothing off. An hour with no size counts as
+zero, which `FILL` was seen to give for every hour of a window with no size in it at all, on
+2026-10-14. It has not been seen to go off for its cause. It emails the maintainer when it goes off
+and when it clears ([What the alarms tell](#what-the-alarms-tell)).
+
+```sh
+aws cloudwatch describe-alarms --alarm-names vehicle-catalog-backup-missing \
+  --query 'MetricAlarms[0].StateValue'
+```
+
+What to do, in order, on the host:
+
+1. The unit's journal and its timer, with the first two commands above. A journal that says the
+   database is backed up and its size was not reported means the backup is in the bucket and only
+   the report failed: `aws s3 ls` from a workstation shows it. "The database was not backed up."
+   means it is not.
+2. For a backup that was not made: the database's container, in the stack's log under The host,
+   and the room on the disk, under [The alarm on the host's disk](#the-alarm-on-the-hosts-disk).
+   The copy is made in the host's memory, under `/tmp`, and sent from there.
+3. Once the cause is put right, the third command above makes a backup now.
+
+It clears by itself once a backup has reported its size, one started by hand among them; how soon
+after that it clears was not seen.
+
 ## What the backend reports
 
 It all goes to Amazon CloudWatch.
@@ -603,8 +635,9 @@ It all goes to Amazon CloudWatch.
   there too ([Backups](#backups)). The dashboard `vehicle-catalog` shows them, in groups under
   headings in the order a fault is looked for: the alarms' states, whether the API and the worker
   are up, requests, catalogs, jobs and queues, the language model, the cache, the host.
-  `docs/dashboard-and-alarms.md` has the order, each chart's unit, and a picture of each chart of
-  metrics before this order and after it. The API sends the first eleven of these and the five of
+  `docs/dashboard-and-alarms.md` has the order, each chart's unit, a picture of each chart of
+  metrics that the page then had, before this order and after it, and one of the readiness chart
+  with the worker's line. The API sends the first eleven of these and the five of
   the language model. The worker sends `worker.health`, `job.run`, and, of the model's, `ai.call`,
   `ai.tokens`, and `ai.refused`: it calls no tools, and the API says what the day has cost.
 
@@ -683,9 +716,9 @@ What to do, in order:
 It clears by itself some minutes after the API is ready again, three and a half in the one trial.
 
 An API that ends once and is started again is back well within the three minutes the settings ask
-for, and the worker's readiness is `worker.health`, which the alarm does not ask for, so the alarm
-says nothing of either. The dashboard's
-chart of starts, beside the one of readiness at the top of the page, does: it counts by the hour how
+for, so the alarm says nothing of it, and the worker's readiness is `worker.health`, which the
+alarm does not ask for: the worker's alarm, below, does. The dashboard's
+chart of starts, beside the one of readiness at the top of the page, counts by the hour how
 often the API and the worker have each started, over the time the dashboard shows. A release is a
 start of each,
 and so is a process that ended and that Docker started again, which Java brings about when the
@@ -716,9 +749,66 @@ report, and nothing is lost by it.
 `docs/host-memory-measurements.md` has the memory the stack was measured to use, and
 `docs/adr/0009` the size of the host that was chosen from it.
 
+### The alarm on the worker's health
+
+`vehicle-catalog-worker-health` goes off when the worker has not said it is ready, as the alarm
+above does for the API. By its settings that is three minutes of a worker that runs and says it is
+not ready. A worker that stopped says nothing, which counts the same; an alarm of this kind was
+seen once, on the API, to notice a stopped process about eight minutes later. Neither has been seen
+for the worker. A CloudWatch agent that is stopped on the host looks the same and sets off both
+alarms. A release ordinarily stops the worker for less than the alarm waits. While the worker is
+away, new jobs wait in the database and are done once it is back; exports and uploaded documents
+wait with them. It emails the maintainer when it goes off and when it clears
+([What the alarms tell](#what-the-alarms-tell)).
+
+```sh
+aws cloudwatch describe-alarms --alarm-names vehicle-catalog-worker-health \
+  --query 'MetricAlarms[0].StateValue'
+```
+
+What to do, in order:
+
+1. Whether the worker runs and what it is doing: its log, under the stream `worker`, which the
+   command under Jobs and the worker shows, and the dashboard's chart of starts, which shows a
+   worker that Docker starts again and again, or one that is slow to start after a release.
+2. If the API's alarm went off in the same minutes: the agent on the host, with the command above.
+3. For a worker that is stopped or stuck: a shell on the host and the stack's log there, and a
+   release by hand of the image that is on the host or an earlier one, both under The host above.
+
+It clears by itself some minutes after the worker is ready again.
+
+### The alarm on the host's disk
+
+`vehicle-catalog-host-disk` goes off when the host's one disk has been more than 80 percent full
+for five minutes running, within a minute of the fifth. That leaves less than 6 GB of its 30. On
+2026-10-14 it was 15 percent full: Docker's images took 1.9 GB of the 4.5 GiB in use, the database's
+volume 69 MiB, and the logs of Caddy, the database, and the cache, which Docker keeps on the host
+and nothing limits, 108 KiB together. The share had risen 3.5 points since the agent first
+reported on 2026-10-08. It has not been seen to go off for its cause. A minute in which the host
+reported nothing is no fault to it: an agent that stopped sets off the API's alarm and the
+worker's. It emails the maintainer when it goes off and when it clears
+([What the alarms tell](#what-the-alarms-tell)).
+
+```sh
+aws cloudwatch describe-alarms --alarm-names vehicle-catalog-host-disk \
+  --query 'MetricAlarms[0].StateValue'
+```
+
+What to do, in order, in a shell on the host:
+
+1. What takes the room: `df -h`, `sudo docker system df`, and `sudo du -sh /var/lib/docker/*`.
+2. Images that no container runs are where room is most readily found, and `sudo docker image ls`
+   lists them beside the ones in use. The image before the one that runs is kept: a release that
+   is taken back goes back to it.
+3. The logs of Caddy, the database, and the cache, under `/var/lib/docker/containers/`, if they
+   have grown: nothing limits them.
+
+It clears by itself within about a minute of the share being below the line again. The dashboard
+draws the share under The host, with the line the alarm goes off at.
+
 ## What the alarms tell
 
-Each of the three alarms emails the maintainer when it goes off and when it clears, through the
+Each of the six alarms emails the maintainer when it goes off and when it clears, through the
 SNS topic `vehicle-catalog-alarms`, which has one subscription: by email, to the address in
 `terraform.tfvars`, the one the budget alert goes to. The email carries the alarm's name and its
 description, which says what the alarm notices, the first thing to do, and how it clears; the rest
@@ -736,7 +826,7 @@ Every email from the topic carries a link that takes the address off the topic, 
 asked to sign in for it. After a click on it the alarms tell a topic that tells no one, the next
 plan shows the subscription to be added again, and the apply sends a new email to confirm.
 
-To stop the emails and keep the alarms, take `alarm_actions` and `ok_actions` off the three alarms
+To stop the emails and keep the alarms, take `alarm_actions` and `ok_actions` off the six alarms
 and apply, which changes them in place.
 
 ## Working with it

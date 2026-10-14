@@ -6,7 +6,7 @@ What the CloudWatch dashboard `vehicle-catalog` shows, in what order, and how ea
 
 The page reads from top to bottom in the order a fault is looked for. Each group below the first stands under a heading of its own.
 
-1. **The alarms**: one row with the state of every alarm the Terraform makes, three today: `vehicle-catalog-backend-health`, `vehicle-catalog-jobs-failed`, and `vehicle-catalog-jobs-waiting`.
+1. **The alarms**: one row with the state of every alarm the Terraform makes, six today: `vehicle-catalog-backend-health`, `vehicle-catalog-worker-health`, `vehicle-catalog-jobs-failed`, `vehicle-catalog-jobs-waiting`, `vehicle-catalog-backup-missing`, and `vehicle-catalog-host-disk`.
 2. **Are the API and the worker up**: whether the API is ready and whether the worker is, and the starts of the API and of the worker by the hour, counted from the log.
 3. **Requests**: requests a minute by outcome, and how long a request that succeeds takes.
 4. **Catalogs**: how long saving an edit and copying a catalog take; how long reading a catalog and working out its issues takes; catalogs approved, rejected, and updated from Approved; submits refused by reason.
@@ -15,11 +15,11 @@ The page reads from top to bottom in the order a fault is looked for. Each group
 7. **The cache**: reads of an Approved version's contents by how the cache answered, and the share of those reads the cache answered.
 8. **The host**: the share of its memory and disk in use; its processor time and the credits it has saved up; the API's heap, against the most it may grow to; the size of each backup of the database.
 
-Every chart says in its title what it measures and, where the figures have one, in what unit. Every chart of metrics names its left axis after its unit, and the host's processor chart its right one too, in place of what CloudWatch would say there. Every line that is drawn has a label of its own. A line is drawn at each limit, read from where the limit is set: the alarm's threshold for the oldest message, the API's heap in `deploy/compose.yaml`, and `app.ai.allowance.daily` in `backend/src/main/resources/application.properties`.
+Every chart says in its title what it measures and, where the figures have one, in what unit. Every chart of metrics names its left axis after its unit, and the host's processor chart its right one too, in place of what CloudWatch would say there. Every line that is drawn has a label of its own. A line is drawn at each limit, read from where the limit is set: the alarm's threshold for the oldest message, the API's heap in `deploy/compose.yaml`, `app.ai.allowance.daily` in `backend/src/main/resources/application.properties`, and the disk alarm's threshold on the chart of the host's memory and disk.
 
 ## The charts
 
-Each chart of metrics was drawn by command twice, before the change and after it, over the same hour: an hour within the fifteen days before 2026-10-14 in which the chart had something to draw, found by asking CloudWatch for its metrics by the hour. The pictures are `docs/dashboard/before/` and `docs/dashboard/after/`, a pair under one name, 1000 by 320. The starts chart cannot be drawn by command ([below](#the-starts-chart)).
+Each chart of metrics that the page had on 2026-10-14 at 00:47 UTC, 21 of them, was drawn by command twice, before the change and after it, over the same hour: an hour within the fifteen days before 2026-10-14 in which the chart had something to draw, found by asking CloudWatch for its metrics by the hour. The pictures are `docs/dashboard/before/` and `docs/dashboard/after/`, a pair under one name, 1000 by 320. The starts chart cannot be drawn by command ([below](#the-starts-chart)).
 
 "Values" means the line drew figures in that hour, "zero" that it lay at zero throughout, and "not there" that the line was in the legend or in the chart's definition and drew nothing, because its metric had not been sent in that hour or at all. The legend reads the same before and after unless the table says otherwise. Where a chart's label is followed by the metric's name, as in "ready health", that is how CloudWatch writes the legend of a line found by a search: the label, and then the metric's name and, for a percentile, its statistic.
 
@@ -51,6 +51,8 @@ Each chart of metrics was drawn by command twice, before the change and after it
 The time charts are in milliseconds. Chart 4's two points, about 17 ms for an edit and 57 for a copy, and chart 5's, 17 to 48 ms for reading a catalog with its issues, are of the order of the API's own times on the host: `docs/cache-measurements.md` has a seeded version opened in 16 ms at the median there, and `docs/largest-catalog-measurements.md` a save of one cell of the largest catalog in 57 ms. Chart 2's 1.84 ms is a request that succeeds in a minute whose requests were the health checks. Chart 12's 4,316 for summarising a submission and chart 16's 2,377 for a request of the analyst's are seconds of waiting on the model, which is what such a request takes.
 
 The app was not used as `visitor` for any chart: each of the 21 had a line with values in some hour of the fifteen days.
+
+Two charts have changed since those pairs were drawn. Chart 3 is now titled "Whether the API and the worker are ready (1) or not (0)" and has a second line, the worker's `worker.health`, under the label "worker ready"; and a chart of the size of each backup of the database, in bytes, stands under The host beside the API's heap, drawn by the hour over the last seven days whatever the page shows, which found its metric by name and so draws its legend as "backup". Neither has a pair; the readiness chart was drawn once more by command on 2026-10-14, after the release that brought the worker's line, over the three hours to 04:41 UTC, 1000 by 400: `docs/dashboard/03-api-and-worker-ready.png`. Its legend reads "API ready health" and "worker ready worker.health", the worker's line runs at 1 from 04:32 UTC, the first full minute after that release, and the API's line alone covers the hours before, so the search for `health` in quotes did not also find `worker.health`. The API's line touches 0 three times in the picture, at about 03:40, 03:56, and 04:30 UTC, which are the three releases of that night, and has a gap of one minute at 04:16 UTC, when an apply gave the agent its file anew and started it again. The backups chart, drawn the same way, had one point, 138,183 bytes, and its axis spanned two bytes around it; it is not kept, since it will look different once a second size arrives.
 
 ## The figures before and after
 
@@ -114,15 +116,19 @@ So the chart has no picture by command, and only the page in the console shows w
 
 ## The alarms
 
-The Terraform makes three alarms and no other: `vehicle-catalog-backend-health` in
-`infra/telemetry.tf`, and `vehicle-catalog-jobs-failed` and `vehicle-catalog-jobs-waiting` in
-`infra/jobs.tf`. Each tells the SNS topic `vehicle-catalog-alarms` when it goes off and when it
-clears, and nothing for want of data, and the topic has one subscription: by email, to the address
-the budget alert goes to. The tests in `infra/tests/jobs.tftest.hcl` and
-`infra/tests/telemetry.tftest.hcl` hold the three to the topic, the topic to that one subscription,
-and the pipeline's plan role to reading the topic and its subscription and to nothing else of SNS.
-What sets each alarm off, its metric, its limit, its minutes, and what it makes of a missing minute,
-is as it was. `infra/README.md` has, under each alarm's name, what to do and the commands.
+The Terraform makes six alarms and no other: `vehicle-catalog-backend-health`,
+`vehicle-catalog-worker-health`, and `vehicle-catalog-host-disk` in `infra/telemetry.tf`,
+`vehicle-catalog-jobs-failed` and `vehicle-catalog-jobs-waiting` in `infra/jobs.tf`, and
+`vehicle-catalog-backup-missing` in `infra/backup.tf`. Each tells the SNS topic
+`vehicle-catalog-alarms` when it goes off and when it clears, and nothing for want of data, and the
+topic has one subscription: by email, to the address the budget alert goes to. The tests in
+`infra/tests/jobs.tftest.hcl`, `infra/tests/telemetry.tftest.hcl`, and
+`infra/tests/backup.tftest.hcl` hold each alarm's definition and each to the topic, the topic to
+that one subscription, and the pipeline's plan role to reading the topic and its subscription and
+to nothing else of SNS. `infra/README.md` has, under each alarm's name, what to do and the
+commands. The first three were given their actions on 2026-10-14 ([Before](#before), [After](#after),
+[The trial](#the-trial)); the other three were made later that day
+([The worker, the backup, and the disk](#the-worker-the-backup-and-the-disk)).
 
 ### Before
 
@@ -156,9 +162,9 @@ since no alarm has an action for it.
 
 | Alarm | What it notices | How soon | What to do first | How it clears |
 |---|---|---|---|---|
-| `vehicle-catalog-backend-health` | The API has not said it is ready. A minute in which nothing arrived counts as not ready, so a CloudWatch agent stopped on the host looks the same. The worker sends no `health`, so it says nothing of the worker. | About eight minutes after the API stopped, seen once on 2026-10-08. Three minutes for an API that runs and says it is not ready, by its settings, not seen. The agent stopped, by its settings, not tried. | Ask `/api/health/readiness` through the site: 200 means the API is up and its reports are not arriving, unless the API has just come back and the email of its clearing follows; anything else means the API. | By itself some minutes after the API is ready again, three and a half in the one trial. |
+| `vehicle-catalog-backend-health` | The API has not said it is ready. A minute in which nothing arrived counts as not ready, so a CloudWatch agent stopped on the host looks the same. The worker's readiness is `worker.health`, which `vehicle-catalog-worker-health` watches, so this one says nothing of the worker. | About eight minutes after the API stopped, seen once on 2026-10-08. Three minutes for an API that runs and says it is not ready, by its settings, not seen. The agent stopped, by its settings, not tried. | Ask `/api/health/readiness` through the site: 200 means the API is up and its reports are not arriving, unless the API has just come back and the email of its clearing follows; anything else means the API. | By itself some minutes after the API is ready again, three and a half in the one trial. |
 | `vehicle-catalog-jobs-failed` | A job has failed for good: its work failed in each of three tries, and its message is in the dead-letter queue. | Within a minute or two of the third failed try, by its settings. | The Jobs page says what the last try said; Retry there once the cause is put right. | At Retry, within a minute or two, whether or not the job is then done: the email of its clearing does not say a job was done, the Jobs page does. A retried job that fails three times again sets it off again about six minutes after the Retry. By itself after the demo reset at 03:00 UTC, which takes the job away. After fourteen days, when the queue lets go of a message that nothing took out. |
-| `vehicle-catalog-jobs-waiting` | A message has been on the jobs' queue for more than ten minutes: a worker that runs and is stuck, one that stopped with a message still on the queue, or one that works and has more jobs than it gets through. A worker that stopped with the queue empty does not set it off. | Within a minute of the message's eleventh minute, by its settings. Not seen to go off for its cause. | Whether the worker runs and what its log says, then how many messages wait on the queue. | By itself once no message on the queue is that old. |
+| `vehicle-catalog-jobs-waiting` | A message has been on the jobs' queue for more than ten minutes: a worker that runs and is stuck, one that stopped with a message still on the queue, or one that works and has more jobs than it gets through. A worker that stopped with the queue empty does not set it off; `vehicle-catalog-worker-health` notices it. | Within a minute of the message's eleventh minute, by its settings. Not seen to go off for its cause. | Whether the worker runs and what its log says, then how many messages wait on the queue. | By itself once no message on the queue is that old. |
 
 How soon each goes off follows from its settings but where the table says it was seen: the health
 alarm's eight minutes and three and a half are the one trial of 2026-10-08, in pull request #63.
@@ -199,6 +205,73 @@ The pipeline's `plan` check, run again on the pull request at 03:33 UTC after th
 topic and the subscription as the plan role, with the statement that names the topic's ARN alone,
 and said "No changes. Your infrastructure matches the configuration."
 
+### The worker, the backup, and the disk
+
+Three faults that set no alarm off before 2026-10-14 each set one off now: a worker that is not
+ready or says nothing, a night without a backup, and a disk that is nearly full. For that the
+worker reports `worker.health`, 1 while it is ready and 0 while it is not, and `deploy/backup.sh`
+reports each backup's size in bytes as `backup.size` once the bucket has it; the disk's share in
+use, `disk_used_percent`, the agent reported already. Each alarm tells the topic when it goes off
+and when it clears, and nothing for want of data, as the three before it do.
+
+| Alarm | What it notices | How soon, by its settings | What to do first | How it clears |
+|---|---|---|---|---|
+| `vehicle-catalog-worker-health` | The worker has not said it is ready: `SELECT MIN("worker.health")` in the app's namespace, by the minute, below 1 for three minutes running, with a minute in which nothing arrived counted as below. A CloudWatch agent stopped on the host looks the same and sets off the API's alarm too. | Three minutes for a worker that runs and says it is not ready. Later for one that stopped: about eight minutes, if it goes as the API's alarm went on 2026-10-08. Neither seen. | Whether the worker runs and what its log says, and the chart of starts. Jobs wait in the database meanwhile. | By itself some minutes after the worker is ready again. |
+| `vehicle-catalog-backup-missing` | No hour of the last 26 has a backup's size in it: `backup.size` at its `Maximum` by the hour, each hour without a value filled with 0 by `FILL`, all 26 at or below 0. | About 26 hours after the last size: at about 04:30 UTC after a night without a backup, later by the time the dump took. A backup an hour late sets nothing off. Not seen. | On the host, the unit's journal and its timer: a journal that says the backup was made and its size was not reported means the backup is there. | By itself once a backup has reported its size, one started by hand among them; how soon after that was not seen. |
+| `vehicle-catalog-host-disk` | The host's one disk, `disk_used_percent` with `path` `/` and `fstype` `xfs`, above 80 percent on average for five minutes of five. A minute without a value is no fault to it. | Within a minute of the fifth minute over the line. Not seen. | On the host, what takes the room: `df -h`, `docker system df`, the images no container runs. | By itself within about a minute of the share being below the line. |
+
+Why 26 hours and `FILL`: a backup is due every 24 hours, so 26 lets one run an hour late and
+still be found, and the 26 hours move with every look the alarm takes, so the alarm goes off about
+26 hours after the last size arrived. Whether `FILL` gives a zero for an hour with no value when
+the whole window has none was not on AWS's page, so it was asked by command on 2026-10-14 with
+`aws cloudwatch get-metric-data`, `FILL(m1, 0)` over `backup.size` at its `Maximum` by the hour:
+over the 26 hours ending with the backup started by hand that day (03:00 UTC on 2026-10-13 to
+05:00 UTC on 2026-10-14) it gave 26 values, 25 of them 0 and the hour 04:00 UTC 138,183, and over
+the 26 before those (01:00 UTC on 2026-10-12 to 03:00 UTC on 2026-10-13), in which the metric
+itself had no value at all, it gave 26 values, all 0. So the alarm is the one that goes off when
+all 26 are zero, and not the one that counts a missing hour as a fault; it counts a missing hour as
+a fault all the same, in case one is ever missing.
+
+Why 80 percent: read on 2026-10-14 at 04:03 UTC, before anything was changed, the disk was 15.02
+percent full, its highest 15.54 percent in the hour 03:00 UTC that day since the agent first
+reported on 2026-10-08, when it was 12.04; the agent reports it once a minute. Of the 4.5 GiB in
+use on the 29.9 GiB disk, Docker's images took 1.9 GB, 1.1 GB of it in images no container runs,
+the database's volume 69 MiB, and the logs of Caddy, the database, and the cache, which Docker
+keeps as `json-file` and nothing limits, 108 KiB together. A backup is made in `/tmp`, a tmpfs in
+memory, so it is never on the disk. The line is 80 percent, which leaves 6 GiB and is 65 points
+above that day's share; it would have been lower had the disk been more than 65 percent full.
+
+#### The figures before and after
+
+| | Before | After |
+|---|---|---|
+| Of a stopped worker, a night without a backup, and a disk that fills, how many set an alarm off | 0 | 3 |
+| Alarms | 3 | 6 |
+| The disk's share in use, read on 2026-10-14 at 04:03 UTC | 15.02 percent, 15.54 at its highest | the same; the line at 80 percent |
+| Backups with a size on record | 0 | 1: the one started by hand on 2026-10-14 at 04:18 UTC, 138,183 bytes, equal to what the bucket lists for it. The first night's follows the next 02:30 UTC. |
+| Metrics that are paid for | up to thirty-seven | up to thirty-nine |
+
+What the three alarms and the two metrics cost a month, by AWS's price list for CloudWatch in
+us-east-1 read on 2026-10-14 at 02:11 UTC (published 2026-10-07, rates effective 2026-10-01) and
+its public price page read the same minute: `worker.health` is a custom metric at $0.30 a month;
+`backup.size`, sent in one hour of each night, is charged for those hours alone, "prorated by the
+hour", about $0.0125; the worker's alarm asks by a query, $0.10 for each metric it analyses, or
+$0.20 while an update of Spring Boot has the metric under two versions; the backup's and the disk's
+alarms list their metric, and with the two on the queues make four of the ten such alarms the
+account has free, so nothing, or $0.10 if an alarm that reads its metric through `FILL` is not
+counted among them. In all about $0.41 to $0.61 a month. The 30 or so `PutMetricData` requests a
+month are within the free million.
+
+#### What was not tried
+
+No worker was stopped, no night's backup was left out, and the disk was not filled: the worker's
+work would have waited, the database is on the disk, and a backup left out is a day's work at risk.
+So none of the three was seen to go off for its cause, and how soon each goes off is from its
+settings, as the table says. Each is to be set to `ALARM` by hand once after its apply, as the
+three before it were ([The trial](#the-trial)); the times of that are not yet on record. Whether a
+release of the backend leaves the worker silent for longer than the alarm waits is read from the
+worker's alarm's history over the release that follows.
+
 ### What the maintainer saw
 
 He has not said. The subscription was still pending confirmation at 03:38 UTC, when the trial was
@@ -223,16 +296,10 @@ where it lands stay not known until he does.
 
 ### What no alarm notices
 
-Each checked against the code on 2026-10-14, where `infra/` makes the three alarms above and no
+Each checked against the code on 2026-10-14, where `infra/` makes the six alarms above and no
 other:
 
-- A worker that stopped with its queue empty. The worker is also what sends the messages
-  (`WorkerLoops.publish`), so nothing reaches the queue and the waiting alarm has nothing to watch.
-- A night without a backup. The host writes the backup on its own (`deploy/backup.sh`, given to
-  the host by `infra/host.tf`), and a backup that fails ends in failure in the host's journal, which
-  nothing reads.
-- A disk that fills, and the host's memory. Both are on the dashboard, from the agent, and no
-  alarm watches either.
+- The host's memory. It is on the dashboard, from the agent, and no alarm watches it.
 - An API or a worker that starts again and again. The dashboard counts the starts from the log,
   and nothing else does.
 - A demo reset that fails. The reset writes to the log and sends no metric.
@@ -248,8 +315,9 @@ AWS's price list for Amazon SNS in us-east-1, read on 2026-10-14 at 01:42 UTC fr
 published on 2026-09-15: the first 1,000 email notifications a month are free, and each 100,000
 after them cost US$2.00; the first 1,000,000 requests a month are free, and each million after
 them costs US$0.50. The trial is six emails and the click's email a seventh. An alarm that changed
-its state every minute of a month would send 43,200 emails, which comes to about US$0.84. No
-alarm and no metric is added, so CloudWatch charges what it did.
+its state every minute of a month would send 43,200 emails, which comes to about US$0.84. The
+three alarms and the two metrics of 2026-10-14 are priced above, under The worker, the backup, and
+the disk.
 
 ### The trial's commands
 
