@@ -1,9 +1,10 @@
 # What the backend reports of itself, and where Amazon CloudWatch keeps it: its log, its traces, and
-# a short list of metrics. An alarm watches the metric that says whether the backend is ready, and
-# a dashboard shows the alarms' states, every metric, readiness among them, and what SQS reports of
-# the jobs' two queues. A metric that neither of them uses is not sent: each one beyond the first
-# ten is paid for by the month. How often the API and the worker have started, the dashboard counts
-# from the log.
+# a short list of metrics. Three alarms watch what arrives: one the metric that says whether the API
+# is ready, one the worker's, and one the share of the host's disk in use. The topic through which
+# every alarm emails the maintainer is here too, and a dashboard shows the alarms' states, every
+# metric, readiness among them, and what SQS reports of the jobs' two queues. A metric that none
+# of them uses is not sent: each one beyond the first ten is paid for by the month. How often the
+# API and the worker have started, the dashboard counts from the log.
 
 locals {
   # What the CloudWatch agent on the host is told to do, and the namespace it publishes metrics
@@ -106,7 +107,7 @@ resource "aws_iam_role_policy" "host_report" {
   })
 }
 
-# What the three alarms tell when they go off and when they clear: a topic of Amazon SNS, with one
+# What the alarms tell when they go off and when they clear: a topic of Amazon SNS, with one
 # subscription, by email, to the address the budget alert goes to. The topic has no access policy
 # of its own and no key: SNS gives it the policy it gives every topic, which lets this account's
 # alarms publish to it. An email carries the alarm's name and its description, so each description
@@ -127,7 +128,8 @@ resource "aws_sns_topic_subscription" "alarms_email" {
 # on 2026-10-08, to set it off about eight minutes later, and it cleared three and a half minutes
 # after the API was ready again. A minute in which nothing arrived counts as not ready, so an agent
 # that is stopped on the host looks the same as a stopped API. A release ordinarily stops the API
-# for less than that. The worker sends no health, so the alarm says nothing of it.
+# for less than that. The worker's readiness is worker.health, which the alarm below watches, so
+# this one says nothing of the worker.
 #
 # The agent tells each of the backend's metrics apart by four labels of its own making besides, and
 # one of them is the version of the library that sent the metric. So the alarm asks for the metric
@@ -152,6 +154,58 @@ resource "aws_cloudwatch_metric_alarm" "backend_health" {
   }
 }
 
+# Goes off when the worker has not said it is ready, as the alarm above does for the API: three
+# minutes of a worker that runs and says it is not ready, by its settings, or a worker that stopped
+# and so says nothing, which an alarm of this kind was seen to notice about eight minutes later.
+# Neither has been seen for the worker. A release ordinarily stops the worker for less than that.
+# The waiting alarm in jobs.tf does not notice a worker that stopped with its queue empty; this one
+# does. The metric's name has a dot in it, which a query takes in double quotes.
+resource "aws_cloudwatch_metric_alarm" "worker_health" {
+  alarm_name        = "vehicle-catalog-worker-health"
+  alarm_description = "The worker has not said it is ready. By its settings that is three minutes of a worker that runs and says it is not ready. A worker that stopped says nothing, which counts the same; the API's alarm, which is of the same kind, took about eight minutes to notice a stopped API. Neither has been seen for the worker. A CloudWatch agent that is stopped on the host looks the same, and sets off the API's alarm too. Meanwhile new jobs wait in the database and are done once the worker is back. First, see whether the worker runs and what its log says, under the stream worker of the log group /vehicle-catalog/backend, and the dashboard's chart of starts: a worker that Docker starts again and again, or that is slow to start after a release, shows there. A release ordinarily stops the worker for less than the alarm waits. It clears by itself some minutes after the worker is ready again. infra/README.md has the commands under this alarm's name."
+
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+
+  evaluation_periods  = 3
+  comparison_operator = "LessThanThreshold"
+  threshold           = 1
+  treat_missing_data  = "breaching"
+
+  metric_query {
+    id          = "health"
+    expression  = "SELECT MIN(\"worker.health\") FROM \"${local.telemetry_namespace}\""
+    period      = 60
+    return_data = true
+  }
+}
+
+# Goes off when the host's one disk has been more than 80 percent full for five minutes running,
+# which leaves less than 6 GB of its 30; on 2026-10-14 it was 15 percent full. The agent reports
+# the share with the path and the file system as its labels, and the alarm names both, as the
+# dashboard's chart does: one that named the path alone would read nothing and stay quiet for
+# good. A minute in which nothing arrived is no fault of the disk's: an agent that is stopped sets
+# off the two alarms above.
+resource "aws_cloudwatch_metric_alarm" "host_disk" {
+  alarm_name        = "vehicle-catalog-host-disk"
+  alarm_description = "The host's one disk has been more than 80 percent full for five minutes running, which leaves less than 6 GB of its 30. The database, Docker's images, and the logs of Caddy, the database, and the cache are on it, and a disk with no room left stops the database. On 2026-10-14 it was 15 percent full, and the largest part of that, 1.9 GB of the 4.5 GiB in use, was Docker's images. First, on the host, df -h and docker system df say what takes the room. Images that no container runs are where room is most readily found; the image before the one that runs is kept, since a release that is taken back goes back to it. It clears by itself within about a minute of the share being below the line again. infra/README.md has the commands under this alarm's name."
+
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+
+  namespace   = local.telemetry_namespace
+  metric_name = "disk_used_percent"
+  dimensions  = { path = "/", fstype = "xfs" }
+  statistic   = "Average"
+  period      = 60
+
+  evaluation_periods  = 5
+  datapoints_to_alarm = 5
+  comparison_operator = "GreaterThanThreshold"
+  threshold           = 80
+  treat_missing_data  = "notBreaching"
+}
+
 # The page reads from top to bottom in the order a fault is looked for: the alarms' states, then
 # under a heading each whether the API and the worker are up, requests, catalogs, jobs and queues,
 # the language model, the cache, and the host. The backend's metrics are found by name, as the
@@ -173,8 +227,11 @@ resource "aws_cloudwatch_dashboard" "backend" {
           title = "The alarms"
           alarms = [
             aws_cloudwatch_metric_alarm.backend_health.arn,
+            aws_cloudwatch_metric_alarm.worker_health.arn,
             aws_cloudwatch_metric_alarm.jobs_failed.arn,
             aws_cloudwatch_metric_alarm.jobs_waiting.arn,
+            aws_cloudwatch_metric_alarm.backup_missing.arn,
+            aws_cloudwatch_metric_alarm.host_disk.arn,
           ]
         }
       },
@@ -571,6 +628,9 @@ resource "aws_cloudwatch_dashboard" "backend" {
             [local.telemetry_namespace, "disk_used_percent", "path", "/", "fstype", "xfs", { label = "disk in use" }],
           ]
           yAxis = { left = { label = "percent", min = 0, max = 100, showUnits = false } }
+          annotations = {
+            horizontal = [{ label = "the disk's alarm goes off", value = aws_cloudwatch_metric_alarm.host_disk.threshold }]
+          }
         }
       },
       # The two lines are asked for by the instance's id, which stays out of their labels.

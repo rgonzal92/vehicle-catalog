@@ -1,0 +1,45 @@
+# Sets the clean machine up to put a backup back: Docker, the restore script as the repository
+# has it, and what the script is to be told that the machine itself knows and no command to it
+# need name: the database's image, the bucket, and the registry.
+# Systems Manager runs this on the machine as root, when the machine first reports in. What
+# Terraform fills in is written the way bash writes a variable, so the file can be checked as bash
+# before it is filled in.
+set -euo pipefail
+export AWS_DEFAULT_REGION=${region}
+
+if ! command -v docker >/dev/null; then
+  dnf install --assumeyes docker
+fi
+systemctl enable --now docker
+
+install -d -m 700 /opt/vehicle-catalog-restore
+cd /opt/vehicle-catalog-restore
+cat > restore.sh <<'RESTORE_SCRIPT'
+${restore_script}
+RESTORE_SCRIPT
+chmod 700 restore.sh
+cat > restore.env <<'RESTORE_SETTINGS'
+DATABASE_IMAGE=${database_image}
+RESTORE_SETTINGS
+
+# Puts a backup back, and starts the API of a commit on it if one is named:
+#
+#   put-back.sh <backup>             the backup put back, and what it holds counted
+#   put-back.sh <backup> <commit>    the same, and the API of that commit started on it
+#
+# The machine signs in to the registry for the length of the run, as the host does for a release.
+cat > put-back.sh <<'PUT_BACK'
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+export AWS_DEFAULT_REGION=${region}
+if [ $# -eq 2 ]; then
+  trap 'docker logout ${registry} >/dev/null' EXIT
+  aws ecr get-login-password | docker login --username AWS --password-stdin ${registry} >/dev/null
+  ./restore.sh ${backup_bucket} "$1" "${backend_repository}:$2"
+else
+  ./restore.sh ${backup_bucket} "$1"
+fi
+PUT_BACK
+chmod 700 put-back.sh
+echo "The machine is set up to put a backup back."
