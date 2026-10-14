@@ -11,7 +11,9 @@ case "$*" in
     [ -n "${MODEL_KEY:-}" ] || { echo "ParameterNotFound" >&2; exit 254; }
     echo "$MODEL_KEY"
     ;;
-  # Keeps what is sent to a bucket in a directory, and has one bucket that takes nothing.
+  # Keeps what is sent to a bucket in a directory, answers a fetch from it with what was sent, and
+  # has one bucket that takes nothing.
+  "s3 cp s3://a-bucket/"*) cp "$BACKUPS/${3##*/}" "$4" ;;
   "s3 cp "*" s3://a-bucket-that-refuses/"*) exit 1 ;;
   "s3 cp "*" s3://a-bucket/"*) cp "$3" "$BACKUPS/${4##*/}" ;;
   *)

@@ -424,33 +424,140 @@ Every night at 02:30 UTC the host writes a copy of the database to the bucket
 `rgonz-vehicle-catalog-backups`, named by when it was made. That is half an hour before the demo
 reset, so a backup holds the day's work. A backup is kept for thirty days.
 
-The host writes backups and does nothing else with them, so one is listed and fetched from a
-workstation. On the host, this says how the last run went and when the next is due, and makes a
-backup now:
-
-```sh
-systemctl list-timers vehicle-catalog-backup.timer
-sudo journalctl --unit vehicle-catalog-backup.service --since yesterday
-sudo systemctl start vehicle-catalog-backup.service
-```
-
-To put a backup back, fetch it on a workstation and send it to the host's database through a
-session there. This replaces everything the database holds, so the backend is stopped for it:
+The host writes backups and does nothing else with them, so one is listed from a workstation:
 
 ```sh
 aws s3 ls s3://rgonz-vehicle-catalog-backups/
-aws s3 cp s3://rgonz-vehicle-catalog-backups/<the backup> .
 ```
 
-Then, on the host, with the file copied there:
+On the host, this says how the last run went and when the next is due, and makes a backup now.
+The journal is asked without the host's name, which is made from its address:
 
 ```sh
-cd /opt/vehicle-catalog
-sudo docker compose stop backend
-sudo docker compose exec -T db pg_restore --username catalog --dbname catalog \
-  --clean --if-exists --no-owner < <the backup>
-sudo docker compose start backend
+systemctl list-timers vehicle-catalog-backup.timer
+sudo journalctl --unit vehicle-catalog-backup.service --since yesterday --no-hostname
+sudo systemctl start vehicle-catalog-backup.service
 ```
+
+### What a backup holds
+
+A backup is `pg_dump` of the database: the library, the catalogs with every version and change,
+the jobs and the notifications, what the app knows of each uploaded document and its passages, and
+the people who have signed in, with their email addresses, the login provider's subjects, and
+their sessions. An API started on a backup that is put back answers a request that carries one of
+those sessions, until it runs out.
+
+No backup holds the files of uploaded documents, which are in the bucket
+`rgonz-vehicle-catalog-documents`; the exported spreadsheets, which are in
+`rgonz-vehicle-catalog-exports`; the messages on the queue of the jobs; or the host's certificate,
+which Caddy keeps in a volume of its own. A restore brings none of them back.
+
+### Putting a backup back on a clean machine
+
+No role that exists from day to day may read a backup. `restore.tf` describes a machine that may,
+with a role of its own, and it exists only while the switch `restore_machine` is on, which it is
+for the plan that makes it and the hours of the restore. The switch is turned on on the command
+line and in no file, and the plan is saved and read before it is applied: it adds the machine's
+own resources and nothing else, and the apply waits for the machine to set itself up and fails if
+it does. The plan file holds secrets, so it is written outside the repository and deleted
+afterwards.
+
+```sh
+terraform plan -var restore_machine=true -out=/tmp/restore.plan
+terraform apply /tmp/restore.plan
+```
+
+The machine's own resources, which the plan that removes it names and no other:
+
+- `aws_instance.restore[0]` and `aws_ssm_association.restore_setup[0]`, which sets it up;
+- `aws_security_group.restore[0]`, `aws_vpc_security_group_egress_rule.restore[0]`, and
+  `aws_vpc_security_group_rules_exclusive.restore[0]`;
+- `aws_iam_role.restore[0]`, `aws_iam_instance_profile.restore[0]`,
+  `aws_iam_role_policy_attachment.restore_systems_manager[0]`,
+  `aws_iam_role_policy.restore_fetch_backups[0]`, `aws_iam_role_policy.restore_fetch_backend[0]`,
+  `aws_iam_role_policy.restore_no_parameters[0]`, `aws_iam_role_policies_exclusive.restore[0]`,
+  and `aws_iam_role_policy_attachments_exclusive.restore[0]`.
+
+The machine is the host's but for six things: its `Name` tag is `vehicle-catalog-restore`, which
+the pipeline's release never names; nothing reaches it, not even CloudFront; it has the address
+its subnet gives it and no fixed one; its role's credentials reach the machine itself and no
+container on it; its processor is read every minute; and it ends itself three hours after its
+first start, by a shutdown set at its launch, and is gone with its disk when it does. Its role may
+be reached by Systems Manager, fetch a backup, and fetch the backend's images, and is refused
+every parameter. It costs about two and a half cents an hour while it runs; what is left of it
+once it has ended itself costs nothing.
+
+The machine sets itself up with Docker, `deploy/restore.sh`, and two files beside it in
+`/opt/vehicle-catalog-restore`: `restore.env`, which names the database's image as
+`deploy/compose.yaml` does, and `put-back.sh`, which signs in to the registry and runs the script
+with the bucket. A command to the machine names a backup and a commit, and nothing else. The
+commit is the one the host runs, which is the newest `Deploy` run that succeeded. Systems Manager
+keeps the first 24,000 characters of what a command prints; the script printed 1,863, in 70 lines,
+for the demo's 36 tables on the local stack.
+
+```sh
+machine="$(aws ec2 describe-instances \
+  --filters Name=tag:Name,Values=vehicle-catalog-restore Name=instance-state-name,Values=running \
+  --query 'Reservations[0].Instances[0].InstanceId' --output text)"
+command="$(aws ssm send-command --instance-ids "$machine" --document-name AWS-RunShellScript \
+  --parameters 'commands=["/opt/vehicle-catalog-restore/put-back.sh <the backup> <the commit, in full>"]' \
+  --query Command.CommandId --output text)"
+aws ssm get-command-invocation --command-id "$command" --instance-id "$machine" \
+  --query '[Status,StandardOutputContent,StandardErrorContent]' --output text
+```
+
+The script starts an empty database from the host's image with a password made up on the spot,
+fetches the backup, puts it back with `pg_restore --no-owner`, prints the rows of every table and
+the migrations, and, given a commit, starts the API of that commit alone on the database and waits
+up to 300 seconds for it to be ready. That API is told made-up addresses for signing in, has its
+demo reset off, and is told of no queue, bucket, cache, user pool, key, or agent. It answers on
+the machine's own address alone, on port 18090, and nobody signs in there. It is asked with a
+session the backup holds, whose value goes from the database into the request inside one command
+and is never printed:
+
+```sh
+curl --silent --header "Cookie: __Host-SESSION=$(docker exec restore-<the backup, without .dump>-db \
+  psql --username catalog --dbname catalog --tuples-only --no-align --command "SELECT encode(convert_to(session_id, 'UTF8'), 'base64') FROM spring_session WHERE principal_name = (SELECT cognito_sub FROM app_user WHERE username = 'visitor') ORDER BY last_access_time DESC LIMIT 1")" \
+  'http://127.0.0.1:18090/api/catalogs?scope=mine' | jq '[.[].name]'
+```
+
+Before anything is fetched, the guard against a forgotten machine is looked at: on the machine,
+`cat /run/systemd/shutdown/scheduled` shows the shutdown that is set and its time, and
+`aws ec2 describe-instance-attribute --attribute instanceInitiatedShutdownBehavior` gives
+`terminate`.
+
+When the restore is done, the plan with the switch off is saved and read, and removes the
+resources listed above and nothing else:
+
+```sh
+terraform plan -out=/tmp/remove.plan
+terraform apply /tmp/remove.plan
+```
+
+`deploy/test/check.sh` runs the script on its own stack, against a stand-in for the bucket, and
+holds that a row made before the backup is there and one made after it is not, that the API it
+started is ready and says its database is up, and that the API is told of nothing live. No
+backup has yet been put back on such a machine in AWS.
+
+### Putting a backup back over the stack's own database
+
+This replaces everything the database holds. The API and the worker both write to it, so both are
+stopped. The cache keeps the contents of Approved versions by a catalog's id, and a database that
+is put back gives ids out again from where the backup stood, so the cache is started anew, which
+empties it. Then both are started. In the stack's directory, as root on the host, with the
+backup's file at `<the backup>`:
+
+```sh
+docker compose stop backend worker
+docker compose exec -T db pg_restore --username catalog --dbname catalog --clean --if-exists --no-owner < <the backup>
+docker compose up --detach --force-recreate --no-deps cache
+docker compose start backend worker
+```
+
+`deploy/test/check.sh` runs these four commands on its own stack, and holds that the API and the
+worker are healthy afterwards and that a row made after the backup is gone. No backup has ever
+been put back over the host's database, and no way to bring a backup's file to the host is
+written: the host's role may not read the bucket.
 
 A backup made by a newer backend holds tables an older one does not know, so the image released
 is the one that made the backup, or a later one.
