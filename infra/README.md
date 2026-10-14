@@ -529,12 +529,13 @@ It all goes to Amazon CloudWatch.
   On 2026-10-13, a whole UTC day before the steps were added, `aws/spans` took in 17,551 spans of
   965 to 1,124 bytes each, 18,409,180 bytes in all, counted by a Logs Insights query over the day.
   17,195 of them were the question to the cache every ten seconds, which has left no span since;
-  168 were requests, 159 the cache's commands, 11 jobs, 9 the language model's requests, and 1 the
-  demo reset. One more span of that size, 1,049 bytes, costs about $0.00000034 at the price by the
-  GB, with a GB taken as 1,073,741,824 bytes, a million such spans about $0.34, and nothing at
-  X-Ray's price for a trace when it joins a trace that exists. The steps add three spans to a catalog that is opened, four to a save, one to a
-  new working copy, sixty to a list of twenty working copies, three to a job that checks an Approved
-  version, and about twenty-three to a demo reset.
+  168 were requests, 159 the cache's commands, 10 jobs, 9 the language model's requests and the 9
+  HTTP calls they made, and 1 the demo reset. One more span of that size, 1,049 bytes, costs about
+  $0.00000034 at the price by the GB, with a GB taken as 1,073,741,824 bytes, a million such spans
+  about $0.34, and nothing at X-Ray's price for a trace when it joins a trace that exists. The steps
+  add three spans to a catalog that is opened, four to a save, one to a new working copy, sixty to a
+  list of twenty working copies, three to a job that checks an Approved version, and about
+  twenty-three to a demo reset.
 - **Its metrics** go to the same agent, which publishes them under the namespace
   `vehicle-catalog` together with two of the host's own. The dashboard `vehicle-catalog` shows
   them. The API sends the first eleven of these and the five of the language model. The worker sends
