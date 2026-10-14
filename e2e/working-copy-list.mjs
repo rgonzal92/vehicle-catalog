@@ -91,7 +91,7 @@ async function signedIn() {
     context = await browser.newContext();
     const page = await context.newPage();
     await page.goto(site);
-    console.log(`Sign in as ${account} in the window that opened; this waits up to ten minutes.`);
+    console.log("Sign in through the window that opened; this waits up to ten minutes.");
     await page.waitForURL(`${site}/dashboard`, { timeout: 600_000 });
   }
   const jar = new Jar(await context.cookies(site));
@@ -240,7 +240,7 @@ try {
   const me = await send("GET", "/api/me");
   const { copies } = await list(send);
   console.log(
-    `${account} on ${site}: roles ${me.roles.join(", ").toLowerCase() || "none"};` +
+    `Signed in with roles ${me.roles.join(", ").toLowerCase() || "none"};` +
       ` the list holds ${copies.length} working cop${copies.length === 1 ? "y" : "ies"}.`,
   );
   if (mode === "delete") {
