@@ -165,19 +165,56 @@ alarm's eight minutes and three and a half are the one trial of 2026-10-08, in p
 
 ### The trial
 
-Filled in before the pull request is opened: each alarm set to `ALARM` by hand once, with the times
-in UTC its history gives for the change, the action to the topic, the return to `OK`, and the
-second action, and the topic's three counts over those minutes.
+Made on 2026-10-14 from 03:32:57 to 03:37:33 UTC, with all three alarms `OK`, no Deploy running,
+and the subscription still unconfirmed (What the maintainer saw, below). Each alarm was set to
+`ALARM` by hand once, with the reason "Set by hand to see the email. Nothing is wrong.", and asked
+for every 30 seconds. Each returned to `OK` by itself within the five minutes, so none was set
+back by hand. The times are those its history gives, in UTC:
+
+| Alarm | Set to `ALARM` by hand | Told the topic | Back to `OK` by itself | Told the topic | On for |
+|---|---|---|---|---|---|
+| `vehicle-catalog-backend-health` | 03:32:58 | 03:32:58, succeeded | 03:33:48 | 03:33:48, succeeded | 51 s |
+| `vehicle-catalog-jobs-failed` | 03:33:59 | 03:33:59, succeeded | 03:35:04 | 03:35:04, succeeded | 65 s |
+| `vehicle-catalog-jobs-waiting` | 03:35:31 | 03:35:31, succeeded | 03:37:04 | 03:37:04, succeeded | 93 s |
+
+Over those minutes each history has the change from `OK` to `ALARM`, an item of the type `Action`
+that says "Successfully executed action" and names the topic, the change from `ALARM` to `OK`, and
+a second such item. So the topic, with no access policy of its own, takes this account's alarms,
+and an alarm that returns to its real state by itself runs its clearing action. Before them each
+history has a `ConfigurationUpdate` at 03:32:21 UTC, the apply that gave the alarms their actions,
+and no change of state for it. "Often within seconds", which AWS's page gives for the return, was
+51 to 93 seconds here.
+
+The topic's counts from 03:31 to 03:41 UTC, asked for by the minute and summed:
+`NumberOfMessagesPublished` 6, one at 03:32, two at 03:33, two at 03:35, and one at 03:37;
+`NumberOfNotificationsDelivered` 1, in the minute 03:32 and in no other; and
+`NumberOfNotificationsFailed` one datapoint of 0 at 03:32 and none in any other minute. Six
+published is the six emails the alarms asked for. One delivered and not six is the subscription:
+the address had not confirmed it, and SNS sends nothing to an address that has not. The minute
+03:32 holds both the apply, in which SNS sent the address its email to confirm (03:32:17 to
+03:32:22), and the health alarm's first message (03:32:58); which of the two that one delivery
+counts, SNS's page does not say.
+
+The pipeline's `plan` check, run again on the pull request at 03:33 UTC after the apply, read the
+topic and the subscription as the plan role, with the statement that names the topic's ARN alone,
+and said "No changes. Your infrastructure matches the configuration."
 
 ### What the maintainer saw
 
-Filled in before the pull request is opened, or says that he has not said: how many of the six
-emails came, whether to his inbox or his junk, and whether each showed its whole description.
+He has not said. The subscription was still pending confirmation at 03:38 UTC, when the trial was
+over, so none of its six emails was sent to him, and the click on "Confirm subscription" is still
+his to make: until it, the alarms tell a topic that reaches no one, and 48 hours after the apply
+SNS deletes the subscription, which the next plan then shows to be added anew. He was asked on the
+ticket to confirm the address and then to say of the emails that come, how many came, whether to
+his inbox or his junk, and whether each showed its whole description; how an email reads and
+where it lands stay not known until he does.
 
 ### What limits this
 
 - An alarm set by hand shows the way from an alarm to the inbox, and not what sets an alarm off.
   Only the health alarm was ever seen to go off for its cause.
+- The trial was made before the address had confirmed its subscription, so it showed the way from
+  an alarm to the topic, six times, and not from the topic to the inbox.
 - "Delivered" is SNS's count of what the mail server took. It does not say whether an email lay in
   the inbox or the junk, or how much of the description it showed. Those two are known only as far
   as the maintainer said.
