@@ -118,6 +118,12 @@ class DemoResetIT extends ApplicationIT {
                   + " VALUES (?, ?, 'RENAMED', '{}')")
           .params(copy, person(subject))
           .update();
+      jdbc.sql(
+              "INSERT INTO working_copy_count"
+                  + " (catalog_id, revision, library_revision, error_count, warning_count)"
+                  + " VALUES (?, 0, 0, 0, 0)")
+          .param(copy)
+          .update();
     }
     // And a version someone approved since.
     jdbc.sql(
@@ -135,6 +141,7 @@ class DemoResetIT extends ApplicationIT {
     assertThat(content()).isEqualTo(seeded);
     assertThat(count("catalog WHERE status <> 'APPROVED'")).as("working copies").isZero();
     assertThat(count("catalog_change")).as("change history").isZero();
+    assertThat(count("working_copy_count")).as("working copies' kept counts").isZero();
     assertThat(count("app_user")).as("people on record").isEqualTo(peopleOnRecord);
     assertThat(owners.stream().map(this::person).toList())
         .as("each is still who they were")

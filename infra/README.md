@@ -582,11 +582,12 @@ It all goes to Amazon CloudWatch.
 
   Opening a catalog has the first three, a save has `catalog.save` and then those three for its
   answer, a new working copy has `catalog.contents.copy`, and a person's list of working copies has
-  the first three for each copy in it. Beside the steps are the spans their libraries leave: the
-  cache's commands, named `Redis`, and the language model's requests. The steps leave no metric:
-  `catalog.validate`, `catalog.edit`, and `catalog.copy` stay the three timers below, and no step's
-  name is in the lists of `Telemetry.java`, since an observation's timer, told apart by `error`,
-  would be a metric more.
+  the first three for each copy it reads whole: one whose kept counts of Errors and Warnings are of
+  another revision of the copy or of the library, and none for the others. Beside the steps are the
+  spans their libraries leave: the cache's commands, named `Redis`, and the language model's
+  requests. The steps leave no metric: `catalog.validate`, `catalog.edit`, and `catalog.copy` stay
+  the three timers below, and no step's name is in the lists of `Telemetry.java`, since an
+  observation's timer, told apart by `error`, would be a metric more.
 
   A request and the job it causes are one trace: the job's span has the request's span as its
   parent, and the line the API writes for the request and the line the worker writes for the job
@@ -630,8 +631,8 @@ It all goes to Amazon CloudWatch.
   $0.00000034 at the price by the GB, with a GB taken as 1,073,741,824 bytes, a million such spans
   about $0.34, and nothing at X-Ray's price for a trace when it joins a trace that exists. The steps
   add three spans to a catalog that is opened, four to a save, one to a new working copy, sixty to a
-  list of twenty working copies, three to a job that checks an Approved version, and about
-  twenty-three to a demo reset.
+  list of twenty working copies that reads each whole, none to one that lists each from its kept
+  counts, three to a job that checks an Approved version, and about twenty-three to a demo reset.
 - **Its metrics** go to the same agent, which publishes them under the namespace
   `vehicle-catalog` together with two of the host's own; the backup script publishes `backup.size`
   there too ([Backups](#backups)). The dashboard `vehicle-catalog` shows them, in groups under
@@ -650,7 +651,7 @@ It all goes to Amazon CloudWatch.
 | `jvm.heap.used` | the memory the backend's heap uses | nothing |
 | `catalog.edit` | how long saving an edit of a working copy took | nothing |
 | `catalog.copy` | how long copying a catalog into a new working copy took | nothing |
-| `catalog.validate` | how long reading a catalog and working out its issues took, wherever the API does that: when a catalog is opened, after every edit, and once for each working copy in a person's list among them | nothing |
+| `catalog.validate` | how long reading a catalog and working out its issues took, wherever the API does that: when a catalog is opened, after every edit, and once for each working copy that a person's list reads whole among them | nothing |
 | `catalog.submit.refused` | how many submits were refused for the state the catalog was in | `reason`, of which there are three: `STALE`, `VEHICLE_LINE_INACTIVE`, `HAS_ERRORS` |
 | `catalog.approved` | how many catalogs were approved | nothing |
 | `catalog.rejected` | how many catalogs were rejected | nothing |

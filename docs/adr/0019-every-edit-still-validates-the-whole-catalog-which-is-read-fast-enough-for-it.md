@@ -28,7 +28,7 @@ PostgreSQL answers the query for the cells in 3 to 4 ms, and the rows are in the
 ## Consequences
 
 - Nothing changes in what the API answers with or in the page. The issues, the marks, and the counts after any edit are those of a fresh opening of the catalog, because both come from one validation of the whole.
-- Every read of a whole catalog gains, and not the answer to an edit alone: opening a catalog, the list of a person's working copies, which reads and validates each of them, submitting, approving, the changes against another catalog, an update from Approved, an export, and a read of an Approved version that the cache does not hold.
+- Every read of a whole catalog gains, and not the answer to an edit alone: opening a catalog, the list of a person's working copies, which reads and validates each one whose kept counts of Errors and Warnings are of another revision of the copy or of the library, submitting, approving, the changes against another catalog, an update from Approved, an export, and a read of an Approved version that the cache does not hold.
 - The editor sends one save at a time. At half a second an answer, someone who set more than two cells a second left a queue of saves behind them. At 54 ms an answer it takes eighteen a second.
 - The answer to an edit still grows with the catalog. At the largest size about 23 ms of it are validation and 18 the reading. The catalog measured has half of its cells stored. One with every cell stored has twice as many to read, and was not measured.
 - Only the cells have a mapper of their own. The other lists are short: the 500 feature rows are read by their record's class in 3 ms.

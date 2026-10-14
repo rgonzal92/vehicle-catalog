@@ -8,6 +8,7 @@ import dev.rgonz.catalog.catalog.CatalogSnapshot.Offering;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Region;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Trim;
+import dev.rgonz.catalog.library.LibraryRevision;
 import dev.rgonz.catalog.library.RuleKind;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -38,16 +39,19 @@ class Catalogs {
 
   private final JdbcClient jdbc;
   private final ApprovedContents approvedContents;
+  private final LibraryRevision libraryRevision;
   private final ObservationRegistry observations;
   private final Timer validateTime;
 
   Catalogs(
       JdbcClient jdbc,
       ApprovedContents approvedContents,
+      LibraryRevision libraryRevision,
       ObservationRegistry observations,
       MeterRegistry metrics) {
     this.jdbc = jdbc;
     this.approvedContents = approvedContents;
+    this.libraryRevision = libraryRevision;
     this.observations = observations;
     this.validateTime =
         Timer.builder("catalog.validate")
@@ -161,6 +165,20 @@ class Catalogs {
   Optional<CatalogView> find(long id, long viewerId) {
     return find(id, viewerId, false);
   }
+
+  /**
+   * A catalog with its contents, for its owner or, when it is an Approved version, for anyone, and
+   * the revision of the library that its issues were worked out against, read in the same view of
+   * the database.
+   */
+  @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+  Optional<Validated> findWithLibraryRevision(long id, long viewerId) {
+    return find(id, viewerId, false)
+        .map(catalog -> new Validated(catalog, libraryRevision.current()));
+  }
+
+  /** A catalog with its issues, and the library's revision they were worked out against. */
+  record Validated(CatalogView catalog, long libraryRevision) {}
 
   /**
    * A catalog's contents alone, if the viewer may open it, for what compares catalogs and has no
