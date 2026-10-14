@@ -925,10 +925,11 @@ Each of the six alarms emails the maintainer when it goes off and when it clears
 SNS topic `vehicle-catalog-alarms`, which has one subscription: by email, to the address in
 `terraform.tfvars`, the one the budget alert goes to. The email carries the alarm's name and its
 description, which says what the alarm notices, the first thing to do, and how it clears; the rest
-of its wording is AWS's. A change to want of data sends nothing; a change from it, to `OK` or to
-`ALARM`, runs that state's action and emails, which an alarm made anew does once in its first
-minutes. `docs/dashboard-and-alarms.md` has each alarm's history, the trial in which each was set
-off by hand, and what the emails showed.
+of its wording is AWS's. It also carries the account's number and the ARNs of the alarm and the
+topic, so an email is not forwarded or pasted anywhere public. A change to want of data sends
+nothing; a change from it, to `OK` or to `ALARM`, runs that state's action and emails, which an
+alarm made anew does once in its first minutes. `docs/dashboard-and-alarms.md` has each alarm's
+history, the trial in which each was set off by hand, and what the emails showed.
 
 The address confirms its subscription with a click on "Confirm subscription" in the email SNS
 sends it after the apply that makes the subscription. Nothing is sent to it before the click, and

@@ -172,7 +172,7 @@ alarm's eight minutes and three and a half are the one trial of 2026-10-08, in p
 ### The trial
 
 Made on 2026-10-14 from 03:32:57 to 03:37:33 UTC, with all three alarms `OK`, no Deploy running,
-and the subscription still unconfirmed (What the maintainer saw, below). Each alarm was set to
+and the subscription still unconfirmed (The trial after the click, below). Each alarm was set to
 `ALARM` by hand once, with the reason "Set by hand to see the email. Nothing is wrong.", and asked
 for every 30 seconds. Each returned to `OK` by itself within the five minutes, so none was set
 back by hand. The times are those its history gives, in UTC:
@@ -308,22 +308,51 @@ no datapoint in any minute; `NumberOfNotificationsFailed` none either. Nine publ
 emails the alarms asked for; none delivered is the subscription, still unconfirmed, as in the trial
 above.
 
+### The trial after the click
+
+The click on "Confirm subscription" came on 2026-10-14. The maintainer's first click did not
+confirm the address: at 17:01:12 UTC the subscription was still pending, the topic counting no
+confirmed one and one pending. The email to confirm was sent again at 17:01:30 UTC with
+`aws sns subscribe` to the same address, which is the same subscription: the topic still has one,
+and nothing in the Terraform changed. He clicked it, and by 17:02:08 UTC
+`aws sns get-subscription-attributes` with `--query Attributes.PendingConfirmation` answered
+`false`.
+
+Then, from 17:02:32 to 17:07:33 UTC, with all six alarms `OK` and no Deploy running, the first
+three were set off again, as in [The trial](#the-trial): one at a time, set to `ALARM` by hand with
+the reason "Set by hand to see the email. Nothing is wrong.", and asked for every 30 seconds. Each
+returned to `OK` by itself within the five minutes, so none was set back by hand. The times are
+those its history gives, in UTC:
+
+| Alarm | Set to `ALARM` by hand | Told the topic | Back to `OK` by itself | Told the topic | On for |
+|---|---|---|---|---|---|
+| `vehicle-catalog-backend-health` | 17:02:32 | 17:02:32, succeeded | 17:04:03 | 17:04:03, succeeded | 91 s |
+| `vehicle-catalog-jobs-failed` | 17:04:24 | 17:04:24, succeeded | 17:05:42 | 17:05:42, succeeded | 77 s |
+| `vehicle-catalog-jobs-waiting` | 17:06:16 | 17:06:16, succeeded | 17:07:33 | 17:07:33, succeeded | 77 s |
+
+The topic's counts from 17:02 to 17:07 UTC, asked for by the minute and summed:
+`NumberOfMessagesPublished` 6, one at 17:02, two at 17:04, and one each at 17:05, 17:06, and
+17:07; `NumberOfNotificationsDelivered` 6, in the same minutes; and `NumberOfNotificationsFailed`
+datapoints of 0. The delivery of 17:07 was counted at 17:08:59, about a minute and a half after
+that email was sent. The minute 17:01 has one delivered and nothing published: the email to
+confirm, sent again.
+
 ### What the maintainer saw
 
-He has not said. The subscription was still pending confirmation at 03:38 UTC, when the trial was
-over, so none of its six emails was sent to him, and the click on "Confirm subscription" is still
-his to make: until it, the alarms tell a topic that reaches no one, and 48 hours after the apply
-SNS deletes the subscription, which the next plan then shows to be added anew. He was asked on the
-ticket to confirm the address and then to say of the emails that come, how many came, whether to
-his inbox or his junk, and whether each showed its whole description; how an email reads and
-where it lands stay not known until he does.
+He answered at about 17:12 UTC on 2026-10-14: all six emails of the trial after the click came,
+all six to his inbox. He pasted two of them, the health alarm's going off and its clearing, and in
+both the alarm's description shows whole, all 884 characters. The other four were counted, and
+not read here. The email opens with a link to the alarm in the console. In the email of a clearing
+the reason is CloudWatch's own, that the alarm's limit was crossed, and not the reason set by hand.
 
 ### What limits this
 
 - An alarm set by hand shows the way from an alarm to the inbox, and not what sets an alarm off.
   Only the health alarm was ever seen to go off for its cause.
-- Both trials were made before the address had confirmed its subscription, so they showed the way
-  from an alarm to the topic, six times each, and not from the topic to the inbox.
+- The first two trials were made before the address had confirmed its subscription, so they
+  showed the way from an alarm to the topic, and not from the topic to the inbox. The trial after
+  the click showed both for the first three alarms; the worker's, the backup's, and the disk's
+  were not set off again after it, and tell the same topic.
 - The backup's alarm, set to `ALARM` by hand, was set back by hand after five minutes, so whether
   and how soon it returns by itself after a trial is not known.
 - "Delivered" is SNS's count of what the mail server took. It does not say whether an email lay in
