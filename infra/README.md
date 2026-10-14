@@ -187,6 +187,16 @@ aws ssm send-command --document-name vehicle-catalog-release \
   --targets Key=tag:Name,Values=vehicle-catalog --parameters ImageTag=<the commit, in full>
 ```
 
+What visitors get while a release replaces the API is watched from outside with
+`deploy/test/release-watch.sh`, started before the merge and stopped with Ctrl-C a few minutes after
+the Deploy has ended. Once a second it asks the site for `/api/health/readiness` and for `/api/me`,
+writes each answer to a file as it comes, and when it is stopped prints the counts by status and
+every stretch in which the API did not answer:
+
+```sh
+deploy/test/release-watch.sh https://catalog.rgonz.dev
+```
+
 `deploy/test/check.sh` runs the same stack on this machine against stand-ins for the certificate
 authority, the registry, Parameter Store, the backups bucket, the CloudWatch agent, and the queue
 of the jobs. It releases images to it, among them three that do not come up healthy, has the
