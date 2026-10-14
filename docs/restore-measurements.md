@@ -4,11 +4,11 @@ How long it takes to put a backup of the database back on a machine that holds n
 
 Five things limit what it says:
 
-- **The API ran alone.** It was asked for its readiness, its health, and two reads, with a session read out of the restored database. Nobody signed in there. No worker, queue, bucket, or cache was part of it, and the API was told of none.
+- **The API ran alone.** It was asked for its readiness, its health, and three reads, with a session read out of the restored database. Nobody signed in there. No worker, queue, bucket, or cache was part of it, and the API was told of none.
 - **Nothing was put back over the live database.** The steps for that are run on the check's stack alone, by `deploy/test/check.sh`.
 - **It is one reading,** of the seeded demo's size: a backup of 142,813 bytes and 37 tables. Nothing was repeated.
 - **The machine had no processor time saved.** It ran at its baseline through its set-up and the whole restore, as [the picture](#the-machines-processor) shows. A machine with processor time saved is taken to set itself up and start the API faster; that was not measured.
-- **Some of the 7 minutes 3 seconds are the restore's own checks.** The 29 seconds between the set-up's end and the restore's start went to the look at the guard against a forgotten machine, and 16 seconds after the API was ready went to sending the command that read the catalog.
+- **Some of the 7 minutes 3 seconds are the restore's own checks.** The 29 seconds between the set-up's end and the restore's start went to the look at the guard against a forgotten machine, and 16 seconds after the API was ready went to the command of the checks after it, which looked at the image, asked for a token from inside the API's container with a timeout of five seconds, and then read the catalog.
 
 ## Results
 
@@ -49,7 +49,7 @@ While a backup is made, the host keeps the copy in its memory and not on its dis
 | 17:51:11 | The machine is asked for: the apply begins. |
 | 17:51:25 | The machine is launched. It boots at 17:51:32. |
 | 17:51:43 | The apply ends, 13 added. |
-| 17:52:04 | The machine is online to Systems Manager, its set-up queued. |
+| 17:52:04 | The machine is first asked after: it is online to Systems Manager, its set-up queued. |
 | 17:52:10 to 17:54:48 | The machine sets itself up, and succeeds. |
 | 17:55:03 to 17:55:08 | The guard against a forgotten machine is looked at. |
 | 17:55:17 | The restore of the backup made by hand begins. |
@@ -83,7 +83,7 @@ The set-up does not fetch the database's image, so the script fetches it before 
 
 ### The machine's processor
 
-![The clean machine's CPU utilization, the most in each minute, from 17:50 to 18:04: about 0 until 17:52, flat at about 19.8 percent from 17:53 to 17:57 against a line at the 20 percent baseline, 15 at 17:58, 3 at 17:59, and under 1 after, with the restore's steps marked](restore-clean-machine-processor.png)
+![The clean machine's CPU utilization, the most in each minute, from 17:50 to 18:04: no line until 17:52, then about 0, flat at about 19.8 percent from 17:53 to 17:57 against a line at the 20 percent baseline, 15 at 17:58, 3 at 17:59, and under 1 after, with the restore's steps marked](restore-clean-machine-processor.png)
 
 The line is the most the machine's processor did in each minute. It stayed between 19.70 and 19.88 percent from 17:53 to 17:57, through the set-up and the restore, which is the baseline a machine of its kind is held to once it has no processor time saved. It fell to 15.26 at 17:58, 3.09 at 17:59, and under 1 after. So the machine ran slowed through the whole of its set-up and the restore.
 
@@ -141,7 +141,7 @@ The host was counted before and after the backup by hand, and the backup was cou
 | `vehicle_type` | 4 | 4 | 4 | 4 |
 | `working_copy_count` | 1 | 1 | 1 | not there |
 
-The two counts on the host are the same for every table, and so is the backup put back: no table lies outside them, so none needs explaining. The night's backup has 36 tables. `working_copy_count` came with migration 19, released at 16:09, after it was made.
+The two counts on the host are the same for every table, and so is the backup put back: no table lies outside them, so none needs explaining. The night's backup has 36 tables. `working_copy_count` came with migration 19, released at 16:11, after it was made.
 
 The migrations' history put back holds versions 1 to 19, the highest 19, every one succeeded, and two rows for the repeatable `R__copy_catalog.sql`: 21 rows. The image released holds `V1` to `V19`. The night's backup holds versions 1 to 18 and the same two rows. Both have the `vector` extension, 0.8.7.
 
@@ -152,16 +152,17 @@ The API ran from the image `sha256:265b2157…`, which is the id of `vehicle-cat
 The restored database held one session of `visitor`'s, last used at 17:50:23, when the first working copy was made. Asked with it, from inside one command that never printed it:
 
 - `visitor`'s list answered 200, and named "Restore sitting: made before the backup" and nothing else.
-- Sedan 2027 v1, the seeded Approved version "Launch content", answered 200, `APPROVED`, an answer of 95,833 characters.
+- Sedan 2027 v1, the seeded Approved version, answered 200, `APPROVED`, an answer of 95,833 characters.
 - Without a cookie, the list answered 401.
+- A third read, of the same version with the same session, sent with the night's restore, gave its name, "Launch content".
 
 By SQL, the restored database holds the first working copy and not the second. The night's backup holds neither.
 
 ## What it shows
 
 - **The restore is whole.** `pg_restore` ended with 0 for both backups. Every table put back from the backup made by hand has the host's rows, the migrations are those of the image released, and the API started on it, took a session it held, and read a catalog.
-- **What the restore kept and what it lost.** The backup made by hand kept the working copy made six seconds before it, and lost the one made twelve seconds after it. The night's backup, the newest one the timer had made, was 15 hours 20 minutes behind at 17:50, and lacked both, 4 rows of the language model's spending, and migration 19. Its catalogs' tables differ from the backup made by hand as well; `catalog_cell` by 1,070 rows and `catalog_feature` by 172, which are Sedan 2027 v1's stored cells and feature rows as [the record of the list of working copies](working-copy-list-measurements.md) has them, so those rows are taken to be the first working copy's. The other catalogs' tables were not taken apart.
-- **The night's backup held what has since gone.** It has 3 sessions where the host had 1 at 17:50, and 10 jobs and 10 messages waiting to be sent where the host had 8 of each. Sessions end by the clock, and the demo reset runs at 03:00, half an hour after the backup. Which of the two took those rows away was not looked at: the host's logs for those hours were not read.
+- **What the restore kept and what it lost.** The backup made by hand kept the working copy made about five seconds before it began, and lost the one made twelve seconds after it ended. The night's backup, the newest one the timer had made, was 15 hours 20 minutes behind at 17:50, and lacked both, 4 rows of the language model's spending, and migration 19. Its catalogs' tables differ from the backup made by hand as well; `catalog_cell` by 1,070 rows and `catalog_feature` by 172, which are Sedan 2027 v1's stored cells and feature rows as [the record of the list of working copies](working-copy-list-measurements.md) has them, so those rows are taken to be the first working copy's. The other catalogs' tables were not taken apart.
+- **The night's backup held what has since gone.** It has 3 sessions where the host had 1 at 17:50, and 10 jobs and their 10 messages for the queue where the host had 8 of each; the 2 messages more are those of the 2 jobs more, since a message is kept once it is sent and goes only with its job. Sessions end by the clock, and the demo reset runs at 03:00, half an hour after the backup. Which of the two took those rows away was not looked at: the host's logs for those hours were not read.
 - **The checks ticket #64 left unmet are met.** "A backup appears in the bucket after the nightly run": one appeared for every night from 2026-10-09 to 2026-10-14, and the night's of 2026-10-14 was put back with `pg_restore` ending with 0. "The app starts on a restored database": the API of the commit the host ran was ready on the backup made by hand at 17:57:58, and answered with its data.
 
 ## What no backup holds
@@ -199,7 +200,9 @@ The machine was made and removed as [the README](../infra/README.md#putting-a-ba
 
 - `aws_instance.restore[0]` and `aws_ssm_association.restore_setup[0]`;
 - `aws_security_group.restore[0]`, `aws_vpc_security_group_egress_rule.restore[0]`, and `aws_vpc_security_group_rules_exclusive.restore[0]`;
-- `aws_iam_role.restore[0]`, `aws_iam_instance_profile.restore[0]`, `aws_iam_role_policy_attachment.restore_systems_manager[0]`, `aws_iam_role_policy.restore_fetch_backups[0]`, `aws_iam_role_policy.restore_fetch_backend[0]`, `aws_iam_role_policy.restore_no_parameters[0]`, `aws_iam_role_policies_exclusive.restore[0]`, and `aws_iam_role_policy_attachments_exclusive.restore[0]`. Its set-up was waited for by asking `aws ssm describe-instance-associations-status` every ten seconds until it said `Success`. On the machine, through Systems Manager, the two restores were:
+- `aws_iam_role.restore[0]`, `aws_iam_instance_profile.restore[0]`, `aws_iam_role_policy_attachment.restore_systems_manager[0]`, `aws_iam_role_policy.restore_fetch_backups[0]`, `aws_iam_role_policy.restore_fetch_backend[0]`, `aws_iam_role_policy.restore_no_parameters[0]`, `aws_iam_role_policies_exclusive.restore[0]`, and `aws_iam_role_policy_attachments_exclusive.restore[0]`.
+
+The machine's set-up was waited for by asking `aws ssm describe-instance-associations-status`, with ten seconds between asks, until it said `Success`. On the machine, through Systems Manager, the two restores were:
 
 ```sh
 /opt/vehicle-catalog-restore/put-back.sh catalog-2026-10-14T1750Z.dump c49bb41856601ed34440f0633ed7ce3c9a30ea5c

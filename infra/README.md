@@ -557,7 +557,7 @@ The machine sets itself up with Docker, `deploy/restore.sh`, and two files besid
 `/opt/vehicle-catalog-restore`: `restore.env`, which names the database's image as
 `deploy/compose.yaml` does, and `put-back.sh`, which signs in to the registry and runs the script
 with the bucket. The apply does not wait for that: on 2026-10-14 it ended once it had made the
-set-up, in four seconds, before the machine had reported to Systems Manager, and the set-up ran
+set-up, in four seconds, before the machine had reported a run of it, and the set-up ran
 for 2 minutes 38 seconds after it. So the set-up's status is asked for until it says `Success`,
 before any command is sent. A command to the machine names a backup and a commit, and nothing
 else. The commit is the one the host runs, which is the newest `Deploy` run that succeeded.

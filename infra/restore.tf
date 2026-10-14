@@ -194,8 +194,8 @@ resource "aws_instance" "restore" {
 # Has the machine set itself up to put a backup back: Docker, deploy/restore.sh as the repository
 # has it, the database's image as deploy/compose.yaml names it, the bucket, and the registry. The
 # apply is given fifteen minutes for this, yet on 2026-10-14 it ended four seconds after making
-# the association, before the machine had reported in, so infra/README.md says how the set-up is
-# waited for. A command to the machine then names a backup and a commit, sent as the README says.
+# the association, before the machine had reported a run of it, so infra/README.md says how the
+# set-up is waited for. A command to the machine then names a backup and a commit, sent as the README says.
 resource "aws_ssm_association" "restore_setup" {
   count = var.restore_machine ? 1 : 0
 
