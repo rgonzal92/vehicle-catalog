@@ -23,11 +23,12 @@ import org.springframework.http.server.observation.ServerRequestObservationConte
  * is short. Of the API: whether it is ready, its requests by outcome, the memory its heap uses, how
  * long an edit and a copy of a catalog take, how long reading one and working out its issues takes,
  * and how many catalogs were refused at their submit, approved, rejected, and updated from
- * Approved. Of the worker: how long each job took, by its type and its outcome. Of both, what they
- * ask the language model: its requests by what they were for and how they ended, the tokens in and
- * out, and the requests that were refused; and of the API also the tool calls and what the day has
- * cost. Every other metric is turned down here, the many that the libraries offer among them, so a
- * new one is added to its list here and to the dashboard that shows it.
+ * Approved. Of the worker: whether it is ready, and how long each job took, by its type and its
+ * outcome. Of both, what they ask the language model: its requests by what they were for and how
+ * they ended, the tokens in and out, and the requests that were refused; and of the API also the
+ * tool calls and what the day has cost. Every other metric is turned down here, the many that the
+ * libraries offer among them, so a new one is added to its list here and to the dashboard that
+ * shows it.
  */
 @Configuration(proxyBeanMethods = false)
 class Telemetry {
@@ -74,11 +75,11 @@ class Telemetry {
           "ai.spent");
 
   /**
-   * What the worker reports of itself: how long each job took, and of the model what a job asks of
-   * it. It calls no tools, and the API says what the day has cost.
+   * What the worker reports of itself: whether it is ready, how long each job took, and of the
+   * model what a job asks of it. It calls no tools, and the API says what the day has cost.
    */
   private static final Set<String> OF_THE_WORKER =
-      Set.of("job.run", "ai.call", "ai.tokens", "ai.refused");
+      Set.of("worker.health", "job.run", "ai.call", "ai.tokens", "ai.refused");
 
   @Bean
   MeterFilter onlyTheMetricsThatAreLookedAt(Environment environment) {
@@ -111,12 +112,14 @@ class Telemetry {
 
   /**
    * One while the backend is ready, which is what its health check answers, and zero while it is
-   * not. A backend that is stopped reports neither.
+   * not. A backend that is stopped reports neither. The API reports it as {@code health} and the
+   * worker as {@code worker.health}, so what asks for the one never finds the other.
    */
   @Bean
-  MeterBinder health(ObjectProvider<HealthEndpoint> health) {
+  MeterBinder health(ObjectProvider<HealthEndpoint> health, Environment environment) {
+    var name = environment.matchesProfiles("worker") ? "worker.health" : "health";
     return registry ->
-        Gauge.builder("health", () -> isReady(health.getObject()) ? 1 : 0).register(registry);
+        Gauge.builder(name, () -> isReady(health.getObject()) ? 1 : 0).register(registry);
   }
 
   private static boolean isReady(HealthEndpoint health) {

@@ -139,18 +139,73 @@ run "a_backend_that_is_not_ready_or_says_nothing_sets_off_the_alarm" {
   }
 
   assert {
+    # Three minutes is what the settings give for an API that runs and says it is not ready. An
+    # API that stopped was seen once to set the alarm off about eight minutes later.
     condition = (
       one(aws_cloudwatch_metric_alarm.backend_health.metric_query).period == 60
       && aws_cloudwatch_metric_alarm.backend_health.evaluation_periods == 3
     )
-    error_message = "The alarm waits three minutes, which is longer than a release ordinarily stops the backend for."
+    error_message = "The alarm looks at three minutes, which is longer than a release ordinarily stops the API for."
+  }
+
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.backend_health.alarm_actions == toset([aws_sns_topic.alarms.arn])
+      && aws_cloudwatch_metric_alarm.backend_health.ok_actions == toset([aws_sns_topic.alarms.arn])
+      && aws_cloudwatch_metric_alarm.backend_health.insufficient_data_actions == null
+    )
+    error_message = "The alarm tells the topic when it goes off and when it clears, and nothing for want of data."
+  }
+}
+
+run "the_alarms_email_the_maintainer" {
+  assert {
+    condition     = aws_sns_topic.alarms.name == "vehicle-catalog-alarms" && aws_sns_topic.alarms.kms_master_key_id == null
+    error_message = "The alarms tell one topic, which has no key of its own."
+  }
+
+  assert {
+    # Terraform cannot list the resources of one type, so the subscriptions are counted in the
+    # text of the Terraform files, as the alarms are below.
+    condition = (
+      aws_sns_topic_subscription.alarms_email.topic_arn == aws_sns_topic.alarms.arn
+      && aws_sns_topic_subscription.alarms_email.protocol == "email"
+      && aws_sns_topic_subscription.alarms_email.endpoint == var.budget_notification_email
+      && sum([
+        for name in fileset(".", "*.tf") : length(regexall("\nresource \"aws_sns_topic_subscription\" ", file(name)))
+      ]) == 1
+    )
+    error_message = "The topic's only subscription is by email, to the address the budget alert goes to: one address is told, and nothing else."
+  }
+}
+
+run "the_pipeline_plans_with_the_topic_in_place" {
+  assert {
+    condition = one([
+      for statement in jsondecode(aws_iam_role_policy.plan.policy).Statement : statement
+      if statement.Sid == "ReadTheAlarmsTopic"
+      ]) == {
+      Sid      = "ReadTheAlarmsTopic"
+      Effect   = "Allow"
+      Action   = ["sns:GetSubscriptionAttributes", "sns:GetTopicAttributes", "sns:ListTagsForResource"]
+      Resource = [aws_sns_topic.alarms.arn]
+    }
+    error_message = "The plan role reads how the topic and its subscription are set up, which a plan compares them with, and publishes nothing."
+  }
+
+  assert {
+    condition = length([
+      for statement in jsondecode(aws_iam_role_policy.plan.policy).Statement : statement
+      if anytrue([for action in statement.Action : startswith(action, "sns:")]) && statement.Sid != "ReadTheAlarmsTopic"
+    ]) == 0
+    error_message = "The plan role does nothing else with a topic."
   }
 }
 
 run "every_metric_that_is_sent_is_looked_at" {
   assert {
     # Tests in backend/ hold the API to the first eleven and the last five, and the worker to
-    # job.run and the model's requests, tokens, and refusals.
+    # worker.health, job.run, and the model's requests, tokens, and refusals.
     condition = alltrue([
       for metric in [
         "health",
@@ -164,6 +219,7 @@ run "every_metric_that_is_sent_is_looked_at" {
         "catalog.rejected",
         "catalog.merged",
         "cache.read",
+        "worker.health",
         "job.run",
         "ai.call",
         "ai.tokens",
@@ -177,6 +233,30 @@ run "every_metric_that_is_sent_is_looked_at" {
       ])
     ])
     error_message = "The dashboard shows each of the backend's metrics, found in the app's namespace by its name."
+  }
+
+  assert {
+    condition = one([
+      for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+      [for metric in widget.properties.metrics : metric[0].expression]
+      if strcontains(jsonencode(try(widget.properties.metrics, [])), "MetricName=\\\"health\\\"")
+      ]) == [
+      "SEARCH('Namespace=\"vehicle-catalog\" MetricName=\"health\"', 'Minimum', 60)",
+      "SEARCH('Namespace=\"vehicle-catalog\" MetricName=\"worker.health\"', 'Minimum', 60)",
+    ]
+    error_message = "One chart shows whether the API is ready and whether the worker is, each by the least it said in a minute."
+  }
+
+  assert {
+    # backup.sh sends the size with no labels, and the agent adds none to what it does not send, so
+    # the chart names the metric outright.
+    condition = one([
+      for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets : [
+        for line in widget.properties.metrics : slice(line, 0, length(line) - 1)
+        if try(line[1], null) == "backup.size"
+      ] if strcontains(jsonencode(try(widget.properties.metrics, [])), "\"backup.size\"")
+    ]) == [["vehicle-catalog", "backup.size"]]
+    error_message = "The dashboard shows the size of each backup, by the metric's name in the app's namespace and nothing else."
   }
 
   assert {
@@ -275,7 +355,7 @@ run "every_chart_says_what_it_measures_and_stands_where_a_fault_is_looked_for" {
       ])
       ] == [
       "the alarms",
-      "## Is the API up",
+      "## Are the API and the worker up",
       "health Minimum",
       "the starts",
       "## Requests",
@@ -304,8 +384,9 @@ run "every_chart_says_what_it_measures_and_stands_where_a_fault_is_looked_for" {
       "mem_used_percent",
       "CPUUtilization",
       "jvm.heap.used Average",
+      "backup.size",
     ]
-    error_message = "The page reads in the order a fault is looked for: the alarms, then whether the API is up, requests, catalogs, jobs and queues, the language model, the cache, and the host, each group under a heading of its own."
+    error_message = "The page reads in the order a fault is looked for: the alarms, then whether the API and the worker are up, requests, catalogs, jobs and queues, the language model, the cache, and the host, each group under a heading of its own."
   }
 
   assert {

@@ -1,6 +1,7 @@
 #!/bin/sh
 # Stands in for the AWS CLI on the host: it answers the parameters the stack's secrets are read
-# from, takes what is sent to a bucket, and does nothing else.
+# from, takes what is sent to a bucket, writes down a metric that is reported, and does nothing
+# else.
 case "$*" in
   *"--name /vehicle-catalog/origin-secret "*) echo "a-secret-for-this-check" ;;
   *"--name /vehicle-catalog/database-password "*) echo "a-password-for-this-check" ;;
@@ -14,6 +15,12 @@ case "$*" in
   # Keeps what is sent to a bucket in a directory, and has one bucket that takes nothing.
   "s3 cp "*" s3://a-bucket-that-refuses/"*) exit 1 ;;
   "s3 cp "*" s3://a-bucket/"*) cp "$3" "$BACKUPS/${4##*/}" ;;
+  # Writes down what is reported, after the command's name, and refuses it while the check says so.
+  "cloudwatch put-metric-data "*)
+    [ -z "${REFUSES_METRICS:-}" ] || { echo "AccessDenied" >&2; exit 254; }
+    shift 2
+    printf '%s\n' "$*" >>"$REPORTED"
+    ;;
   *)
     echo "aws $*: this stand-in has no answer to that" >&2
     exit 1

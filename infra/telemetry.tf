@@ -70,8 +70,9 @@ resource "aws_cloudwatch_log_resource_policy" "spans" {
   })
 }
 
-# What reporting takes: the host writes the backend's log, and its CloudWatch agent publishes
-# metrics under the app's namespace and sends traces. It does none of this anywhere else.
+# What reporting takes: the host writes the backend's log, its CloudWatch agent publishes metrics
+# under the app's namespace and sends traces, and its backup script publishes each backup's size
+# under the same namespace. It does none of this anywhere else.
 resource "aws_iam_role_policy" "host_report" {
   name = "report"
   role = aws_iam_role.host.id
@@ -105,16 +106,38 @@ resource "aws_iam_role_policy" "host_report" {
   })
 }
 
-# Goes off when the backend has said for three minutes that it is not ready, and when it has said
-# nothing in that time, as a backend that is stopped does. A release ordinarily stops it for less
-# than that; one whose backend is slow to start sets the alarm off until it is ready.
+# What the three alarms tell when they go off and when they clear: a topic of Amazon SNS, with one
+# subscription, by email, to the address the budget alert goes to. The topic has no access policy
+# of its own and no key: SNS gives it the policy it gives every topic, which lets this account's
+# alarms publish to it. An email carries the alarm's name and its description, so each description
+# says what the alarm notices, the first thing to do, and how it clears. The address confirms its
+# subscription with a click before anything is sent to it; Terraform does not wait for the click.
+resource "aws_sns_topic" "alarms" {
+  name = "vehicle-catalog-alarms"
+}
+
+resource "aws_sns_topic_subscription" "alarms_email" {
+  topic_arn = aws_sns_topic.alarms.arn
+  protocol  = "email"
+  endpoint  = var.budget_notification_email
+}
+
+# Goes off when the API has not said it is ready. By its settings that is three minutes of an API
+# that runs and says it is not ready, which has not been seen; an API that stopped was seen once,
+# on 2026-10-08, to set it off about eight minutes later, and it cleared three and a half minutes
+# after the API was ready again. A minute in which nothing arrived counts as not ready, so an agent
+# that is stopped on the host looks the same as a stopped API. A release ordinarily stops the API
+# for less than that. The worker sends no health, so the alarm says nothing of it.
 #
 # The agent tells each of the backend's metrics apart by four labels of its own making besides, and
 # one of them is the version of the library that sent the metric. So the alarm asks for the metric
 # by its name, whatever labels it carries, and goes on finding it when that library is updated.
 resource "aws_cloudwatch_metric_alarm" "backend_health" {
   alarm_name        = "vehicle-catalog-backend-health"
-  alarm_description = "The backend has not been ready for three minutes, or has reported nothing in that time."
+  alarm_description = "The API has not said it is ready. It goes off about eight minutes after the API stops, as seen once on 2026-10-08, and by its settings three minutes after an API that runs starts saying it is not ready, which has not been seen. A CloudWatch agent that is stopped on the host looks the same, since a minute with no report counts as not ready. It says nothing of the worker. First, ask https://catalog.rgonz.dev/api/health/readiness in a browser: 200 means the API is up and its reports are not arriving, so look at the agent on the host, unless the API has just come back, after a release or a restart by Docker, and the email that it cleared follows; anything else means the API, so look at its log and at the stack on the host. It clears by itself some minutes after the API is ready again, three and a half in the one trial. infra/README.md has the commands under this alarm's name."
+
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
 
   evaluation_periods  = 3
   comparison_operator = "LessThanThreshold"
@@ -130,9 +153,10 @@ resource "aws_cloudwatch_metric_alarm" "backend_health" {
 }
 
 # The page reads from top to bottom in the order a fault is looked for: the alarms' states, then
-# under a heading each whether the API is up, requests, catalogs, jobs and queues, the language
-# model, the cache, and the host. The backend's metrics are found by name, as the alarm finds its
-# own. The host's processor time is among them at no charge: EC2 reports it for every machine.
+# under a heading each whether the API and the worker are up, requests, catalogs, jobs and queues,
+# the language model, the cache, and the host. The backend's metrics are found by name, as the
+# alarm finds its own. The host's processor time is among them at no charge: EC2 reports it for
+# every machine.
 # Every chart says what it measures and in what unit, names its axis after the unit in place of
 # what CloudWatch would say there, and gives each line a label of its own; a line is drawn where a
 # limit is set. The page is 24 columns wide and a chart stands 12 of them.
@@ -156,20 +180,27 @@ resource "aws_cloudwatch_dashboard" "backend" {
       },
       {
         type       = "text", x = 0, y = 4, width = 24, height = 1
-        properties = { markdown = "## Is the API up" }
+        properties = { markdown = "## Are the API and the worker up" }
       },
       {
         type = "metric", x = 0, y = 5, width = 12, height = 6
         properties = {
-          title  = "Whether the API is ready (1) or not (0)"
+          title  = "Whether the API and the worker are ready (1) or not (0)"
           region = data.aws_region.current.region
           view   = "timeSeries"
           period = 60
-          metrics = [[{
-            expression = "SEARCH('${local.backend_metric} MetricName=\"health\"', 'Minimum', 60)"
-            id         = "health"
-            label      = "ready"
-          }]]
+          metrics = [
+            [{
+              expression = "SEARCH('${local.backend_metric} MetricName=\"health\"', 'Minimum', 60)"
+              id         = "health"
+              label      = "API ready"
+            }],
+            [{
+              expression = "SEARCH('${local.backend_metric} MetricName=\"worker.health\"', 'Minimum', 60)"
+              id         = "worker"
+              label      = "worker ready"
+            }],
+          ]
           yAxis = { left = { label = "1 ready, 0 not", showUnits = false } }
         }
       },
@@ -586,6 +617,25 @@ resource "aws_cloudwatch_dashboard" "backend" {
           annotations = {
             horizontal = [{ label = "the most it may grow to", value = local.api_heap_mib }]
           }
+        }
+      },
+      # deploy/backup.sh sends the size of each backup once the bucket has it, with no labels, so
+      # the chart names the metric outright. One point a night, in the bytes the bucket lists, so
+      # the chart shows the last seven days whatever the page shows: a page of three hours would
+      # show one point or none.
+      {
+        type = "metric", x = 12, y = 77, width = 12, height = 6
+        properties = {
+          title  = "Size of each backup of the database, in bytes"
+          region = data.aws_region.current.region
+          view   = "timeSeries"
+          stat   = "Maximum"
+          period = 3600
+          start  = "-P7D"
+          metrics = [
+            [local.telemetry_namespace, "backup.size", { label = "backup" }],
+          ]
+          yAxis = { left = { label = "bytes", showUnits = false } }
         }
       },
     ]

@@ -11,12 +11,15 @@ What the app needs in AWS, as Terraform. Everything is in the region `us-east-1`
   take on.
 - `host.tf`: the host, one machine that answers everything under `/api`. It runs the stack in
   `deploy/`, and nothing but CloudFront reaches its HTTPS port.
+- `jobs.tf`: the queue that carries the jobs' messages, the queue that takes the ones no one could
+  handle, and the two alarms on them.
 - `login.tf`: who signs in. An Amazon Cognito user pool with its sign-in page, a group for each
   role, and the three demo accounts, whose passwords are public and shown on the landing page.
 - `release.tf`: where the backend's images are kept, and the one thing the pipeline can have the
   host do, which is to release one of them.
 - `telemetry.tf`: where the backend's log, traces, and metrics are kept in Amazon CloudWatch, the
-  alarm that goes off when the backend is not ready, and the dashboard.
+  alarm that goes off when the API is not ready, the topic through which the three alarms email
+  the maintainer, and the dashboard.
 
 DNS for `rgonz.dev` is kept at Cloudflare and changed by hand. Every record named here is a
 DNS-only record there. Cloudflare makes a new record a proxied one unless told otherwise, and a
@@ -67,7 +70,7 @@ These are done once, signed in with `aws sso login`. Until all of them are done,
 
    A new bucket refuses public access and encrypts what it holds.
 
-2. Say where the budget alert goes, in a file Git ignores:
+2. Say where the budget alert and the alarms' emails go, in a file Git ignores:
 
    ```sh
    echo 'budget_notification_email = "someone@example.com"' > terraform.tfvars
@@ -187,6 +190,16 @@ aws ssm send-command --document-name vehicle-catalog-release \
   --targets Key=tag:Name,Values=vehicle-catalog --parameters ImageTag=<the commit, in full>
 ```
 
+What visitors get while a release replaces the API is watched from outside with
+`deploy/test/release-watch.sh`, started before the merge and stopped with Ctrl-C a few minutes after
+the Deploy has ended. Once a second it asks the site for `/api/health/readiness` and for `/api/me`,
+writes each answer to a file as it comes, and when it is stopped prints the counts by status and
+every stretch in which the API did not answer:
+
+```sh
+deploy/test/release-watch.sh https://catalog.rgonz.dev
+```
+
 `deploy/test/check.sh` runs the same stack on this machine against stand-ins for the certificate
 authority, the registry, Parameter Store, the backups bucket, the CloudWatch agent, and the queue
 of the jobs. It releases images to it, among them three that do not come up healthy, has the
@@ -271,9 +284,7 @@ not been sent to the queue yet is in `outbox` without a time in `sent_at`. With 
 both wait there and nothing else is affected.
 
 A job whose work fails is tried again each time its message is delivered. When the third try has
-failed, the job is Failed and the queue moves its message to `vehicle-catalog-jobs-failed`. The
-alarm `vehicle-catalog-jobs-failed` goes off while that queue holds a message. It tells no one: it
-is there to be looked at.
+failed, the job is Failed and the queue moves its message to `vehicle-catalog-jobs-failed`.
 
 A try can also end without the worker keeping what went wrong, as when the worker is stopped or
 killed in the middle of it. The queue gives such a job's message up all the same, after three
@@ -282,25 +293,71 @@ queue, which it does every minute. Such a job has no failure of its own to show:
 says of it that the queue gave up its message, and no try at the job said why. The worker's log
 around the times of its deliveries is where to look.
 
+### The alarm on failed jobs
+
+`vehicle-catalog-jobs-failed` goes off while the queue of that name holds a message, which is a
+job that has failed for good, within a minute or two of the third failed try. It emails the
+maintainer when it goes off and when it clears, as the three alarms all do
+([What the alarms tell](#what-the-alarms-tell)).
+
 ```sh
 aws cloudwatch describe-alarms --alarm-names vehicle-catalog-jobs-failed \
   --query 'MetricAlarms[0].StateValue'
 ```
 
-The Jobs page, which an admin reaches from the sidebar, lists the jobs with what the last failed
-try of each said. Once what made a job fail is put right, Retry there has it tried once more. When
-it has been done, the worker takes its message out of the dead-letter queue within a minute, and
-the alarm is quiet again.
+What to do, in order:
 
-A second alarm, `vehicle-catalog-jobs-waiting`, goes off when the oldest message on
-`vehicle-catalog-jobs` has waited for more than ten minutes. A job that fails every time has left
-that queue after about six, so this alarm means that the worker is stopped or stuck, and the first
-that a job needs someone to look at it. It tells no one either.
+1. The Jobs page, which an admin reaches from the sidebar, lists the jobs with what the last failed
+   try of each said.
+2. Where that is not enough, the worker's log, shown by the command above, has what the worker
+   wrote around the times of the tries.
+3. Once what made the job fail is put right, Retry on the Jobs page has it tried once more.
+
+How it clears:
+
+- **At Retry, within a minute or two, whether or not the job is then done.** Retry has the job wait
+  again and writes it a new message. At its next look through the dead-letter queue the worker
+  takes out the message of the tries before, since the job is no longer failed, done or not. The
+  Jobs page says whether the new try was done; the email does not. A retried job that fails three
+  times again is failed again, and the alarm goes off again about six minutes after the Retry.
+- **By itself after the demo reset at 03:00 UTC**, which takes the job away: within a minute the
+  worker takes out a message whose job no longer exists. An email that the alarm cleared a few
+  minutes after 03:00 UTC means that, and not that anyone put the job right. The worker's log,
+  kept thirty days, is then where its failure still is.
+- **After fourteen days**, when the queue lets go of a message that nothing took out, which only a
+  worker stopped that long would leave it to.
+
+### The alarm on waiting messages
+
+`vehicle-catalog-jobs-waiting` goes off when the oldest message on `vehicle-catalog-jobs` has
+waited for more than ten minutes, within a minute of that. That is a worker that runs and is
+stuck, one that stopped with a message still on the queue, or one that works and has more jobs
+than it gets through: the worker takes one message at a time, so enough jobs written at once leave
+the last of them waiting that long with nothing stuck. A worker that stopped with the queue empty
+does not set it off: the worker is also what sends the messages, so new jobs then wait in the
+database and nothing reaches the queue. A job that fails every time has left the queue after about
+six minutes, so this alarm is not that. It has not been seen to go off for its cause. It emails
+the maintainer when it goes off and when it clears.
 
 ```sh
 aws cloudwatch describe-alarms --alarm-names vehicle-catalog-jobs-waiting \
   --query 'MetricAlarms[0].StateValue'
 ```
+
+What to do, in order:
+
+1. Whether the worker runs and what it is doing: its log, shown by the command above, has a line
+   for every job it does, and a worker that is stuck writes no more of them.
+2. How many messages wait on the queue and how many are being handled, with the command above
+   that asks both queues. Many waiting and one being handled is a worker that is behind, and the
+   alarm clears as it gets through them.
+3. For a worker that is stuck or stopped, a shell on the host and the stack's log there, and a
+   release by hand of the image that is on the host or an earlier one, which starts the worker
+   anew: both under The host above.
+
+It clears by itself once no message on the queue is that old: when the worker has got through
+them, or when a message whose job fails has been delivered three times and moved to the
+dead-letter queue, where the alarm above takes over.
 
 The dashboard `vehicle-catalog` shows how many messages wait on each of the two queues and how
 long the oldest on `vehicle-catalog-jobs` has waited, which SQS reports at no charge, and how many
@@ -424,6 +481,11 @@ Every night at 02:30 UTC the host writes a copy of the database to the bucket
 `rgonz-vehicle-catalog-backups`, named by when it was made. That is half an hour before the demo
 reset, so a backup holds the day's work. A backup is kept for thirty days.
 
+Once the bucket has a backup, the script reports its size in bytes to CloudWatch as `backup.size`,
+which the dashboard draws under The host. A size that cannot be reported leaves the backup in the
+bucket: the journal then says that the database is backed up and that its size was not reported,
+and the run ends without failure.
+
 The host writes backups and does nothing else with them, so one is listed and fetched from a
 workstation. On the host, this says how the last run went and when the next is due, and makes a
 backup now:
@@ -537,17 +599,18 @@ It all goes to Amazon CloudWatch.
   list of twenty working copies, three to a job that checks an Approved version, and about
   twenty-three to a demo reset.
 - **Its metrics** go to the same agent, which publishes them under the namespace
-  `vehicle-catalog` together with two of the host's own. The dashboard `vehicle-catalog` shows
-  them, in groups under headings in the order a fault is looked for: the alarms' states, whether
-  the API is up, requests, catalogs, jobs and queues, the language model, the cache, the host.
+  `vehicle-catalog` together with two of the host's own; the backup script publishes `backup.size`
+  there too ([Backups](#backups)). The dashboard `vehicle-catalog` shows them, in groups under
+  headings in the order a fault is looked for: the alarms' states, whether the API and the worker
+  are up, requests, catalogs, jobs and queues, the language model, the cache, the host.
   `docs/dashboard-and-alarms.md` has the order, each chart's unit, and a picture of each chart of
   metrics before this order and after it. The API sends the first eleven of these and the five of
-  the language model. The worker sends `job.run` and, of the model's, `ai.call`, `ai.tokens`, and
-  `ai.refused`: it calls no tools, and the API says what the day has cost.
+  the language model. The worker sends `worker.health`, `job.run`, and, of the model's, `ai.call`,
+  `ai.tokens`, and `ai.refused`: it calls no tools, and the API says what the day has cost.
 
 | Metric | What it says | Told apart by |
 | --- | --- | --- |
-| `health` | 1 while the backend is ready, 0 while it is not | nothing |
+| `health` | 1 while the API is ready, 0 while it is not | nothing |
 | `http.server.requests` | how many requests there were and how long each took | `outcome`, of which requests ordinarily have four |
 | `jvm.heap.used` | the memory the backend's heap uses | nothing |
 | `catalog.edit` | how long saving an edit of a working copy took | nothing |
@@ -558,6 +621,7 @@ It all goes to Amazon CloudWatch.
 | `catalog.rejected` | how many catalogs were rejected | nothing |
 | `catalog.merged` | how many working copies were updated from Approved | nothing |
 | `cache.read` | how many reads of an Approved version's contents there were | `result`, of which there are three: `hit` when the cache answered, `miss` when it had nothing, `fallback` when it failed |
+| `worker.health` | 1 while the worker is ready, 0 while it is not | nothing |
 | `job.run` | how many jobs the worker handled and how long each took | `type`, of which there are five, and `outcome`: `SUCCESS` or `FAILURE` |
 | `ai.call` | how many requests the language model was sent and how long each took | `purpose`, of which there are five: `RULE_SUGGESTION`, `SUBMISSION_SUMMARY`, `ANALYST`, `DOCUMENT_EMBEDDING`, `QUESTION_EMBEDDING`, and `outcome`: `SUCCESS` or `FAILURE` |
 | `ai.tokens` | how many tokens the model was sent and answered with | `direction`: `in` or `out` |
@@ -566,11 +630,13 @@ It all goes to Amazon CloudWatch.
 | `ai.spent` | what asking the model has come to today, reserved and spent, in US dollars | nothing |
 | `mem_used_percent` | the share of the host's memory in use | nothing |
 | `disk_used_percent` | the share of the host's disk in use | nothing that varies |
+| `backup.size` | the size in bytes of each backup, once the bucket has it | nothing |
 
 CloudWatch counts a metric once for every value of what it is told apart by, which makes up to
-forty-seven of these, seventeen of them the language model's and three the cache's, and charges for
-each one beyond ten: up to thirty-seven, at about $0.30 a month each, which is at most about $11 a
-month. So the backend
+forty-nine of these, seventeen of them the language model's and three the cache's, and charges for
+each one beyond ten: up to thirty-nine, at about $0.30 a month each, which is at most about $12 a
+month. A metric is charged by the hours it is sent in, so `backup.size`, sent in one hour of each
+night, comes to about a cent of that. So the backend
 sends no metric that the alarm or the dashboard does not use: `Telemetry.java` in the backend turns
 down every other. A metric is there once it has first been sent, so the three times and the fourth
 outcome, a request that fails in the backend, appear when there has been one, and `job.run` counts
@@ -587,19 +653,41 @@ The agent adds four labels of its own to each of the backend's metrics, and one 
 version of the library that sent it. The alarm and the dashboard therefore find a metric by its
 name, whatever labels it carries. `docs/adr/0010` says why.
 
-The alarm `vehicle-catalog-backend-health` goes off once the backend has not been ready for three
-minutes, or has reported nothing in that time, which is what a stopped backend does. It tells no
-one: it is there to be looked at.
+### The alarm on the API's health
+
+`vehicle-catalog-backend-health` goes off when the API has not said it is ready. By its settings
+that is three minutes of an API that runs and says it is not ready, which has not been seen. An
+API that stopped was seen once, on 2026-10-08, to set it off about eight minutes later. A minute
+in which nothing arrived counts as not ready, so a CloudWatch agent that is stopped on the host
+looks the same as a stopped API; that follows from the settings and was not tried. It emails the
+maintainer when it goes off and when it clears ([What the alarms tell](#what-the-alarms-tell)).
 
 ```sh
 aws cloudwatch describe-alarms --alarm-names vehicle-catalog-backend-health \
   --query 'MetricAlarms[0].StateValue'
 ```
 
-An API that ends once and is started again is back well within those three minutes, and the worker
-sends no `health` at all, so the alarm says nothing of either. The dashboard's chart of starts,
-beside the one of readiness at the top of the page, does: it counts by the hour how often the API
-and the worker have each started, over the time the dashboard shows. A release is a start of each,
+What to do, in order:
+
+1. Ask `https://catalog.rgonz.dev/api/health/readiness` in a browser. An answer of 200 means the
+   API is up and its reports are not arriving, unless the API has just come back, after a release
+   or a restart by Docker, and the email that it cleared is on its way; anything else, or no
+   answer, means the API.
+2. If the API is up: whether the agent runs on the host, with the command at the end of this
+   section, and the agent's own log there.
+3. If it is the API: its log, shown by the command at the start of this section, and the stack's
+   log on the host, under The host above, say what it did last. A release whose API is slow to
+   start sets the alarm off until the API is ready; an earlier image is released by hand as The
+   host says.
+
+It clears by itself some minutes after the API is ready again, three and a half in the one trial.
+
+An API that ends once and is started again is back well within the three minutes the settings ask
+for, and the worker's readiness is `worker.health`, which the alarm does not ask for, so the alarm
+says nothing of either. The dashboard's
+chart of starts, beside the one of readiness at the top of the page, does: it counts by the hour how
+often the API and the worker have each started, over the time the dashboard shows. A release is a
+start of each,
 and so is a process that ended and that Docker started again, which Java brings about when the
 heap is full (`docs/adr/0018`). Nothing is sent for it. Each start writes
 `Started VehicleCatalogApplication in … seconds` to the log, under the stream `backend` or
@@ -627,6 +715,29 @@ report, and nothing is lost by it.
 
 `docs/host-memory-measurements.md` has the memory the stack was measured to use, and
 `docs/adr/0009` the size of the host that was chosen from it.
+
+## What the alarms tell
+
+Each of the three alarms emails the maintainer when it goes off and when it clears, through the
+SNS topic `vehicle-catalog-alarms`, which has one subscription: by email, to the address in
+`terraform.tfvars`, the one the budget alert goes to. The email carries the alarm's name and its
+description, which says what the alarm notices, the first thing to do, and how it clears; the rest
+of its wording is AWS's. A change to want of data sends nothing; a change from it, to `OK` or to
+`ALARM`, runs that state's action and emails, which an alarm made anew does once in its first
+minutes. `docs/dashboard-and-alarms.md` has each alarm's history, the trial in which each was set
+off by hand, and what the emails showed.
+
+The address confirms its subscription with a click on "Confirm subscription" in the email SNS
+sends it after the apply that makes the subscription. Nothing is sent to it before the click, and
+SNS deletes a subscription that is not confirmed within 48 hours: the next plan then shows it to
+be added, and the apply sends a new email to confirm.
+
+Every email from the topic carries a link that takes the address off the topic, and nobody is
+asked to sign in for it. After a click on it the alarms tell a topic that tells no one, the next
+plan shows the subscription to be added again, and the apply sends a new email to confirm.
+
+To stop the emails and keep the alarms, take `alarm_actions` and `ok_actions` off the three alarms
+and apply, which changes them in place.
 
 ## Working with it
 
