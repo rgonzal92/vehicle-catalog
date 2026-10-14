@@ -55,9 +55,11 @@ run "the_host_publishes_metrics_under_the_apps_namespace_alone" {
   assert {
     condition = (
       strcontains(one(aws_cloudwatch_metric_alarm.backend_health.metric_query).expression, " FROM \"vehicle-catalog\"")
+      && strcontains(one(aws_cloudwatch_metric_alarm.worker_health.metric_query).expression, " FROM \"vehicle-catalog\"")
+      && aws_cloudwatch_metric_alarm.host_disk.namespace == "vehicle-catalog"
       && local.agent.metrics.namespace == "vehicle-catalog"
     )
-    error_message = "The agent publishes under the namespace the alarm looks in."
+    error_message = "The agent publishes under the namespace the three alarms of this file look in."
   }
 
   assert {
@@ -139,18 +141,154 @@ run "a_backend_that_is_not_ready_or_says_nothing_sets_off_the_alarm" {
   }
 
   assert {
+    # Three minutes is what the settings give for an API that runs and says it is not ready. An
+    # API that stopped was seen once to set the alarm off about eight minutes later.
     condition = (
       one(aws_cloudwatch_metric_alarm.backend_health.metric_query).period == 60
       && aws_cloudwatch_metric_alarm.backend_health.evaluation_periods == 3
     )
-    error_message = "The alarm waits three minutes, which is longer than a release ordinarily stops the backend for."
+    error_message = "The alarm looks at three minutes, which is longer than a release ordinarily stops the API for."
+  }
+
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.backend_health.alarm_actions == toset([aws_sns_topic.alarms.arn])
+      && aws_cloudwatch_metric_alarm.backend_health.ok_actions == toset([aws_sns_topic.alarms.arn])
+      && aws_cloudwatch_metric_alarm.backend_health.insufficient_data_actions == null
+    )
+    error_message = "The alarm tells the topic when it goes off and when it clears, and nothing for want of data."
+  }
+}
+
+run "a_worker_that_is_not_ready_or_says_nothing_sets_off_an_alarm" {
+  assert {
+    # By name alone, as the API's alarm asks, and in double quotes, which a name with a dot takes
+    # in a query. The API's alarm still asks for health alone.
+    condition = (
+      one(aws_cloudwatch_metric_alarm.worker_health.metric_query).expression == "SELECT MIN(\"worker.health\") FROM \"vehicle-catalog\""
+      && one(aws_cloudwatch_metric_alarm.backend_health.metric_query).expression == "SELECT MIN(health) FROM \"vehicle-catalog\""
+      && aws_cloudwatch_metric_alarm.worker_health.comparison_operator == "LessThanThreshold"
+      && aws_cloudwatch_metric_alarm.worker_health.threshold == 1
+    )
+    error_message = "The alarm goes off when the least the worker said of its readiness in a minute is below one, whatever labels the metric carries, and the API's alarm goes on asking for the API's alone."
+  }
+
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.worker_health.treat_missing_data == "breaching"
+    error_message = "A worker that says nothing is taken for one that is not ready."
+  }
+
+  assert {
+    # Three minutes, as the API's alarm has: a release stops the worker for less than that.
+    condition = (
+      one(aws_cloudwatch_metric_alarm.worker_health.metric_query).period == 60
+      && aws_cloudwatch_metric_alarm.worker_health.evaluation_periods == 3
+    )
+    error_message = "The alarm looks at three minutes, as the API's does."
+  }
+
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.worker_health.alarm_actions == toset([aws_sns_topic.alarms.arn])
+      && aws_cloudwatch_metric_alarm.worker_health.ok_actions == toset([aws_sns_topic.alarms.arn])
+      && aws_cloudwatch_metric_alarm.worker_health.insufficient_data_actions == null
+    )
+    error_message = "The alarm tells the topic when it goes off and when it clears, and nothing for want of data."
+  }
+}
+
+run "a_disk_that_is_nearly_full_sets_off_an_alarm" {
+  assert {
+    # The series the dashboard draws, named in full: the agent reports the share with the path and
+    # the file system as its labels, and an alarm that named the path alone would read nothing.
+    condition = (
+      aws_cloudwatch_metric_alarm.host_disk.namespace == local.agent.metrics.namespace
+      && aws_cloudwatch_metric_alarm.host_disk.metric_name == "disk_used_percent"
+      && aws_cloudwatch_metric_alarm.host_disk.dimensions == tomap({ path = "/", fstype = "xfs" })
+      && contains(local.agent.metrics.metrics_collected.disk.resources, "/")
+      && contains(local.agent.metrics.metrics_collected.disk.measurement, "used_percent")
+      && strcontains(aws_cloudwatch_dashboard.backend.dashboard_body, "[\"vehicle-catalog\",\"disk_used_percent\",\"path\",\"/\",\"fstype\",\"xfs\"")
+    )
+    error_message = "The alarm watches the share of the host's one disk in use, the series the dashboard draws, by the labels the agent gives it."
+  }
+
+  assert {
+    # 80 percent leaves about 6 GB of the 30. The disk was 15 percent full on 2026-10-14.
+    condition = (
+      aws_cloudwatch_metric_alarm.host_disk.statistic == "Average"
+      && aws_cloudwatch_metric_alarm.host_disk.comparison_operator == "GreaterThanThreshold"
+      && aws_cloudwatch_metric_alarm.host_disk.threshold == 80
+      && aws_cloudwatch_metric_alarm.host_disk.period == 60
+      && aws_cloudwatch_metric_alarm.host_disk.evaluation_periods == 5
+      && aws_cloudwatch_metric_alarm.host_disk.datapoints_to_alarm == 5
+    )
+    error_message = "The alarm goes off when the disk has been more than 80 percent full for five minutes running."
+  }
+
+  assert {
+    # An agent that says nothing sets off the API's alarm and the worker's.
+    condition     = aws_cloudwatch_metric_alarm.host_disk.treat_missing_data == "notBreaching"
+    error_message = "A minute in which the host reported nothing is no fault of the disk's."
+  }
+
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.host_disk.alarm_actions == toset([aws_sns_topic.alarms.arn])
+      && aws_cloudwatch_metric_alarm.host_disk.ok_actions == toset([aws_sns_topic.alarms.arn])
+      && aws_cloudwatch_metric_alarm.host_disk.insufficient_data_actions == null
+    )
+    error_message = "The alarm tells the topic when it goes off and when it clears, and nothing for want of data."
+  }
+}
+
+run "the_alarms_email_the_maintainer" {
+  assert {
+    condition     = aws_sns_topic.alarms.name == "vehicle-catalog-alarms" && aws_sns_topic.alarms.kms_master_key_id == null
+    error_message = "The alarms tell one topic, which has no key of its own."
+  }
+
+  assert {
+    # Terraform cannot list the resources of one type, so the subscriptions are counted in the
+    # text of the Terraform files, as the alarms are below.
+    condition = (
+      aws_sns_topic_subscription.alarms_email.topic_arn == aws_sns_topic.alarms.arn
+      && aws_sns_topic_subscription.alarms_email.protocol == "email"
+      && aws_sns_topic_subscription.alarms_email.endpoint == var.budget_notification_email
+      && sum([
+        for name in fileset(".", "*.tf") : length(regexall("\nresource \"aws_sns_topic_subscription\" ", file(name)))
+      ]) == 1
+    )
+    error_message = "The topic's only subscription is by email, to the address the budget alert goes to: one address is told, and nothing else."
+  }
+}
+
+run "the_pipeline_plans_with_the_topic_in_place" {
+  assert {
+    condition = one([
+      for statement in jsondecode(aws_iam_role_policy.plan.policy).Statement : statement
+      if statement.Sid == "ReadTheAlarmsTopic"
+      ]) == {
+      Sid      = "ReadTheAlarmsTopic"
+      Effect   = "Allow"
+      Action   = ["sns:GetSubscriptionAttributes", "sns:GetTopicAttributes", "sns:ListTagsForResource"]
+      Resource = [aws_sns_topic.alarms.arn]
+    }
+    error_message = "The plan role reads how the topic and its subscription are set up, which a plan compares them with, and publishes nothing."
+  }
+
+  assert {
+    condition = length([
+      for statement in jsondecode(aws_iam_role_policy.plan.policy).Statement : statement
+      if anytrue([for action in statement.Action : startswith(action, "sns:")]) && statement.Sid != "ReadTheAlarmsTopic"
+    ]) == 0
+    error_message = "The plan role does nothing else with a topic."
   }
 }
 
 run "every_metric_that_is_sent_is_looked_at" {
   assert {
     # Tests in backend/ hold the API to the first eleven and the last five, and the worker to
-    # job.run and the model's requests, tokens, and refusals.
+    # worker.health, job.run, and the model's requests, tokens, and refusals.
     condition = alltrue([
       for metric in [
         "health",
@@ -164,6 +302,7 @@ run "every_metric_that_is_sent_is_looked_at" {
         "catalog.rejected",
         "catalog.merged",
         "cache.read",
+        "worker.health",
         "job.run",
         "ai.call",
         "ai.tokens",
@@ -177,6 +316,30 @@ run "every_metric_that_is_sent_is_looked_at" {
       ])
     ])
     error_message = "The dashboard shows each of the backend's metrics, found in the app's namespace by its name."
+  }
+
+  assert {
+    condition = one([
+      for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+      [for metric in widget.properties.metrics : metric[0].expression]
+      if strcontains(jsonencode(try(widget.properties.metrics, [])), "MetricName=\\\"health\\\"")
+      ]) == [
+      "SEARCH('Namespace=\"vehicle-catalog\" MetricName=\"health\"', 'Minimum', 60)",
+      "SEARCH('Namespace=\"vehicle-catalog\" MetricName=\"worker.health\"', 'Minimum', 60)",
+    ]
+    error_message = "One chart shows whether the API is ready and whether the worker is, each by the least it said in a minute."
+  }
+
+  assert {
+    # backup.sh sends the size with no labels, and the agent adds none to what it does not send, so
+    # the chart names the metric outright.
+    condition = one([
+      for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets : [
+        for line in widget.properties.metrics : slice(line, 0, length(line) - 1)
+        if try(line[1], null) == "backup.size"
+      ] if strcontains(jsonencode(try(widget.properties.metrics, [])), "\"backup.size\"")
+    ]) == [["vehicle-catalog", "backup.size"]]
+    error_message = "The dashboard shows the size of each backup, by the metric's name in the app's namespace and nothing else."
   }
 
   assert {
@@ -275,7 +438,7 @@ run "every_chart_says_what_it_measures_and_stands_where_a_fault_is_looked_for" {
       ])
       ] == [
       "the alarms",
-      "## Is the API up",
+      "## Are the API and the worker up",
       "health Minimum",
       "the starts",
       "## Requests",
@@ -304,8 +467,9 @@ run "every_chart_says_what_it_measures_and_stands_where_a_fault_is_looked_for" {
       "mem_used_percent",
       "CPUUtilization",
       "jvm.heap.used Average",
+      "backup.size",
     ]
-    error_message = "The page reads in the order a fault is looked for: the alarms, then whether the API is up, requests, catalogs, jobs and queues, the language model, the cache, and the host, each group under a heading of its own."
+    error_message = "The page reads in the order a fault is looked for: the alarms, then whether the API and the worker are up, requests, catalogs, jobs and queues, the language model, the cache, and the host, each group under a heading of its own."
   }
 
   assert {
@@ -367,8 +531,13 @@ run "every_chart_says_what_it_measures_and_stands_where_a_fault_is_looked_for" {
         widget.properties.annotations.horizontal[0].value
         if strcontains(jsonencode(try(widget.properties.metrics, [])), "MetricName=\\\"ai.spent\\\"")
       ]) == tonumber(regex("\napp\\.ai\\.allowance\\.daily=([0-9.]+)\n", file("../backend/src/main/resources/application.properties"))[0])
+      && one([
+        for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+        widget.properties.annotations.horizontal[0].value
+        if strcontains(jsonencode(try(widget.properties.metrics, [])), "\"disk_used_percent\"")
+      ]) == aws_cloudwatch_metric_alarm.host_disk.threshold
     )
-    error_message = "A line is drawn at each limit as it is set: the alarm's threshold on the oldest message, the API's heap in deploy/compose.yaml in MiB, and the day's allowance in application.properties."
+    error_message = "A line is drawn at each limit as it is set: the alarm's threshold on the oldest message, the API's heap in deploy/compose.yaml in MiB, the day's allowance in application.properties, and the disk alarm's threshold."
   }
 
   assert {
@@ -385,8 +554,11 @@ run "every_chart_says_what_it_measures_and_stands_where_a_fault_is_looked_for" {
       && alltrue([
         for arn in [
           aws_cloudwatch_metric_alarm.backend_health.arn,
+          aws_cloudwatch_metric_alarm.worker_health.arn,
           aws_cloudwatch_metric_alarm.jobs_failed.arn,
           aws_cloudwatch_metric_alarm.jobs_waiting.arn,
+          aws_cloudwatch_metric_alarm.backup_missing.arn,
+          aws_cloudwatch_metric_alarm.host_disk.arn,
         ] :
         contains(try(one([
           for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :

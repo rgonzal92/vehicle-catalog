@@ -1,9 +1,10 @@
 # What the backend reports of itself, and where Amazon CloudWatch keeps it: its log, its traces, and
-# a short list of metrics. An alarm watches the metric that says whether the backend is ready, and
-# a dashboard shows the alarms' states, every metric, readiness among them, and what SQS reports of
-# the jobs' two queues. A metric that neither of them uses is not sent: each one beyond the first
-# ten is paid for by the month. How often the API and the worker have started, the dashboard counts
-# from the log.
+# a short list of metrics. Three alarms watch what arrives: one the metric that says whether the API
+# is ready, one the worker's, and one the share of the host's disk in use. The topic through which
+# every alarm emails the maintainer is here too, and a dashboard shows the alarms' states, every
+# metric, readiness among them, and what SQS reports of the jobs' two queues. A metric that none
+# of them uses is not sent: each one beyond the first ten is paid for by the month. How often the
+# API and the worker have started, the dashboard counts from the log.
 
 locals {
   # What the CloudWatch agent on the host is told to do, and the namespace it publishes metrics
@@ -70,8 +71,9 @@ resource "aws_cloudwatch_log_resource_policy" "spans" {
   })
 }
 
-# What reporting takes: the host writes the backend's log, and its CloudWatch agent publishes
-# metrics under the app's namespace and sends traces. It does none of this anywhere else.
+# What reporting takes: the host writes the backend's log, its CloudWatch agent publishes metrics
+# under the app's namespace and sends traces, and its backup script publishes each backup's size
+# under the same namespace. It does none of this anywhere else.
 resource "aws_iam_role_policy" "host_report" {
   name = "report"
   role = aws_iam_role.host.id
@@ -105,16 +107,39 @@ resource "aws_iam_role_policy" "host_report" {
   })
 }
 
-# Goes off when the backend has said for three minutes that it is not ready, and when it has said
-# nothing in that time, as a backend that is stopped does. A release ordinarily stops it for less
-# than that; one whose backend is slow to start sets the alarm off until it is ready.
+# What the alarms tell when they go off and when they clear: a topic of Amazon SNS, with one
+# subscription, by email, to the address the budget alert goes to. The topic has no access policy
+# of its own and no key: SNS gives it the policy it gives every topic, which lets this account's
+# alarms publish to it. An email carries the alarm's name and its description, so each description
+# says what the alarm notices, the first thing to do, and how it clears. The address confirms its
+# subscription with a click before anything is sent to it; Terraform does not wait for the click.
+resource "aws_sns_topic" "alarms" {
+  name = "vehicle-catalog-alarms"
+}
+
+resource "aws_sns_topic_subscription" "alarms_email" {
+  topic_arn = aws_sns_topic.alarms.arn
+  protocol  = "email"
+  endpoint  = var.budget_notification_email
+}
+
+# Goes off when the API has not said it is ready. By its settings that is three minutes of an API
+# that runs and says it is not ready, which has not been seen; an API that stopped was seen once,
+# on 2026-10-08, to set it off about eight minutes later, and it cleared three and a half minutes
+# after the API was ready again. A minute in which nothing arrived counts as not ready, so an agent
+# that is stopped on the host looks the same as a stopped API. A release ordinarily stops the API
+# for less than that. The worker's readiness is worker.health, which the alarm below watches, so
+# this one says nothing of the worker.
 #
 # The agent tells each of the backend's metrics apart by four labels of its own making besides, and
 # one of them is the version of the library that sent the metric. So the alarm asks for the metric
 # by its name, whatever labels it carries, and goes on finding it when that library is updated.
 resource "aws_cloudwatch_metric_alarm" "backend_health" {
   alarm_name        = "vehicle-catalog-backend-health"
-  alarm_description = "The backend has not been ready for three minutes, or has reported nothing in that time."
+  alarm_description = "The API has not said it is ready. It goes off about eight minutes after the API stops, as seen once on 2026-10-08, and by its settings three minutes after an API that runs starts saying it is not ready, which has not been seen. A CloudWatch agent that is stopped on the host looks the same, since a minute with no report counts as not ready. It says nothing of the worker. First, ask https://catalog.rgonz.dev/api/health/readiness in a browser: 200 means the API is up and its reports are not arriving, so look at the agent on the host, unless the API has just come back, after a release or a restart by Docker, and the email that it cleared follows; anything else means the API, so look at its log and at the stack on the host. It clears by itself some minutes after the API is ready again, three and a half in the one trial. infra/README.md has the commands under this alarm's name."
+
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
 
   evaluation_periods  = 3
   comparison_operator = "LessThanThreshold"
@@ -129,10 +154,63 @@ resource "aws_cloudwatch_metric_alarm" "backend_health" {
   }
 }
 
+# Goes off when the worker has not said it is ready, as the alarm above does for the API: three
+# minutes of a worker that runs and says it is not ready, by its settings, or a worker that stopped
+# and so says nothing, which an alarm of this kind was seen to notice about eight minutes later.
+# Neither has been seen for the worker. A release ordinarily stops the worker for less than that.
+# The waiting alarm in jobs.tf does not notice a worker that stopped with its queue empty; this one
+# does. The metric's name has a dot in it, which a query takes in double quotes.
+resource "aws_cloudwatch_metric_alarm" "worker_health" {
+  alarm_name        = "vehicle-catalog-worker-health"
+  alarm_description = "The worker has not said it is ready. By its settings that is three minutes of a worker that runs and says it is not ready. A worker that stopped says nothing, which counts the same; the API's alarm, which is of the same kind, took about eight minutes to notice a stopped API. Neither has been seen for the worker. A CloudWatch agent that is stopped on the host looks the same, and sets off the API's alarm too. Meanwhile new jobs wait in the database and are done once the worker is back. First, see whether the worker runs and what its log says, under the stream worker of the log group /vehicle-catalog/backend, and the dashboard's chart of starts: a worker that Docker starts again and again, or that is slow to start after a release, shows there. A release ordinarily stops the worker for less than the alarm waits. It clears by itself some minutes after the worker is ready again. infra/README.md has the commands under this alarm's name."
+
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+
+  evaluation_periods  = 3
+  comparison_operator = "LessThanThreshold"
+  threshold           = 1
+  treat_missing_data  = "breaching"
+
+  metric_query {
+    id          = "health"
+    expression  = "SELECT MIN(\"worker.health\") FROM \"${local.telemetry_namespace}\""
+    period      = 60
+    return_data = true
+  }
+}
+
+# Goes off when the host's one disk has been more than 80 percent full for five minutes running,
+# which leaves less than 6 GB of its 30; on 2026-10-14 it was 15 percent full. The agent reports
+# the share with the path and the file system as its labels, and the alarm names both, as the
+# dashboard's chart does: one that named the path alone would read nothing and stay quiet for
+# good. A minute in which nothing arrived is no fault of the disk's: an agent that is stopped sets
+# off the two alarms above.
+resource "aws_cloudwatch_metric_alarm" "host_disk" {
+  alarm_name        = "vehicle-catalog-host-disk"
+  alarm_description = "The host's one disk has been more than 80 percent full for five minutes running, which leaves less than 6 GB of its 30. The database, Docker's images, and the logs of Caddy, the database, and the cache are on it, and a disk with no room left stops the database. On 2026-10-14 it was 15 percent full, and the largest part of that, 1.9 GB of the 4.5 GiB in use, was Docker's images. First, on the host, df -h and docker system df say what takes the room. Images that no container runs are where room is most readily found; the image before the one that runs is kept, since a release that is taken back goes back to it. It clears by itself within about a minute of the share being below the line again. infra/README.md has the commands under this alarm's name."
+
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+
+  namespace   = local.telemetry_namespace
+  metric_name = "disk_used_percent"
+  dimensions  = { path = "/", fstype = "xfs" }
+  statistic   = "Average"
+  period      = 60
+
+  evaluation_periods  = 5
+  datapoints_to_alarm = 5
+  comparison_operator = "GreaterThanThreshold"
+  threshold           = 80
+  treat_missing_data  = "notBreaching"
+}
+
 # The page reads from top to bottom in the order a fault is looked for: the alarms' states, then
-# under a heading each whether the API is up, requests, catalogs, jobs and queues, the language
-# model, the cache, and the host. The backend's metrics are found by name, as the alarm finds its
-# own. The host's processor time is among them at no charge: EC2 reports it for every machine.
+# under a heading each whether the API and the worker are up, requests, catalogs, jobs and queues,
+# the language model, the cache, and the host. The backend's metrics are found by name, as the
+# alarm finds its own. The host's processor time is among them at no charge: EC2 reports it for
+# every machine.
 # Every chart says what it measures and in what unit, names its axis after the unit in place of
 # what CloudWatch would say there, and gives each line a label of its own; a line is drawn where a
 # limit is set. The page is 24 columns wide and a chart stands 12 of them.
@@ -149,27 +227,37 @@ resource "aws_cloudwatch_dashboard" "backend" {
           title = "The alarms"
           alarms = [
             aws_cloudwatch_metric_alarm.backend_health.arn,
+            aws_cloudwatch_metric_alarm.worker_health.arn,
             aws_cloudwatch_metric_alarm.jobs_failed.arn,
             aws_cloudwatch_metric_alarm.jobs_waiting.arn,
+            aws_cloudwatch_metric_alarm.backup_missing.arn,
+            aws_cloudwatch_metric_alarm.host_disk.arn,
           ]
         }
       },
       {
         type       = "text", x = 0, y = 4, width = 24, height = 1
-        properties = { markdown = "## Is the API up" }
+        properties = { markdown = "## Are the API and the worker up" }
       },
       {
         type = "metric", x = 0, y = 5, width = 12, height = 6
         properties = {
-          title  = "Whether the API is ready (1) or not (0)"
+          title  = "Whether the API and the worker are ready (1) or not (0)"
           region = data.aws_region.current.region
           view   = "timeSeries"
           period = 60
-          metrics = [[{
-            expression = "SEARCH('${local.backend_metric} MetricName=\"health\"', 'Minimum', 60)"
-            id         = "health"
-            label      = "ready"
-          }]]
+          metrics = [
+            [{
+              expression = "SEARCH('${local.backend_metric} MetricName=\"health\"', 'Minimum', 60)"
+              id         = "health"
+              label      = "API ready"
+            }],
+            [{
+              expression = "SEARCH('${local.backend_metric} MetricName=\"worker.health\"', 'Minimum', 60)"
+              id         = "worker"
+              label      = "worker ready"
+            }],
+          ]
           yAxis = { left = { label = "1 ready, 0 not", showUnits = false } }
         }
       },
@@ -540,6 +628,9 @@ resource "aws_cloudwatch_dashboard" "backend" {
             [local.telemetry_namespace, "disk_used_percent", "path", "/", "fstype", "xfs", { label = "disk in use" }],
           ]
           yAxis = { left = { label = "percent", min = 0, max = 100, showUnits = false } }
+          annotations = {
+            horizontal = [{ label = "the disk's alarm goes off", value = aws_cloudwatch_metric_alarm.host_disk.threshold }]
+          }
         }
       },
       # The two lines are asked for by the instance's id, which stays out of their labels.
@@ -586,6 +677,25 @@ resource "aws_cloudwatch_dashboard" "backend" {
           annotations = {
             horizontal = [{ label = "the most it may grow to", value = local.api_heap_mib }]
           }
+        }
+      },
+      # deploy/backup.sh sends the size of each backup once the bucket has it, with no labels, so
+      # the chart names the metric outright. One point a night, in the bytes the bucket lists, so
+      # the chart shows the last seven days whatever the page shows: a page of three hours would
+      # show one point or none.
+      {
+        type = "metric", x = 12, y = 77, width = 12, height = 6
+        properties = {
+          title  = "Size of each backup of the database, in bytes"
+          region = data.aws_region.current.region
+          view   = "timeSeries"
+          stat   = "Maximum"
+          period = 3600
+          start  = "-P7D"
+          metrics = [
+            [local.telemetry_namespace, "backup.size", { label = "backup" }],
+          ]
+          yAxis = { left = { label = "bytes", showUnits = false } }
         }
       },
     ]
