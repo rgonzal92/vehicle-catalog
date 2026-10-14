@@ -5,7 +5,7 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 ## Writing rules
 
 - Tickets are self-contained: state the behaviour and its acceptance checks in full, following the wording rule in `CLAUDE.md`.
-- Use the vocabulary in `CONTEXT.md`. A tracker item is a **ticket**; in this project "issue" means a validation finding.
+- Use the vocabulary in `GLOSSARY.md`. A tracker item is a **ticket**; in this project "issue" means a validation finding.
 
 ## Conventions
 
