@@ -3,7 +3,7 @@
 # the development one. Paths are relative to the root compose.yaml.
 services:
   web:
-    image: caddy:2.11.6-alpine
+    image: caddy:2.11.7-alpine
     depends_on:
       backend:
         condition: service_healthy
