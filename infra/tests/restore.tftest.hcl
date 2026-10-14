@@ -149,7 +149,7 @@ run "with_the_switch_on_the_machine_is_set_up_to_put_a_backup_back" {
       aws_ssm_association.restore_setup[0].wait_for_success_timeout_seconds == 900
       && one(one(aws_ssm_association.restore_setup[0].targets).values) == aws_instance.restore[0].id
     )
-    error_message = "The apply that makes the machine waits for its set-up and fails if it does."
+    error_message = "The set-up is made for the machine, and the apply that makes it is given fifteen minutes for it."
   }
 
   assert {
