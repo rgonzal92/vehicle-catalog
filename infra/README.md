@@ -547,7 +547,9 @@ What to do, in order, on the host:
 3. Once the cause is put right, the third command above makes a backup now.
 
 It clears by itself once a backup has reported its size, one started by hand among them; how soon
-after that it clears was not seen.
+after that it clears was not seen. Set to `ALARM` by hand for a trial, it was still on after five
+minutes and was set back by hand: CloudWatch looks at an alarm whose period is an hour seldom, and
+took 23 minutes to look at this one the first time.
 
 ## What the backend reports
 

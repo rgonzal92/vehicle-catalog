@@ -52,7 +52,7 @@ The time charts are in milliseconds. Chart 4's two points, about 17 ms for an ed
 
 The app was not used as `visitor` for any chart: each of the 21 had a line with values in some hour of the fifteen days.
 
-Two charts have changed since those pairs were drawn. Chart 3 is now titled "Whether the API and the worker are ready (1) or not (0)" and has a second line, the worker's `worker.health`, under the label "worker ready"; and a chart of the size of each backup of the database, in bytes, stands under The host beside the API's heap, drawn by the hour over the last seven days whatever the page shows, which found its metric by name and so draws its legend as "backup". Neither has a pair; the readiness chart was drawn once more by command on 2026-10-14, after the release that brought the worker's line, over the three hours to 04:41 UTC, 1000 by 400: `docs/dashboard/03-api-and-worker-ready.png`. Its legend reads "API ready health" and "worker ready worker.health", the worker's line runs at 1 from 04:32 UTC, the first full minute after that release, and the API's line alone covers the hours before, so the search for `health` in quotes did not also find `worker.health`. The API's line touches 0 three times in the picture, at about 03:40, 03:56, and 04:30 UTC, which are the three releases of that night, and has a gap of one minute at 04:16 UTC, when an apply gave the agent its file anew and started it again. The backups chart, drawn the same way, had one point, 138,183 bytes, and its axis spanned two bytes around it; it is not kept, since it will look different once a second size arrives.
+Three charts have changed since those pairs were drawn. Chart 7, the host's memory and disk, has a dashed line at 80 percent labelled "the disk's alarm goes off (80)", where `vehicle-catalog-host-disk` goes off; drawn once more by command on 2026-10-14 after the alarm's apply, over the three hours to 05:21 UTC, 1000 by 400, it is `docs/dashboard/07-memory-and-disk-with-the-alarms-line.png`: the disk's line runs at about 15 and the memory's between 60 and 70, with two dips to about 40 at the releases of 03:56 and 04:30 UTC. Chart 3 is now titled "Whether the API and the worker are ready (1) or not (0)" and has a second line, the worker's `worker.health`, under the label "worker ready"; and a chart of the size of each backup of the database, in bytes, stands under The host beside the API's heap, drawn by the hour over the last seven days whatever the page shows, which found its metric by name and so draws its legend as "backup". Neither has a pair; the readiness chart was drawn once more by command on 2026-10-14, after the release that brought the worker's line, over the three hours to 04:41 UTC, 1000 by 400: `docs/dashboard/03-api-and-worker-ready.png`. Its legend reads "API ready health" and "worker ready worker.health", the worker's line runs at 1 from 04:32 UTC, the first full minute after that release, and the API's line alone covers the hours before, so the search for `health` in quotes did not also find `worker.health`. The API's line touches 0 three times in the picture, at about 03:40, 03:56, and 04:30 UTC, which are the three releases of that night, and has a gap of one minute at 04:16 UTC, when an apply gave the agent its file anew and started it again. The backups chart, drawn the same way, had one point, 138,183 bytes, and its axis spanned two bytes around it; it is not kept, since it will look different once a second size arrives.
 
 ## The figures before and after
 
@@ -241,7 +241,7 @@ keeps as `json-file` and nothing limits, 108 KiB together. A backup is made in `
 memory, so it is never on the disk. The line is 80 percent, which leaves 6 GiB and is 65 points
 above that day's share; it would have been lower had the disk been more than 65 percent full.
 
-#### The figures before and after
+#### The figures before and after the three alarms
 
 | | Before | After |
 |---|---|---|
@@ -267,10 +267,46 @@ month are within the free million.
 No worker was stopped, no night's backup was left out, and the disk was not filled: the worker's
 work would have waited, the database is on the disk, and a backup left out is a day's work at risk.
 So none of the three was seen to go off for its cause, and how soon each goes off is from its
-settings, as the table says. Each is to be set to `ALARM` by hand once after its apply, as the
-three before it were ([The trial](#the-trial)); the times of that are not yet on record. Whether a
-release of the backend leaves the worker silent for longer than the alarm waits is read from the
-worker's alarm's history over the release that follows.
+settings, as the table says. Each was set to `ALARM` by hand once after its apply, as the three
+before it were ([The trial of the three](#the-trial-of-the-three)). Whether a release of the backend
+leaves the worker silent for longer than the alarm waits is read from the worker's alarm's history
+over the release that follows.
+
+#### The trial of the three
+
+Applied on 2026-10-14 from 05:09:53 to 05:09:58 UTC, from a plan that added the three alarms and
+changed the waiting alarm's description and the dashboard in place: 3 added, 2 changed, 0
+destroyed. Each alarm left want of data for `OK` by itself and told the topic as it did, by its
+history: the disk's at 05:10:36 (39 seconds after it was made, its reason naming 15.027 percent
+for 05:09 UTC, against 15.026 on the chart's minute before), the worker's at 05:11:22 (85 seconds),
+and the backup's at 05:32:52 (22 minutes 56 seconds; its reason was "Unchecked: Initial alarm
+creation" until then, and named the one hour with 138,183 after). So CloudWatch looks at an alarm
+whose period is an hour seldom, where it looked at the two by the minute within two minutes.
+
+Then, from 05:33:34 to 05:40:43 UTC, with all six alarms `OK` and no Deploy running, each of the
+three was set to `ALARM` by hand once, with the reason "Set by hand to see the email. Nothing is
+wrong.", and asked for every 30 seconds. The times are those its history gives, in UTC:
+
+| Alarm | Set to `ALARM` by hand | Told the topic | Back to `OK` | Told the topic | On for |
+|---|---|---|---|---|---|
+| `vehicle-catalog-worker-health` | 05:33:35 | 05:33:35, succeeded | 05:34:57, by itself | 05:34:57, succeeded | 82 s |
+| `vehicle-catalog-backup-missing` | 05:35:07 | 05:35:07, succeeded | 05:40:12, by hand | 05:40:12, succeeded | 305 s |
+| `vehicle-catalog-host-disk` | 05:40:13 | 05:40:13, succeeded | 05:40:41, by itself | 05:40:41, succeeded | 28 s |
+
+The worker's and the disk's returned by themselves, as the three before them had. The backup's was
+still `ALARM` after five minutes, so it was set back to `OK` the same way, which ran its clearing
+action; that it is an alarm whose period is an hour, and that CloudWatch took 23 minutes to look at
+it the first time, is the reason that fits, and so its return by itself, to its real state after a
+trial, was not seen. Over those minutes each history has the change to `ALARM`, an item of the type
+`Action` that says "Successfully executed action" and names the topic, the change back, and a
+second such item.
+
+The topic's counts from 05:08 to 05:42 UTC, asked for by the minute: `NumberOfMessagesPublished`
+one each at 05:10, 05:11, and 05:32, the three changes to `OK`, and then one each at 05:33, 05:34,
+and 05:35 and three at 05:40, the six of the trial, nine in all; `NumberOfNotificationsDelivered`
+no datapoint in any minute; `NumberOfNotificationsFailed` none either. Nine published is the nine
+emails the alarms asked for; none delivered is the subscription, still unconfirmed, as in the trial
+above.
 
 ### What the maintainer saw
 
@@ -286,8 +322,10 @@ where it lands stay not known until he does.
 
 - An alarm set by hand shows the way from an alarm to the inbox, and not what sets an alarm off.
   Only the health alarm was ever seen to go off for its cause.
-- The trial was made before the address had confirmed its subscription, so it showed the way from
-  an alarm to the topic, six times, and not from the topic to the inbox.
+- Both trials were made before the address had confirmed its subscription, so they showed the way
+  from an alarm to the topic, six times each, and not from the topic to the inbox.
+- The backup's alarm, set to `ALARM` by hand, was set back by hand after five minutes, so whether
+  and how soon it returns by itself after a trial is not known.
 - "Delivered" is SNS's count of what the mail server took. It does not say whether an email lay in
   the inbox or the junk, or how much of the description it showed. Those two are known only as far
   as the maintainer said.
