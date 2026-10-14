@@ -9,6 +9,7 @@
     "stack:down": "npm run compose -- down -v",
     "cache:measure": "node cache-workload.mjs",
     "reads:even": "node cache-workload.mjs evenness",
+    "list:measure": "node working-copy-list.mjs",
     "test": "playwright test",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint --deny-warnings tests playwright.config.ts",
