@@ -523,9 +523,9 @@ No role that exists from day to day may read a backup. `restore.tf` describes a 
 with a role of its own, and it exists only while the switch `restore_machine` is on, which it is
 for the plan that makes it and the hours of the restore. The switch is turned on on the command
 line and in no file, and the plan is saved and read before it is applied: it adds the machine's
-own resources and nothing else, and the apply waits for the machine to set itself up and fails if
-it does. The plan file holds secrets, so it is written outside the repository and deleted
-afterwards.
+own resources and nothing else. The plan file holds secrets, so it is written outside the
+repository and deleted afterwards. [The record of a restore](../docs/restore-measurements.md) has
+how long each step took on such a machine, and what was put back.
 
 ```sh
 terraform plan -var restore_machine=true -out=/tmp/restore.plan
@@ -556,15 +556,21 @@ once it has ended itself costs nothing.
 The machine sets itself up with Docker, `deploy/restore.sh`, and two files beside it in
 `/opt/vehicle-catalog-restore`: `restore.env`, which names the database's image as
 `deploy/compose.yaml` does, and `put-back.sh`, which signs in to the registry and runs the script
-with the bucket. A command to the machine names a backup and a commit, and nothing else. The
-commit is the one the host runs, which is the newest `Deploy` run that succeeded. Systems Manager
-keeps the first 24,000 characters of what a command prints; the script printed 1,863, in 70 lines,
-for the demo's 36 tables on the local stack.
+with the bucket. The apply does not wait for that: on 2026-10-14 it ended once it had made the
+set-up, in four seconds, before the machine had reported a run of it, and the set-up ran
+for 2 minutes 38 seconds after it. So the set-up's status is asked for until it says `Success`,
+before any command is sent. A command to the machine names a backup and a commit, and nothing
+else. The commit is the one the host runs, which is the newest `Deploy` run that succeeded.
+Systems Manager keeps the first 24,000 characters of what a command prints; the script printed
+1,863, in 70 lines, for the demo's 36 tables on the local stack, and 1,988 on the clean machine
+for the host's 37.
 
 ```sh
 machine="$(aws ec2 describe-instances \
   --filters Name=tag:Name,Values=vehicle-catalog-restore Name=instance-state-name,Values=running \
   --query 'Reservations[0].Instances[0].InstanceId' --output text)"
+aws ssm describe-instance-associations-status --instance-id "$machine" \
+  --query 'InstanceAssociationStatusInfos[0].[Status,ExecutionDate]' --output text
 command="$(aws ssm send-command --instance-ids "$machine" --document-name AWS-RunShellScript \
   --parameters 'commands=["/opt/vehicle-catalog-restore/put-back.sh <the backup> <the commit, in full>"]' \
   --query Command.CommandId --output text)"
@@ -604,8 +610,10 @@ rm /tmp/remove.plan
 
 `deploy/test/check.sh` runs the script on its own stack, against a stand-in for the bucket, and
 holds that a row made before the backup is there and one made after it is not, that the API it
-started is ready and says its database is up, and that the API is told of nothing live. No
-backup has yet been put back on such a machine in AWS.
+started is ready and says its database is up, and that the API is told of nothing live. On
+2026-10-14 a backup made by hand and the night's backup were put back on such a machine in AWS,
+the API started on the first and took a session it held, and a container there got no token from
+the metadata address; [the record](../docs/restore-measurements.md) has the times and the rows.
 
 ### Putting a backup back over the stack's own database
 
