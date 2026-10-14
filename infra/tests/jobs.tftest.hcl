@@ -81,8 +81,12 @@ run "a_job_that_has_failed_for_good_sets_off_an_alarm" {
   }
 
   assert {
-    condition     = aws_cloudwatch_metric_alarm.jobs_failed.alarm_actions == null
-    error_message = "The alarm tells no one: it is there to be looked at."
+    condition = (
+      aws_cloudwatch_metric_alarm.jobs_failed.alarm_actions == toset([aws_sns_topic.alarms.arn])
+      && aws_cloudwatch_metric_alarm.jobs_failed.ok_actions == toset([aws_sns_topic.alarms.arn])
+      && aws_cloudwatch_metric_alarm.jobs_failed.insufficient_data_actions == null
+    )
+    error_message = "The alarm tells the topic when it goes off and when it clears, and nothing for want of data."
   }
 
   assert {
@@ -122,11 +126,17 @@ run "a_queue_that_no_one_works_off_sets_off_an_alarm" {
   }
 
   assert {
+    condition     = aws_cloudwatch_metric_alarm.jobs_waiting.treat_missing_data == "notBreaching"
+    error_message = "A queue that reports nothing holds nothing, and sets off no alarm."
+  }
+
+  assert {
     condition = (
-      aws_cloudwatch_metric_alarm.jobs_waiting.treat_missing_data == "notBreaching"
-      && aws_cloudwatch_metric_alarm.jobs_waiting.alarm_actions == null
+      aws_cloudwatch_metric_alarm.jobs_waiting.alarm_actions == toset([aws_sns_topic.alarms.arn])
+      && aws_cloudwatch_metric_alarm.jobs_waiting.ok_actions == toset([aws_sns_topic.alarms.arn])
+      && aws_cloudwatch_metric_alarm.jobs_waiting.insufficient_data_actions == null
     )
-    error_message = "A queue that reports nothing holds nothing, and the alarm tells no one: it is there to be looked at."
+    error_message = "The alarm tells the topic when it goes off and when it clears, and nothing for want of data."
   }
 }
 

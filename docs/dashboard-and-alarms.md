@@ -1,6 +1,6 @@
 # The dashboard and its alarms
 
-What the CloudWatch dashboard `vehicle-catalog` shows, in what order, and how each of its charts was seen drawn. The page is made by `infra/telemetry.tf`, and the tests in `infra/tests/telemetry.tftest.hcl` hold its layout, its order, its axes, its labels, its limits, and its row of alarms. What each alarm says and whom it tells is not written here yet: the alarms tell no one today, and a later change gives them words and an address.
+What the CloudWatch dashboard `vehicle-catalog` shows, in what order, and how each of its charts was seen drawn. The page is made by `infra/telemetry.tf`, and the tests in `infra/tests/telemetry.tftest.hcl` hold its layout, its order, its axes, its labels, its limits, and its row of alarms. [The alarms](#the-alarms) below has what each alarm notices, what to do, how it clears, whom it tells, and how that was tried.
 
 ## The order of the page
 
@@ -111,3 +111,133 @@ The "query" property is not expected, will be ignored
 ```
 
 So the chart has no picture by command, and only the page in the console shows whether it draws, as two lines, one, or none, and how it draws the hours without a start, for which its query has no row. That look is the maintainer's, after the apply, with the page showing the last week: the alarms' row, the first heading, and the row with the starts chart, in one cropped screenshot kept as `docs/dashboard/page.png`, beside what its query counts for an hour the screenshot shows. It has not been taken yet.
+
+## The alarms
+
+The Terraform makes three alarms and no other: `vehicle-catalog-backend-health` in
+`infra/telemetry.tf`, and `vehicle-catalog-jobs-failed` and `vehicle-catalog-jobs-waiting` in
+`infra/jobs.tf`. Each tells the SNS topic `vehicle-catalog-alarms` when it goes off and when it
+clears, and nothing for want of data, and the topic has one subscription: by email, to the address
+the budget alert goes to. The tests in `infra/tests/jobs.tftest.hcl` and
+`infra/tests/telemetry.tftest.hcl` hold the three to the topic, the topic to that one subscription,
+and the pipeline's plan role to reading the topic and its subscription and to nothing else of SNS.
+What sets each alarm off, its metric, its limit, its minutes, and what it makes of a missing minute,
+is as it was. `infra/README.md` has, under each alarm's name, what to do and the commands.
+
+### Before
+
+Read on 2026-10-14 at 03:20 UTC with `aws cloudwatch describe-alarms` and `describe-alarm-history`,
+before anything was changed and as far back as AWS keeps the history, which here reaches back to
+each alarm's making. All three were `OK`, none had an action of any kind, and none had ever told
+anyone.
+
+- `vehicle-catalog-backend-health`, made on 2026-10-08 at 16:33 UTC, `OK` since 17:33:43 UTC that
+  day. It went off twice, both times on the day it was made, and not since:
+  - From 16:34:59 to 17:10:43 UTC, 35 minutes and 44 seconds, going from want of data straight to
+    `ALARM` with the reason "no datapoints were received for 3 periods": the alarm asked for its
+    metric under a name nothing arrived by. Pull request #63 found the metric; its apply changed
+    the alarm at 17:09:38 UTC, and a minute later three minutes of `1.0` cleared it.
+  - From 17:29:43 to 17:33:43 UTC, 4 minutes: the trial of that day, in which the API was stopped.
+    A last reading of `0.0` at 17:21 UTC and two missing minutes set it off, and a reading of
+    `1.0` at 17:31 UTC cleared it.
+  - No change of state for any release from 2026-10-08 on, nor for any demo reset.
+- `vehicle-catalog-jobs-failed`, made on 2026-10-09 at 18:13 UTC, `OK` since 18:14:43 UTC that day,
+  when it went from want of data to `OK`. It has never gone off.
+- `vehicle-catalog-jobs-waiting`, made on 2026-10-09 at 19:08 UTC, `OK` since 19:09:18 UTC that
+  day, the same way. It has never gone off.
+
+So no alarm has gone off for something that is no fault, a release among them, and the emails to
+expect are those of a fault and of the trial below. Each alarm's one change from want of data came
+in its first minutes. Such a change, to `OK` or to `ALARM`, runs the action of the state it goes
+to, so an alarm made anew emails once as it settles; a change into want of data runs nothing,
+since no alarm has an action for it.
+
+### After
+
+| Alarm | What it notices | How soon | What to do first | How it clears |
+|---|---|---|---|---|
+| `vehicle-catalog-backend-health` | The API has not said it is ready. A minute in which nothing arrived counts as not ready, so a CloudWatch agent stopped on the host looks the same. The worker sends no `health`, so it says nothing of the worker. | About eight minutes after the API stopped, seen once on 2026-10-08. Three minutes for an API that runs and says it is not ready, by its settings, not seen. The agent stopped, by its settings, not tried. | Ask `/api/health/readiness` through the site: 200 means the API is up and its reports are not arriving, unless the API has just come back and the email of its clearing follows; anything else means the API. | By itself some minutes after the API is ready again, three and a half in the one trial. |
+| `vehicle-catalog-jobs-failed` | A job has failed for good: its work failed in each of three tries, and its message is in the dead-letter queue. | Within a minute or two of the third failed try, by its settings. | The Jobs page says what the last try said; Retry there once the cause is put right. | At Retry, within a minute or two, whether or not the job is then done: the email of its clearing does not say a job was done, the Jobs page does. A retried job that fails three times again sets it off again about six minutes after the Retry. By itself after the demo reset at 03:00 UTC, which takes the job away. After fourteen days, when the queue lets go of a message that nothing took out. |
+| `vehicle-catalog-jobs-waiting` | A message has been on the jobs' queue for more than ten minutes: a worker that runs and is stuck, one that stopped with a message still on the queue, or one that works and has more jobs than it gets through. A worker that stopped with the queue empty does not set it off. | Within a minute of the message's eleventh minute, by its settings. Not seen to go off for its cause. | Whether the worker runs and what its log says, then how many messages wait on the queue. | By itself once no message on the queue is that old. |
+
+How soon each goes off follows from its settings but where the table says it was seen: the health
+alarm's eight minutes and three and a half are the one trial of 2026-10-08, in pull request #63.
+
+### The trial
+
+Filled in before the pull request is opened: each alarm set to `ALARM` by hand once, with the times
+in UTC its history gives for the change, the action to the topic, the return to `OK`, and the
+second action, and the topic's three counts over those minutes.
+
+### What the maintainer saw
+
+Filled in before the pull request is opened, or says that he has not said: how many of the six
+emails came, whether to his inbox or his junk, and whether each showed its whole description.
+
+### What limits this
+
+- An alarm set by hand shows the way from an alarm to the inbox, and not what sets an alarm off.
+  Only the health alarm was ever seen to go off for its cause.
+- "Delivered" is SNS's count of what the mail server took. It does not say whether an email lay in
+  the inbox or the junk, or how much of the description it showed. Those two are known only as far
+  as the maintainer said.
+- Each description is read in the email as AWS lays it out, and the rest of the email's wording is
+  AWS's.
+
+### What no alarm notices
+
+Each checked against the code on 2026-10-14, where `infra/` makes the three alarms above and no
+other:
+
+- A worker that stopped with its queue empty. The worker is also what sends the messages
+  (`WorkerLoops.publish`), so nothing reaches the queue and the waiting alarm has nothing to watch.
+- A night without a backup. The host writes the backup on its own (`deploy/backup.sh`, given to
+  the host by `infra/host.tf`), and a backup that fails ends in failure in the host's journal, which
+  nothing reads.
+- A disk that fills, and the host's memory. Both are on the dashboard, from the agent, and no
+  alarm watches either.
+- An API or a worker that starts again and again. The dashboard counts the starts from the log,
+  and nothing else does.
+- A demo reset that fails. The reset writes to the log and sends no metric.
+- The language model's allowance being reached. A refusal is counted in `ai.refused`, which the
+  dashboard shows and no alarm watches.
+- An answer of 502 or 504. Caddy and CloudFront answer those when the API does not, and the API's
+  own count of requests does not see them.
+
+### The price
+
+AWS's price list for Amazon SNS in us-east-1, read on 2026-10-14 at 01:42 UTC from
+`https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonSNS/current/us-east-1/index.csv` as
+published on 2026-09-15: the first 1,000 email notifications a month are free, and each 100,000
+after them cost US$2.00; the first 1,000,000 requests a month are free, and each million after
+them costs US$0.50. The trial is six emails and the click's email a seventh. An alarm that changed
+its state every minute of a month would send 43,200 emails, which comes to about US$0.84. No
+alarm and no metric is added, so CloudWatch charges what it did.
+
+### The trial's commands
+
+One alarm at a time, with all three `OK` and no Deploy running, set to `ALARM` by hand with a
+reason that says it is a trial, and left to return to `OK` by itself:
+
+```sh
+aws cloudwatch set-alarm-state --alarm-name <the alarm> --state-value ALARM \
+  --state-reason "Set by hand to see the email. Nothing is wrong."
+```
+
+One that has not returned after five minutes is set back the same way. The alarm's history then
+shows the change, an action to the topic that succeeded, the change back, and a second action:
+
+```sh
+aws cloudwatch describe-alarm-history --alarm-name <the alarm> --start-date <before the first> \
+  --history-item-type Action
+```
+
+The topic's counts over those minutes, `NumberOfMessagesPublished`,
+`NumberOfNotificationsDelivered`, and `NumberOfNotificationsFailed`, each asked for so, where an
+answer without a datapoint counts as none:
+
+```sh
+aws cloudwatch get-metric-statistics --namespace AWS/SNS --metric-name <the count> \
+  --dimensions Name=TopicName,Value=vehicle-catalog-alarms \
+  --start-time <before the first> --end-time <after the last> --period 60 --statistics Sum
+```
