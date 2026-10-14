@@ -11,6 +11,8 @@ import dev.rgonz.catalog.catalog.CatalogSnapshot.Trim;
 import dev.rgonz.catalog.library.RuleKind;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -36,11 +38,17 @@ class Catalogs {
 
   private final JdbcClient jdbc;
   private final ApprovedContents approvedContents;
+  private final ObservationRegistry observations;
   private final Timer validateTime;
 
-  Catalogs(JdbcClient jdbc, ApprovedContents approvedContents, MeterRegistry metrics) {
+  Catalogs(
+      JdbcClient jdbc,
+      ApprovedContents approvedContents,
+      ObservationRegistry observations,
+      MeterRegistry metrics) {
     this.jdbc = jdbc;
     this.approvedContents = approvedContents;
+    this.observations = observations;
     this.validateTime =
         Timer.builder("catalog.validate")
             .description("How long reading a catalog and working out its issues takes")
@@ -111,9 +119,20 @@ class Catalogs {
   }
 
   /**
+   * A step inside a request or a job: it leaves a span of its own in their trace, named after the
+   * step, and no metric, since no step's name is in the lists of {@code Telemetry}. The catalog's
+   * id goes on the span alone, as a value that no metric is told apart by.
+   */
+  static Observation step(ObservationRegistry observations, String name, long catalogId) {
+    return Observation.createNotStarted(name, observations)
+        .highCardinalityKeyValue("catalog.id", String.valueOf(catalogId));
+  }
+
+  /**
    * A catalog with its contents, if the viewer may open it: one query for the catalog itself, one
    * for each content table, and one for its rules. The queries share one view of the database, so
-   * the contents always belong to the revision.
+   * the contents always belong to the revision. Reading the catalog, reading what validation needs
+   * of the library, and working out the issues are three steps of the trace.
    *
    * <p>The time is taken from before the catalog is read until its issues are worked out, and only
    * of a catalog that is found.
@@ -123,7 +142,13 @@ class Catalogs {
     var started = System.nanoTime();
     var found =
         read(id, viewerId, reviews)
-            .map(catalog -> catalog.withIssues(Validation.issues(catalog.snapshot(), library(id))));
+            .map(
+                catalog -> {
+                  var library = library(id);
+                  return catalog.withIssues(
+                      step(observations, "catalog.issues", id)
+                          .observe(() -> Validation.issues(catalog.snapshot(), library)));
+                });
     if (found.isPresent()) {
       validateTime.record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
     }
@@ -146,7 +171,12 @@ class Catalogs {
     return read(id, viewerId, reviews).map(CatalogView::snapshot);
   }
 
+  /** The catalog's own row and its contents, from the cache or the database: one step. */
   private Optional<CatalogView> read(long id, long viewerId, boolean reviews) {
+    return step(observations, "catalog.read", id).observe(() -> row(id, viewerId, reviews));
+  }
+
+  private Optional<CatalogView> row(long id, long viewerId, boolean reviews) {
     return jdbc.sql(
             """
             SELECT c.id, c.lineage_id, c.status, c.revision, c.name, c.version_number,
@@ -261,9 +291,14 @@ class Catalogs {
   /**
    * What validation needs of the library as it is today: which of the catalog's features are
    * retired, which of its trims and regions are inactive, and the global rules with the names of
-   * the features they name. It is read with three queries, however many rules there are.
+   * the features they name. It is read with three queries, however many rules there are, as one
+   * step of the trace.
    */
   Validation.Library library(long catalogId) {
+    return step(observations, "catalog.library", catalogId).observe(() -> libraryOf(catalogId));
+  }
+
+  private Validation.Library libraryOf(long catalogId) {
     var out =
         jdbc.sql(
                 """

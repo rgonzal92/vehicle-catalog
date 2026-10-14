@@ -5,6 +5,7 @@ import dev.rgonz.catalog.core.ApiException;
 import dev.rgonz.catalog.reference.FixedLists;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.observation.ObservationRegistry;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -46,11 +47,17 @@ class WorkingCopies {
 
   private final JdbcClient jdbc;
   private final FixedLists fixedLists;
+  private final ObservationRegistry observations;
   private final Timer copyTime;
 
-  WorkingCopies(JdbcClient jdbc, FixedLists fixedLists, MeterRegistry metrics) {
+  WorkingCopies(
+      JdbcClient jdbc,
+      FixedLists fixedLists,
+      ObservationRegistry observations,
+      MeterRegistry metrics) {
     this.jdbc = jdbc;
     this.fixedLists = fixedLists;
+    this.observations = observations;
     this.copyTime =
         Timer.builder("catalog.copy")
             .description("How long copying a catalog's contents into a new working copy takes")
@@ -65,7 +72,10 @@ class WorkingCopies {
     return startPointOf(vehicleLineId, modelYear);
   }
 
-  /** Creates a working copy in status Draft for its owner and copies its starting point into it. */
+  /**
+   * Creates a working copy in status Draft for its owner and copies its starting point into it. The
+   * copying is one step of the request's trace, named with the catalog copied from.
+   */
   @Transactional
   WorkingCopy create(long ownerId, NewWorkingCopy given) {
     requireOpenFor(given.vehicleLineId(), given.modelYear());
@@ -90,11 +100,15 @@ class WorkingCopies {
     if (start.catalogId() != null) {
       copyTime.record(
           () ->
-              jdbc.sql("SELECT copy_catalog(:source, :target)")
-                  .param("source", start.catalogId())
-                  .param("target", id)
-                  // The function answers nothing, so there is nothing to read from its one row.
-                  .query(row -> {}));
+              Catalogs.step(observations, "catalog.contents.copy", start.catalogId())
+                  .observe(
+                      () ->
+                          jdbc.sql("SELECT copy_catalog(:source, :target)")
+                              .param("source", start.catalogId())
+                              .param("target", id)
+                              // The function answers nothing, so there is nothing to read from
+                              // its one row.
+                              .query(row -> {})));
     }
 
     return jdbc.sql(SUMMARY + " WHERE c.id = :id")
