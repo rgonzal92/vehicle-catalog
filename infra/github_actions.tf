@@ -162,6 +162,13 @@ resource "aws_iam_role_policy" "plan" {
         Resource = [aws_sqs_queue.jobs.arn, aws_sqs_queue.jobs_failed.arn]
       },
       {
+        # How the alarms' topic and its subscription are set up. Nothing is published to it.
+        Sid      = "ReadTheAlarmsTopic"
+        Effect   = "Allow"
+        Action   = ["sns:GetSubscriptionAttributes", "sns:GetTopicAttributes", "sns:ListTagsForResource"]
+        Resource = [aws_sns_topic.alarms.arn]
+      },
+      {
         Sid      = "ReadTheState"
         Effect   = "Allow"
         Action   = ["s3:GetObject"]

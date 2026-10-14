@@ -139,11 +139,66 @@ run "a_backend_that_is_not_ready_or_says_nothing_sets_off_the_alarm" {
   }
 
   assert {
+    # Three minutes is what the settings give for an API that runs and says it is not ready. An
+    # API that stopped was seen once to set the alarm off about eight minutes later.
     condition = (
       one(aws_cloudwatch_metric_alarm.backend_health.metric_query).period == 60
       && aws_cloudwatch_metric_alarm.backend_health.evaluation_periods == 3
     )
-    error_message = "The alarm waits three minutes, which is longer than a release ordinarily stops the backend for."
+    error_message = "The alarm looks at three minutes, which is longer than a release ordinarily stops the API for."
+  }
+
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.backend_health.alarm_actions == toset([aws_sns_topic.alarms.arn])
+      && aws_cloudwatch_metric_alarm.backend_health.ok_actions == toset([aws_sns_topic.alarms.arn])
+      && aws_cloudwatch_metric_alarm.backend_health.insufficient_data_actions == null
+    )
+    error_message = "The alarm tells the topic when it goes off and when it clears, and nothing for want of data."
+  }
+}
+
+run "the_alarms_email_the_maintainer" {
+  assert {
+    condition     = aws_sns_topic.alarms.name == "vehicle-catalog-alarms" && aws_sns_topic.alarms.kms_master_key_id == null
+    error_message = "The alarms tell one topic, which has no key of its own."
+  }
+
+  assert {
+    # Terraform cannot list the resources of one type, so the subscriptions are counted in the
+    # text of the Terraform files, as the alarms are below.
+    condition = (
+      aws_sns_topic_subscription.alarms_email.topic_arn == aws_sns_topic.alarms.arn
+      && aws_sns_topic_subscription.alarms_email.protocol == "email"
+      && aws_sns_topic_subscription.alarms_email.endpoint == var.budget_notification_email
+      && sum([
+        for name in fileset(".", "*.tf") : length(regexall("\nresource \"aws_sns_topic_subscription\" ", file(name)))
+      ]) == 1
+    )
+    error_message = "The topic's only subscription is by email, to the address the budget alert goes to: one address is told, and nothing else."
+  }
+}
+
+run "the_pipeline_plans_with_the_topic_in_place" {
+  assert {
+    condition = one([
+      for statement in jsondecode(aws_iam_role_policy.plan.policy).Statement : statement
+      if statement.Sid == "ReadTheAlarmsTopic"
+      ]) == {
+      Sid      = "ReadTheAlarmsTopic"
+      Effect   = "Allow"
+      Action   = ["sns:GetSubscriptionAttributes", "sns:GetTopicAttributes", "sns:ListTagsForResource"]
+      Resource = [aws_sns_topic.alarms.arn]
+    }
+    error_message = "The plan role reads how the topic and its subscription are set up, which a plan compares them with, and publishes nothing."
+  }
+
+  assert {
+    condition = length([
+      for statement in jsondecode(aws_iam_role_policy.plan.policy).Statement : statement
+      if anytrue([for action in statement.Action : startswith(action, "sns:")]) && statement.Sid != "ReadTheAlarmsTopic"
+    ]) == 0
+    error_message = "The plan role does nothing else with a topic."
   }
 }
 

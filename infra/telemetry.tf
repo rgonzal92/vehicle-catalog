@@ -105,16 +105,38 @@ resource "aws_iam_role_policy" "host_report" {
   })
 }
 
-# Goes off when the backend has said for three minutes that it is not ready, and when it has said
-# nothing in that time, as a backend that is stopped does. A release ordinarily stops it for less
-# than that; one whose backend is slow to start sets the alarm off until it is ready.
+# What the three alarms tell when they go off and when they clear: a topic of Amazon SNS, with one
+# subscription, by email, to the address the budget alert goes to. The topic has no access policy
+# of its own and no key: SNS gives it the policy it gives every topic, which lets this account's
+# alarms publish to it. An email carries the alarm's name and its description, so each description
+# says what the alarm notices, the first thing to do, and how it clears. The address confirms its
+# subscription with a click before anything is sent to it; Terraform does not wait for the click.
+resource "aws_sns_topic" "alarms" {
+  name = "vehicle-catalog-alarms"
+}
+
+resource "aws_sns_topic_subscription" "alarms_email" {
+  topic_arn = aws_sns_topic.alarms.arn
+  protocol  = "email"
+  endpoint  = var.budget_notification_email
+}
+
+# Goes off when the API has not said it is ready. By its settings that is three minutes of an API
+# that runs and says it is not ready, which has not been seen; an API that stopped was seen once,
+# on 2026-10-08, to set it off about eight minutes later, and it cleared three and a half minutes
+# after the API was ready again. A minute in which nothing arrived counts as not ready, so an agent
+# that is stopped on the host looks the same as a stopped API. A release ordinarily stops the API
+# for less than that. The worker sends no health, so the alarm says nothing of it.
 #
 # The agent tells each of the backend's metrics apart by four labels of its own making besides, and
 # one of them is the version of the library that sent the metric. So the alarm asks for the metric
 # by its name, whatever labels it carries, and goes on finding it when that library is updated.
 resource "aws_cloudwatch_metric_alarm" "backend_health" {
   alarm_name        = "vehicle-catalog-backend-health"
-  alarm_description = "The backend has not been ready for three minutes, or has reported nothing in that time."
+  alarm_description = "The API has not said it is ready. It goes off about eight minutes after the API stops, as seen once on 2026-10-08, and by its settings three minutes after an API that runs starts saying it is not ready, which has not been seen. A CloudWatch agent that is stopped on the host looks the same, since a minute with no report counts as not ready. It says nothing of the worker. First, ask https://catalog.rgonz.dev/api/health/readiness in a browser: 200 means the API is up and its reports are not arriving, so look at the agent on the host, unless the API has just come back, after a release or a restart by Docker, and the email that it cleared follows; anything else means the API, so look at its log and at the stack on the host. It clears by itself some minutes after the API is ready again, three and a half in the one trial. infra/README.md has the commands under this alarm's name."
+
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
 
   evaluation_periods  = 3
   comparison_operator = "LessThanThreshold"

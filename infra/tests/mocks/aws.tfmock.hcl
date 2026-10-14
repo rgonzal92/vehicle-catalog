@@ -33,3 +33,10 @@ mock_resource "aws_cognito_user_pool" {
     endpoint = "cognito-idp.us-east-1.amazonaws.com/us-east-1_Example01"
   }
 }
+
+# An alarm's actions and a subscription's topic are checked for the form of an ARN.
+mock_resource "aws_sns_topic" {
+  defaults = {
+    arn = "arn:aws:sns:us-east-1:123456789012:vehicle-catalog-alarms"
+  }
+}
