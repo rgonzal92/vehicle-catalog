@@ -188,10 +188,10 @@ aws ssm send-command --document-name vehicle-catalog-release \
 ```
 
 What visitors get while a release replaces the API is watched from outside with
-`deploy/test/release-watch.sh`, started before the merge and stopped with Ctrl-C once the Deploy has
-ended. Once a second it asks the site for `/api/health/readiness` and for `/api/me`, writes each
-answer to a file as it comes, and when it is stopped prints the counts by status and every stretch
-in which the API did not answer:
+`deploy/test/release-watch.sh`, started before the merge and stopped with Ctrl-C a few minutes after
+the Deploy has ended. Once a second it asks the site for `/api/health/readiness` and for `/api/me`,
+writes each answer to a file as it comes, and when it is stopped prints the counts by status and
+every stretch in which the API did not answer:
 
 ```sh
 deploy/test/release-watch.sh https://catalog.rgonz.dev

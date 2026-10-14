@@ -93,7 +93,7 @@ echo "Watching $site: one line a request in $file. Ctrl-C stops it and prints th
 while [ -z "$stopped" ]; do
   ask /api/health/readiness &
   ask /api/me &
-  sleep 1
+  sleep 1 || true
 done
 wait
 summary
