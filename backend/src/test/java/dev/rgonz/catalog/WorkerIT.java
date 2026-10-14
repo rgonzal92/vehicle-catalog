@@ -17,6 +17,8 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.availability.AvailabilityChangeEvent;
+import org.springframework.boot.availability.ReadinessState;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.ApplicationContext;
@@ -121,7 +123,7 @@ class WorkerIT extends ApplicationIT {
               });
       assertThat(meters.getMeters().stream().map(Meter::getId).map(Meter.Id::getName).distinct())
           .as("what the API reports of itself is not among it")
-          .containsExactly("job.run");
+          .containsExactlyInAnyOrder("job.run", "worker.health");
       assertThat(meters.find("job.run").meters())
           .allSatisfy(
               meter ->
@@ -130,6 +132,18 @@ class WorkerIT extends ApplicationIT {
                       .containsExactly("outcome", "type"));
     } finally {
       Worker.forgets(application);
+    }
+  }
+
+  @Test
+  void workerHealthIsOneWhileTheWorkerIsReadyAndZeroWhileItIsNot() {
+    assertThat(meters.get("worker.health").gauge().value()).isEqualTo(1);
+
+    AvailabilityChangeEvent.publish(application, ReadinessState.REFUSING_TRAFFIC);
+    try {
+      assertThat(meters.get("worker.health").gauge().value()).isZero();
+    } finally {
+      AvailabilityChangeEvent.publish(application, ReadinessState.ACCEPTING_TRAFFIC);
     }
   }
 

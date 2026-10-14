@@ -246,7 +246,7 @@ run "the_host_runs_the_worker_beside_the_api" {
         ":${split(":", local.agent.traces.traces_collected.otlp.http_endpoint)[1]}/v1/traces",
       )
     )
-    error_message = "The worker sends its metric and its traces to the ports the agent takes each on."
+    error_message = "The worker sends its metrics and its traces to the ports the agent takes each on."
   }
 
   assert {

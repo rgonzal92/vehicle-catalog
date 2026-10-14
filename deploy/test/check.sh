@@ -371,8 +371,9 @@ for _ in $(seq 1 30); do
 done
 expect "the agent is sent the steps of a job's read of a catalog, each in the job's trace and under a span of it" \
   "catalog.issues catalog.library catalog.read" "$(steps_of_a_job)"
-# The worker times a job, and sends how long it took where the API sends its metrics. That is the
-# one metric the worker sends, so with this job's time sent the agent has been sent all there are.
+# The worker times a job, and sends how long it took where the API sends its metrics, with whether
+# it is ready. Nothing has asked the model, so with this job's time sent the agent has been sent all
+# the metrics there are.
 its_time='-> type: Str(AFTER_APPROVAL)'
 for _ in $(seq 1 30); do
   said="$(reported)"
@@ -382,8 +383,8 @@ done
 expect "the agent is sent how long the job took, told apart by its type and by how it ended" \
   "outcome: Str(SUCCESS) type: Str(AFTER_APPROVAL)" \
   "$(grep -B 1 -F -- "$its_time" <<<"$said" | sed -n 's/^ *-> //p' | sort -u | paste -sd ' ')"
-expect "the agent is sent twelve metrics and no other: the API's eleven, and how long a job took" \
-  "cache.read catalog.approved catalog.copy catalog.edit catalog.merged catalog.rejected catalog.submit.refused catalog.validate health http.server.requests job.run jvm.heap.used" \
+expect "the agent is sent thirteen metrics and no other: the API's eleven, how long a job took, and whether the worker is ready" \
+  "cache.read catalog.approved catalog.copy catalog.edit catalog.merged catalog.rejected catalog.submit.refused catalog.validate health http.server.requests job.run jvm.heap.used worker.health" \
   "$(sed -n 's/^ *-> Name: //p' <<<"$said" | sort -u | paste -sd ' ')"
 asks_the_worker() { # the path
   docker compose exec -T worker wget --quiet --spider "http://127.0.0.1:8080$1"
@@ -430,6 +431,9 @@ done
 # A backup, and what is in it put back into a database of its own.
 export BACKUPS="$work/backups"
 mkdir "$BACKUPS"
+# Where the stand-in writes down each size a backup reports.
+export REPORTED="$work/reported"
+touch "$REPORTED"
 backs_up() { # what, how it should end, the bucket
   local ended=0
   ./backup.sh "$3" >"$work/backup.log" 2>&1 || ended=$?
@@ -438,6 +442,9 @@ backs_up() { # what, how it should end, the bucket
 backs_up "the database is backed up" 0 a-bucket
 expect "as one file, named by when it was made" 1 \
   "$(find "$BACKUPS" -name 'catalog-20??-??-??T????Z.dump' | wc -l)"
+expect "and reports its size once, under the app's namespace, in the bytes of the file it sent" \
+  "--namespace $(jq --raw-output .metrics.namespace agent.json) --metric-name backup.size --value $(stat --format %s "$(find "$BACKUPS" -name '*.dump')")" \
+  "$(cat "$REPORTED")"
 quietly docker compose exec -T db createdb --username catalog put-back
 quietly docker compose exec -T db pg_restore --username catalog --dbname put-back --no-owner \
   <"$(find "$BACKUPS" -name '*.dump')"
@@ -447,6 +454,14 @@ expect "a backup put back holds what the database held" 7 \
 backs_up "a backup that cannot be sent ends in failure" 1 a-bucket-that-refuses
 expect "and says that it failed" yes \
   "$(whether grep -qx 'The database was not backed up.' "$work/backup.log")"
+expect "and reports no size" 1 "$(wc -l <"$REPORTED")"
+rm "$BACKUPS"/*.dump
+export REFUSES_METRICS=yes
+backs_up "a backup whose size cannot be reported ends without failure" 0 a-bucket
+unset REFUSES_METRICS
+expect "and is kept, and says that its size was not reported and not that it failed" "1 yes no" \
+  "$(find "$BACKUPS" -name '*.dump' | wc -l) $(whether grep -q ' was not reported\.$' "$work/backup.log") $(
+    whether grep -qx 'The database was not backed up.' "$work/backup.log")"
 
 issued="$(certificate -serial)"
 releases "another image is released after those" 0 "$registry/backend:another"

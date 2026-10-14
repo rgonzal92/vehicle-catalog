@@ -70,3 +70,18 @@ run "the_host_backs_the_database_up_before_the_demo_reset" {
     error_message = "The backup is made half an hour before the demo reset, so it holds the day's work."
   }
 }
+
+run "each_backup_reports_its_size_where_the_host_may_publish" {
+  assert {
+    # The host's role publishes under the namespace the agent's file names and under no other, so
+    # a size reported under another name would be refused.
+    condition = (
+      regex("aws cloudwatch put-metric-data --namespace ([^ ]+) --metric-name backup\\.size --value ", file("../deploy/backup.sh"))[0] == jsondecode(file("../deploy/agent.json")).metrics.namespace
+      && one([
+        for statement in jsondecode(aws_iam_role_policy.host_report.policy).Statement : statement
+        if contains(flatten([statement.Action]), "cloudwatch:PutMetricData")
+      ]).Condition == { StringEquals = { "cloudwatch:namespace" = jsondecode(file("../deploy/agent.json")).metrics.namespace } }
+    )
+    error_message = "The backup script reports a backup's size under the namespace the agent's file names, which is the one the host may publish under."
+  }
+}
