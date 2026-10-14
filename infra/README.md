@@ -583,24 +583,77 @@ It all goes to Amazon CloudWatch.
   making, and the CloudWatch console shows them under Application Signals, Transaction Search.
   Every request is traced but the health checks.
 
+  A trace holds the request's span and, under it, a span for each step inside the request, named
+  after the step and carrying the id of the catalog it is about as `catalog.id`:
+
+  | Step | What it covers |
+  | --- | --- |
+  | `catalog.read` | reading the catalog's own row and its contents, from the cache or the database |
+  | `catalog.library` | reading what validation needs of the library: the retired features, the inactive trims and regions, and the global rules |
+  | `catalog.issues` | working out the catalog's issues |
+  | `catalog.save` | saving an edit, from the lock on the catalog's row through the commit; a refused save leaves its span marked as failed |
+  | `catalog.contents.copy` | copying a catalog's contents into a new working copy; its `catalog.id` is the catalog copied from |
+
+  Opening a catalog has the first three, a save has `catalog.save` and then those three for its
+  answer, a new working copy has `catalog.contents.copy`, and a person's list of working copies has
+  the first three for each copy in it. Beside the steps are the spans their libraries leave: the
+  cache's commands, named `Redis`, and the language model's requests. The steps leave no metric:
+  `catalog.validate`, `catalog.edit`, and `catalog.copy` stay the three timers below, and no step's
+  name is in the lists of `Telemetry.java`, since an observation's timer, told apart by `error`,
+  would be a metric more.
+
   A request and the job it causes are one trace: the job's span has the request's span as its
   parent, and the line the API writes for the request and the line the worker writes for the job
-  carry the same `traceId`. With a trace's id from either line, this lists its spans, and the
-  second command the lines of the worker that belong to it:
+  carry the same `traceId`. A job that reads a catalog has the steps under its span as a request
+  has. The demo reset at 03:00 UTC is a trace of its own, named `task demoReset.run`, with the jobs
+  it queues under its span, and the steps of the catalog it seeds for review, which no request
+  asked for, under that span too. The question the API and the worker put to the cache every ten
+  seconds leaves no span, and neither do the worker's loops. With a trace's id from either line,
+  this lists its spans, each with its parent, when it began counted from the trace's first span,
+  and how long it took, both in milliseconds, and the second command the lines of the worker that
+  belong to it:
 
   ```sh
   aws logs filter-log-events --log-group-name aws/spans \
     --filter-pattern '{ $.traceId = "<the trace id>" }' \
-    --query 'events[].message' --output text | jq '{name, spanId, parentSpanId}'
+    --query 'events[].message' --output text |
+    jq -s '(map(.startTimeUnixNano) | min) as $first | sort_by(.startTimeUnixNano)[]
+      | {name, parentSpanId, startMs: ((.startTimeUnixNano - $first) / 1e6),
+         lengthMs: (.durationNano / 1e6)}'
   aws logs filter-log-events --log-group-name /vehicle-catalog/backend \
     --log-stream-names worker --filter-pattern '{ $.traceId = "<the trace id>" }' \
     --query 'events[].message' --output text | jq .message
   ```
+
+  **What a span costs**, by AWS's CloudWatch price page and its price list for US East
+  (N. Virginia), read on 2026-10-14 at 00:45 UTC: $0.35 for each GB of spans taken in, for the
+  first 10 TB of a month, with the indexing of 1% of them in it, and $0.75 for each million spans
+  indexed beyond that. The page says that spans taken in as logs are not charged as log ingestion,
+  and that an account's first three months have 100 GB of spans and a million indexed spans free.
+  X-Ray's own prices, which the page gives beside these, are $0.000005 for each trace recorded,
+  with the first 100,000 of a month free, and $0.0000005 for each trace retrieved or scanned, with
+  the first 1,000,000 free. Reading `aws/spans` with a Logs Insights query is charged as the chart
+  of starts is, $0.005 a GB scanned, and the whole group was 19 MB on 2026-10-14; the page gives no
+  price for `filter-log-events`.
+
+  On 2026-10-13, a whole UTC day before the steps were added, `aws/spans` took in 17,551 spans of
+  965 to 1,124 bytes each, 18,409,180 bytes in all, counted by a Logs Insights query over the day.
+  17,195 of them were the question to the cache every ten seconds, which has left no span since;
+  168 were requests, 159 the cache's commands, 10 jobs, 9 the language model's requests and the 9
+  HTTP calls they made, and 1 the demo reset. One more span of that size, 1,049 bytes, costs about
+  $0.00000034 at the price by the GB, with a GB taken as 1,073,741,824 bytes, a million such spans
+  about $0.34, and nothing at X-Ray's price for a trace when it joins a trace that exists. The steps
+  add three spans to a catalog that is opened, four to a save, one to a new working copy, sixty to a
+  list of twenty working copies, three to a job that checks an Approved version, and about
+  twenty-three to a demo reset.
 - **Its metrics** go to the same agent, which publishes them under the namespace
   `vehicle-catalog` together with two of the host's own. The dashboard `vehicle-catalog` shows
-  them. The API sends the first eleven of these and the five of the language model. The worker sends
-  `job.run` and, of the model's, `ai.call`, `ai.tokens`, and `ai.refused`: it calls no tools, and
-  the API says what the day has cost.
+  them, in groups under headings in the order a fault is looked for: the alarms' states, whether
+  the API is up, requests, catalogs, jobs and queues, the language model, the cache, the host.
+  `docs/dashboard-and-alarms.md` has the order, each chart's unit, and a picture of each chart of
+  metrics before this order and after it. The API sends the first eleven of these and the five of
+  the language model. The worker sends `job.run` and, of the model's, `ai.call`, `ai.tokens`, and
+  `ai.refused`: it calls no tools, and the API says what the day has cost.
 
 | Metric | What it says | Told apart by |
 | --- | --- | --- |
@@ -654,13 +707,14 @@ aws cloudwatch describe-alarms --alarm-names vehicle-catalog-backend-health \
 ```
 
 An API that ends once and is started again is back well within those three minutes, and the worker
-sends no `health` at all, so the alarm says nothing of either. The dashboard's last chart does: it
-counts by the hour how often the API and the worker have each started, over the time the dashboard
-shows. A release is a start of each, and so is a process that ended and that Docker started again,
-which Java brings about when the heap is full (`docs/adr/0018`). Nothing is sent for it. Each
-start writes `Started VehicleCatalogApplication in … seconds` to the log, under the stream
-`backend` or `worker`, and the chart is a query that counts those lines. A process that ends
-before it has started writes no such line and is not counted.
+sends no `health` at all, so the alarm says nothing of either. The dashboard's chart of starts,
+beside the one of readiness at the top of the page, does: it counts by the hour how often the API
+and the worker have each started, over the time the dashboard shows. A release is a start of each,
+and so is a process that ended and that Docker started again, which Java brings about when the
+heap is full (`docs/adr/0018`). Nothing is sent for it. Each start writes
+`Started VehicleCatalogApplication in … seconds` to the log, under the stream `backend` or
+`worker`, and the chart is a query that counts those lines. A process that ends before it has
+started writes no such line and is not counted.
 
 CloudWatch charges such a query by the log it reads, $0.005 a GB, each time the chart is drawn.
 After its first four days the whole log was 3 MB to read, which comes to about $0.000015.

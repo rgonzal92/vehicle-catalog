@@ -6,6 +6,7 @@ import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
 import dev.rgonz.catalog.core.ApiException;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.observation.ObservationRegistry;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -55,16 +56,19 @@ class CatalogEdits {
   private final JdbcClient jdbc;
   private final TransactionTemplate transactions;
   private final CatalogRules rules;
+  private final ObservationRegistry observations;
   private final Timer editTime;
 
   CatalogEdits(
       JdbcClient jdbc,
       TransactionTemplate transactions,
       CatalogRules rules,
+      ObservationRegistry observations,
       MeterRegistry metrics) {
     this.jdbc = jdbc;
     this.rules = rules;
     this.transactions = transactions;
+    this.observations = observations;
     this.editTime =
         Timer.builder("catalog.edit")
             .description("How long saving an edit of a working copy takes")
@@ -733,7 +737,8 @@ class CatalogEdits {
    * check to the commit. The checks come in one order for every edit: that the catalog is the
    * caller's, that it is in status Draft, that the edit names the revision the catalog is at, and
    * only then whatever the change itself asks. So no refusal tells anybody anything about a catalog
-   * that is not theirs. A refused edit changes nothing.
+   * that is not theirs. A refused edit changes nothing. From the lock through the commit the save
+   * is one step of the request's trace, which a refusal leaves marked as failed.
    *
    * @param change makes the change and says whether it changed anything
    *     <p>The time is taken through the commit, and only of an edit that is saved.
@@ -741,23 +746,26 @@ class CatalogEdits {
   private long edit(long catalogId, long actorId, String ifMatch, BooleanSupplier change) {
     var started = System.nanoTime();
     var revision =
-        transactions.execute(
-            transaction -> {
-              var catalog = lockToEdit(catalogId, actorId, ifMatch);
-              if (!change.getAsBoolean()) {
-                return catalog.revision();
-              }
+        Catalogs.step(observations, "catalog.save", catalogId)
+            .observe(
+                () ->
+                    transactions.execute(
+                        transaction -> {
+                          var catalog = lockToEdit(catalogId, actorId, ifMatch);
+                          if (!change.getAsBoolean()) {
+                            return catalog.revision();
+                          }
 
-              return jdbc.sql(
-                      """
-                      UPDATE catalog SET revision = revision + 1, updated_at = now()
-                      WHERE id = :id
-                      RETURNING revision
-                      """)
-                  .param("id", catalogId)
-                  .query(Long.class)
-                  .single();
-            });
+                          return jdbc.sql(
+                                  """
+                                  UPDATE catalog SET revision = revision + 1, updated_at = now()
+                                  WHERE id = :id
+                                  RETURNING revision
+                                  """)
+                              .param("id", catalogId)
+                              .query(Long.class)
+                              .single();
+                        }));
     editTime.record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
 
     return revision;

@@ -46,10 +46,15 @@ jobs:
           aws-region: us-east-1
           mask-aws-account-id: true
       - name: Plan
-        # Without the lock: the role cannot write the lock file, and a plan changes nothing.
+        # Without the lock: the role cannot write the lock file, and a plan changes nothing. The
+        # host's instance id stays out of the log, as the account's number does: a plan that
+        # changes the dashboard shows it, so it is found by its shape, i- and 17 hexadecimal
+        # digits as a word of their own, which leaves an AMI's id whole. The step fails as the
+        # plan fails, through the mask.
         run: |
+          set -o pipefail
           terraform init -input=false
-          terraform plan -input=false -lock=false -out=plan.tfplan
+          terraform plan -input=false -lock=false -out=plan.tfplan 2>&1 | sed -E 's/\bi-[0-9a-f]{17}\b/***/g'
         env:
           TF_VAR_budget_notification_email: ${{ secrets.BUDGET_NOTIFICATION_EMAIL }}
       - name: Show the plan on the pull request
@@ -62,9 +67,11 @@ jobs:
           else
             echo 'No plan was made. The log of this run says why.' > "$RUNNER_TEMP/plan.txt"
           fi
-          # The AWS account's number stays out of the comment, as it stays out of the log.
+          # The AWS account's number and the host's instance id stay out of the comment, as they
+          # stay out of the log.
           account="$(echo "$PLAN_ROLE" | cut -d: -f5)"
           [ -z "$account" ] || sed -i "s/$account/***/g" "$RUNNER_TEMP/plan.txt"
+          sed -i -E 's/\bi-[0-9a-f]{17}\b/***/g' "$RUNNER_TEMP/plan.txt"
           {
             echo '### Terraform plan'
             echo

@@ -46,7 +46,14 @@ class Telemetry {
             && isHealthCheck(request.getCarrier()));
   }
 
-  /** What the API reports of itself. */
+  /**
+   * What the API reports of itself. A step inside a request or a job ({@code catalog.read}, {@code
+   * catalog.library}, {@code catalog.issues}, {@code catalog.save}, {@code catalog.contents.copy})
+   * is never named here or in the worker's list: a step is an observation, and Micrometer makes a
+   * timer under an observation's name, told apart by {@code error}, which under one of these names
+   * would be a metric more, drawn on the dashboard as a second line. So a step leaves its span and
+   * no metric.
+   */
   private static final Set<String> OF_THE_API =
       Set.of(
           "health",
