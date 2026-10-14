@@ -56,7 +56,7 @@ The 52.5 ms the steps leave over, split by the steps' starts and lengths:
 
 | | ms |
 |---|---|
-| Between one working copy's steps and the next's, where one transaction ends and the next begins: 19 gaps | 23.2, of 1.0 to 1.6 each |
+| Between one working copy's steps and the next's, where one transaction ends and the next begins: 19 gaps | 23.2, of 1.1 to 1.6 each |
 | Within one working copy's three steps: 40 gaps | 2.3, of 0.05 to 0.1 each |
 | Before the first step, which the request does once | 21.8 |
 | After the last step, which the request does once | 5.1 |
@@ -151,7 +151,7 @@ The machine's column is of the browser tests' stack, started with `npm run stack
 
 - **A fault nobody knew of.** The trace has the three steps of each read and the request's span, and all of the time but about 27 ms lies in them or between them.
 - **The statements inside a read.** No step times a single statement, so which of the seven statements of `catalog.read` takes its 9 to 16 ms, or how the three of `catalog.library` share their 7, is not known.
-- **What lies before the first step,** 21.8 ms, and in each gap between two copies, 1.0 to 1.6 ms. No step covers the session's reading, the caller's lookup, the list's own statement, or a transaction's beginning and end.
+- **What lies before the first step,** 21.8 ms, and in each gap between two copies, 1.1 to 1.6 ms. No step covers the session's reading, the caller's lookup, the list's own statement, or a transaction's beginning and end.
 - **Many people at once,** and what the list does to other requests while it holds a thread and a connection for half a second.
 - **A list of twenty of the largest catalog there can be.**
 - **A warm API.** The one measured had started 1 minute 55 seconds before.
