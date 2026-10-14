@@ -197,8 +197,8 @@ run "every_metric_that_is_sent_is_looked_at" {
       for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
       widget.properties.annotations.horizontal[0].value
       if strcontains(jsonencode(try(widget.properties.metrics, [])), "MetricName=\\\"ai.spent\\\"")
-    ]) == 1
-    error_message = "What the model has cost today is drawn against the day's allowance of a dollar."
+    ]) == tonumber(regex("\napp\\.ai\\.allowance\\.daily=([0-9.]+)\n", file("../backend/src/main/resources/application.properties"))[0])
+    error_message = "What the model has cost today is drawn against the day's allowance, as the backend's own setting has it."
   }
 
   assert {
@@ -232,6 +232,169 @@ run "every_metric_that_is_sent_is_looked_at" {
       for name, settings in local.agent.metrics.metrics_collected : name if name != "otlp"
     ] == ["disk", "mem"]
     error_message = "Of the host, the agent reports on memory and disk and on nothing else."
+  }
+}
+
+run "every_chart_says_what_it_measures_and_stands_where_a_fault_is_looked_for" {
+  assert {
+    # No two charts overlap, and none reaches beyond the page's 24 columns.
+    condition = (
+      alltrue(flatten([
+        for i, a in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets : [
+          for j, b in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+          i == j || a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y
+        ]
+      ]))
+      && alltrue([
+        for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+        widget.x >= 0 && widget.y >= 0 && widget.width > 0 && widget.height > 0 && widget.x + widget.width <= 24
+      ])
+    )
+    error_message = "No two charts of the dashboard overlap, and none reaches beyond the page's 24 columns."
+  }
+
+  assert {
+    # Read by row and then by column. A chart of metrics is known by the first metric it asks for
+    # and the statistic it asks for, a heading by its words, and the starts chart by its type.
+    condition = [
+      for key in sort([
+        for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets : format("%03d-%03d", widget.y, widget.x)
+      ]) :
+      one([
+        for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+        (
+          widget.type == "alarm" ? "the alarms" :
+          widget.type == "text" ? widget.properties.markdown :
+          widget.type == "log" ? "the starts" :
+          try(
+            join(" ", regex("MetricName=\"([^\"]+)\"[^']*', '([^']+)'", widget.properties.metrics[0][0].expression)),
+            widget.properties.metrics[0][1],
+          )
+        )
+        if format("%03d-%03d", widget.y, widget.x) == key
+      ])
+      ] == [
+      "the alarms",
+      "## Is the API up",
+      "health Minimum",
+      "the starts",
+      "## Requests",
+      "http.server.requests SampleCount",
+      "http.server.requests p50",
+      "## Catalogs",
+      "catalog.edit Average",
+      "catalog.validate Average",
+      "catalog.approved Sum",
+      "catalog.submit.refused Sum",
+      "## Jobs and queues",
+      "job.run SampleCount",
+      "job.run Average",
+      "ApproximateNumberOfMessagesVisible",
+      "ApproximateAgeOfOldestMessage",
+      "## The language model",
+      "ai.call SampleCount",
+      "ai.call Average",
+      "ai.tokens Sum",
+      "ai.tool.calls Sum",
+      "ai.spent Maximum",
+      "## The cache",
+      "cache.read Sum",
+      "cache.read Sum",
+      "## The host",
+      "mem_used_percent",
+      "CPUUtilization",
+      "jvm.heap.used Average",
+    ]
+    error_message = "The page reads in the order a fault is looked for: the alarms, then whether the API is up, requests, catalogs, jobs and queues, the language model, the cache, and the host, each group under a heading of its own."
+  }
+
+  assert {
+    # An axis with a label alone says the label and then "No unit" beside it.
+    condition = (
+      alltrue([
+        for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+        try(widget.properties.yAxis.left.label != "" && widget.properties.yAxis.left.showUnits == false, false)
+        if widget.type == "metric"
+      ])
+      && one([
+        for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+        try(widget.properties.yAxis.right.label != "" && widget.properties.yAxis.right.showUnits == false, false)
+        if strcontains(jsonencode(try(widget.properties.metrics, [])), "CPUCreditBalance")
+      ])
+    )
+    error_message = "Every chart of metrics names its left axis after its unit, and the host's processor its right one too, in place of what CloudWatch would say there."
+  }
+
+  assert {
+    # A line that is drawn has a label of its own: a line found by a search that is not drawn
+    # needs none. The host's four lines name the machine by its id, and the id stays out of the
+    # words on the page.
+    condition = (
+      alltrue(flatten([
+        for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets : [
+          for line in widget.properties.metrics :
+          can(line[0].expression)
+          ? try(line[0].visible, true) == false || try(line[0].label, "") != ""
+          : try(line[length(line) - 1].label, "") != ""
+        ] if widget.type == "metric"
+      ]))
+      && length(regexall("\\bi-[0-9a-f]{17}\\b", jsonencode([
+        for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets : [
+          try(widget.properties.title, ""),
+          [for line in try(widget.properties.metrics, []) : try(line[0].label, try(line[length(line) - 1].label, ""))],
+        ]
+      ]))) == 0
+    )
+    error_message = "Every line that is drawn has a label of its own, and no title or label holds the instance's id."
+  }
+
+  assert {
+    # Each limit is drawn as it is set: the seconds at which the alarm on the jobs' queue goes
+    # off, the most the API's heap may grow to on the host, and the day's allowance for the model.
+    condition = (
+      one([
+        for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+        widget.properties.annotations.horizontal[0].value
+        if strcontains(jsonencode(try(widget.properties.metrics, [])), "ApproximateAgeOfOldestMessage")
+      ]) == aws_cloudwatch_metric_alarm.jobs_waiting.threshold
+      && one([
+        for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+        widget.properties.annotations.horizontal[0].value
+        if strcontains(jsonencode(try(widget.properties.metrics, [])), "MetricName=\\\"jvm.heap.used\\\"")
+      ]) == tonumber(regex("(?s)\n  backend:.*?JAVA_TOOL_OPTIONS: -XX:MaxHeapSize=([0-9]+)m ", file("../deploy/compose.yaml"))[0])
+      && one([
+        for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+        widget.properties.annotations.horizontal[0].value
+        if strcontains(jsonencode(try(widget.properties.metrics, [])), "MetricName=\\\"ai.spent\\\"")
+      ]) == tonumber(regex("\napp\\.ai\\.allowance\\.daily=([0-9.]+)\n", file("../backend/src/main/resources/application.properties"))[0])
+    )
+    error_message = "A line is drawn at each limit as it is set: the alarm's threshold on the oldest message, the API's heap in deploy/compose.yaml in MiB, and the day's allowance in application.properties."
+  }
+
+  assert {
+    # Terraform cannot list the resources of one type, so the alarms are counted in the text of
+    # the Terraform files. An alarm made with count or for_each would be one block for several
+    # alarms; none is made so.
+    condition = (
+      length(distinct(try(one([
+        for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+        widget.properties.alarms if widget.type == "alarm"
+        ]), []))) == sum([
+        for name in fileset(".", "*.tf") : length(regexall("\nresource \"aws_cloudwatch_metric_alarm\" ", file(name)))
+      ])
+      && alltrue([
+        for arn in [
+          aws_cloudwatch_metric_alarm.backend_health.arn,
+          aws_cloudwatch_metric_alarm.jobs_failed.arn,
+          aws_cloudwatch_metric_alarm.jobs_waiting.arn,
+        ] :
+        contains(try(one([
+          for widget in jsondecode(aws_cloudwatch_dashboard.backend.dashboard_body).widgets :
+          widget.properties.alarms if widget.type == "alarm"
+        ]), []), arn)
+      ])
+    )
+    error_message = "The alarms' row shows the state of every alarm the Terraform makes, each once, by the ARN of its resource."
   }
 }
 
