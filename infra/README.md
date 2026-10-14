@@ -465,6 +465,7 @@ afterwards.
 ```sh
 terraform plan -var restore_machine=true -out=/tmp/restore.plan
 terraform apply /tmp/restore.plan
+rm /tmp/restore.plan
 ```
 
 The machine's own resources, which the plan that removes it names and no other:
@@ -523,7 +524,8 @@ curl --silent --header "Cookie: __Host-SESSION=$(docker exec restore-<the backup
 
 Before anything is fetched, the guard against a forgotten machine is looked at: on the machine,
 `cat /run/systemd/shutdown/scheduled` shows the shutdown that is set and its time, and
-`aws ec2 describe-instance-attribute --attribute instanceInitiatedShutdownBehavior` gives
+`aws ec2 describe-instance-attribute --instance-id "$machine" --attribute instanceInitiatedShutdownBehavior`
+gives
 `terminate`.
 
 When the restore is done, the plan with the switch off is saved and read, and removes the
@@ -532,6 +534,7 @@ resources listed above and nothing else:
 ```sh
 terraform plan -out=/tmp/remove.plan
 terraform apply /tmp/remove.plan
+rm /tmp/remove.plan
 ```
 
 `deploy/test/check.sh` runs the script on its own stack, against a stand-in for the bucket, and
