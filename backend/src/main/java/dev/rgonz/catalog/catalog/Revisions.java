@@ -7,6 +7,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.observation.ObservationRegistry;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.function.IntFunction;
@@ -18,11 +19,12 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Where every change of a working copy is checked, recorded, and numbered. A write locks its
- * catalog's row, checks that the caller may make it, makes it, records the changes it made in the
- * catalog's history, and raises the catalog's revision by one, or leaves it where it was when
- * nothing changed. It answers, in the same transaction, with the issues the catalog then has as the
- * caller may see it.
+ * Where every change of a working copy and every decision about it is checked, recorded, and
+ * numbered. A write locks its catalog's row, checks that the caller may make it, makes it, records
+ * what it did in the catalog's history, and raises the catalog's revision by one, or leaves it
+ * where it was when nothing changed. It answers, in the same transaction, with the issues the
+ * catalog then has as the caller may see it. Nothing else raises a catalog's revision or writes its
+ * history, and a test holds that.
  */
 @Component
 class Revisions {
@@ -133,6 +135,69 @@ class Revisions {
   }
 
   /**
+   * Runs a reviewer's decision on a Submitted catalog that is not theirs, records it, and answers
+   * with where it led, as the reviewer may see the catalog then: an Approved version with its
+   * issues, and a catalog sent back to its owner as a Draft with none, since a Draft is its owner's
+   * alone. The checks come in this order: that the reviewer may know of the catalog and it is not
+   * their own, that it is Submitted, and that the decision names the revision it is at. A decision
+   * is a step of the request's trace as an edit is.
+   *
+   * @param lineageFirst whether the catalog's lineage is locked before the catalog, as an approval
+   *     locks it so that two approvals in one lineage happen one after the other
+   * @param decide makes the decision, once the checks have passed, and answers with it
+   */
+  Outcome decide(
+      long catalogId, long reviewerId, String ifMatch, boolean lineageFirst, Decide decide) {
+    return transactions.execute(
+        transaction ->
+            answer(
+                catalogId,
+                reviewerId,
+                Catalogs.step(observations, "catalog.save", catalogId)
+                    .observe(
+                        () -> {
+                          if (lineageFirst) {
+                            lockLineage(catalogId);
+                          }
+                          var decision = decide.make(lockToDecide(catalogId, reviewerId, ifMatch));
+                          jdbc.sql(
+                                  """
+                                  INSERT INTO catalog_review
+                                      (catalog_id, reviewer_id, decision, comment)
+                                  VALUES (:catalog, :reviewer, :decision, :comment)
+                                  """)
+                              .param("catalog", catalogId)
+                              .param("reviewer", reviewerId)
+                              .param("decision", decision.kind().name())
+                              .param("comment", decision.comment())
+                              .update();
+                          return raise(catalogId);
+                        })));
+  }
+
+  /**
+   * Sends every other Submitted catalog of the lineage back to its owner as a Draft, each with its
+   * revision raised and a record that says it was returned: the approval of the one named has made
+   * them stale. It is part of that approval, in its transaction.
+   */
+  void returnTheOthers(long lineageId, long approvedId) {
+    jdbc.sql(
+            """
+            WITH returned AS (
+                UPDATE catalog
+                SET status = 'DRAFT', revision = revision + 1, updated_at = now()
+                WHERE lineage_id = :lineage AND status = 'SUBMITTED' AND id <> :approved
+                RETURNING id
+            )
+            INSERT INTO catalog_review (catalog_id, decision)
+            SELECT id, 'RETURNED_STALE' FROM returned
+            """)
+        .param("lineage", lineageId)
+        .param("approved", approvedId)
+        .update();
+  }
+
+  /**
    * Deletes the owner's Draft by the removal given, under the checks and in the order of an edit. A
    * deleted catalog has no revision left to raise and nothing to answer with. The deletion is a
    * step of the request's trace as an edit is.
@@ -173,10 +238,7 @@ class Revisions {
    */
   private Locked lockToEdit(long catalogId, long ownerId, String ifMatch) {
     var catalog =
-        jdbc.sql("SELECT owner_id, status, revision FROM catalog WHERE id = :id FOR UPDATE")
-            .param("id", catalogId)
-            .query(Locked.class)
-            .optional()
+        lock(catalogId)
             .filter(found -> found.ownerId() == ownerId)
             .orElseThrow(ApiException::notFound);
     if (catalog.status() != Status.DRAFT) {
@@ -194,10 +256,7 @@ class Revisions {
    */
   private Locked lockToWithdraw(long catalogId, long ownerId) {
     var catalog =
-        jdbc.sql("SELECT owner_id, status, revision FROM catalog WHERE id = :id FOR UPDATE")
-            .param("id", catalogId)
-            .query(Locked.class)
-            .optional()
+        lock(catalogId)
             .filter(found -> found.ownerId() == ownerId)
             .orElseThrow(ApiException::notFound);
     if (catalog.status() != Status.SUBMITTED) {
@@ -205,6 +264,58 @@ class Revisions {
           "NOT_SUBMITTED", "Only a catalog in status Submitted can be withdrawn.");
     }
     return catalog;
+  }
+
+  /**
+   * Locks the catalog's row until the transaction ends and makes sure the reviewer may decide on
+   * the catalog as it is: that they may know of it, that it is not their own, that it is Submitted,
+   * and that the decision names the revision it is at, in that order. A Draft is its owner's alone,
+   * so to a reviewer it is as if it did not exist.
+   */
+  private Locked lockToDecide(long catalogId, long reviewerId, String ifMatch) {
+    var catalog = lock(catalogId).orElseThrow(ApiException::notFound);
+    if (catalog.ownerId() == reviewerId) {
+      throw ApiException.forbidden("SELF_APPROVAL", "Nobody decides on a catalog of their own.");
+    }
+    if (catalog.status() == Status.DRAFT) {
+      throw ApiException.notFound();
+    }
+    if (catalog.status() != Status.SUBMITTED) {
+      throw ApiException.conflict(
+          "NOT_SUBMITTED", "Only a catalog in status Submitted can be approved or rejected.");
+    }
+    if (catalog.revision() != expectedRevision(ifMatch)) {
+      throw ApiException.revisionConflict(catalog.revision());
+    }
+    return catalog;
+  }
+
+  /** Locks the catalog's row until the transaction ends, if there is a catalog of the id. */
+  private Optional<Locked> lock(long catalogId) {
+    return jdbc.sql(
+            """
+            SELECT owner_id, status, revision, base_catalog_id, lineage_id
+            FROM catalog WHERE id = :id FOR UPDATE
+            """)
+        .param("id", catalogId)
+        .query(Locked.class)
+        .optional();
+  }
+
+  /** Locks the row of the catalog's lineage until the transaction ends. */
+  private void lockLineage(long catalogId) {
+    jdbc.sql(
+            """
+            SELECT l.id
+            FROM lineage l
+            JOIN catalog c ON c.lineage_id = l.id
+            WHERE c.id = :id
+            FOR UPDATE OF l
+            """)
+        .param("id", catalogId)
+        .query(Long.class)
+        .optional()
+        .orElseThrow(ApiException::notFound);
   }
 
   /** The revision a write says it was made from. */
@@ -250,6 +361,11 @@ class Revisions {
         .param("news", each(changes, Change::after, String[]::new))
         .update();
 
+    return raise(catalogId);
+  }
+
+  /** Raises the catalog's revision by one and answers with it. */
+  private long raise(long catalogId) {
     return jdbc.sql(
             """
             UPDATE catalog SET revision = revision + 1, updated_at = now()
@@ -297,8 +413,33 @@ class Revisions {
     }
   }
 
-  /** What a write checks of a catalog once it has locked it. */
-  record Locked(long ownerId, Status status, long revision) {}
+  /** What a write checks of a catalog once it has locked it, and what a decision goes on with. */
+  record Locked(long ownerId, Status status, long revision, Long baseCatalogId, long lineageId) {}
+
+  /** A reviewer's decision on a Submitted catalog, which makes it and answers with it. */
+  @FunctionalInterface
+  interface Decide {
+    Decision make(Locked submitted);
+  }
+
+  /**
+   * A reviewer's decision, as the catalog's history keeps it beside its changes, with what the
+   * reviewer said: a rejection says why, and an approval may say nothing.
+   */
+  record Decision(Kind kind, String comment) {
+    enum Kind {
+      APPROVED,
+      REJECTED
+    }
+
+    static Decision approved(String comment) {
+      return new Decision(Kind.APPROVED, comment);
+    }
+
+    static Decision rejected(String comment) {
+      return new Decision(Kind.REJECTED, comment);
+    }
+  }
 
   /**
    * One change of a working copy, as its history keeps it: its kind, and what it is about. A change
