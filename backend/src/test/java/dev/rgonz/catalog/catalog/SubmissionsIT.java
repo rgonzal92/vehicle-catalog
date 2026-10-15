@@ -82,7 +82,7 @@ class SubmissionsIT extends WorkingCopyTests {
         .contains("FEATURE_RETIRED");
     assertThat(open(ana(), copy)).bodyJson().extractingPath("$.snapshot.status").isEqualTo("DRAFT");
     assertThat(revision(copy)).isZero();
-    assertThat(count("catalog_change WHERE catalog_id = %d", copy)).isZero();
+    assertThat(historyEntries(copy)).isZero();
   }
 
   @Test

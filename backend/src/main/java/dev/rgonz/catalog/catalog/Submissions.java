@@ -1,16 +1,17 @@
 package dev.rgonz.catalog.catalog;
 
-import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
 import dev.rgonz.catalog.catalog.Issue.Severity;
+import dev.rgonz.catalog.catalog.Revisions.Change;
+import dev.rgonz.catalog.catalog.Revisions.Outcome;
 import dev.rgonz.catalog.core.ApiException;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Submits working copies for review and withdraws them. A Submitted catalog takes no edits. Until a
@@ -22,8 +23,7 @@ class Submissions {
   static final int LONGEST_NOTE = 1000;
 
   private final JdbcClient jdbc;
-  private final TransactionTemplate transactions;
-  private final CatalogEdits edits;
+  private final Revisions revisions;
   private final Catalogs catalogs;
   private final SubmissionSummaries summaries;
 
@@ -32,15 +32,13 @@ class Submissions {
 
   Submissions(
       JdbcClient jdbc,
-      TransactionTemplate transactions,
-      CatalogEdits edits,
+      Revisions revisions,
       Catalogs catalogs,
       SubmissionSummaries summaries,
       MeterRegistry metrics) {
     this.summaries = summaries;
     this.jdbc = jdbc;
-    this.transactions = transactions;
-    this.edits = edits;
+    this.revisions = revisions;
     this.catalogs = catalogs;
     // Each reason is a metric of its own from the start, so the list of them never grows unseen.
     this.refusals =
@@ -65,19 +63,20 @@ class Submissions {
   }
 
   /**
-   * Submits the owner's Draft for review and answers with the revision it is at afterwards. It
-   * follows the rules of an edit first: only the owner, only a Draft, and only as they last saw it.
-   * A stale catalog is not submitted, nor one of an inactive vehicle line: both are states it is in
-   * and no issues of its own. Neither is one that validation, run at this moment, finds an Error
-   * in.
+   * Submits the owner's Draft for review and answers with where that led. It follows the rules of
+   * an edit first: only the owner, only a Draft, and only as they last saw it. A stale catalog is
+   * not submitted, nor one of an inactive vehicle line: both are states it is in and no issues of
+   * its own. Neither is one that validation, run at this moment, finds an Error in.
    *
    * @param ifMatch the revision the submit was made from, as its {@code If-Match} header gave it
    * @param note what the owner says to the reviewer, if anything
    */
-  long submit(long catalogId, long ownerId, String ifMatch, String note) {
-    return transactions.execute(
-        transaction -> {
-          edits.lockToEdit(catalogId, ownerId, ifMatch);
+  Outcome submit(long catalogId, long ownerId, String ifMatch, String note) {
+    return revisions.move(
+        catalogId,
+        ownerId,
+        ifMatch,
+        () -> {
           var said = note == null ? "" : note.strip();
           if (said.length() > LONGEST_NOTE) {
             throw ApiException.limitExceeded(
@@ -110,71 +109,33 @@ class Submissions {
 
           jdbc.sql(
                   """
-                  INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
-                  VALUES (:catalog, :actor, 'SUBMITTED',
-                          jsonb_strip_nulls(jsonb_build_object('new', :note::text)))
+                  UPDATE catalog
+                  SET status = 'SUBMITTED', submit_note = :note, submitted_at = now(),
+                      updated_at = now()
+                  WHERE id = :id
                   """)
-              .param("catalog", catalogId)
-              .param("actor", ownerId)
               .param("note", said.isEmpty() ? null : said)
+              .param("id", catalogId)
               .update();
-          long revision =
-              jdbc.sql(
-                      """
-                      UPDATE catalog
-                      SET status = 'SUBMITTED', submit_note = :note, submitted_at = now(),
-                          revision = revision + 1, updated_at = now()
-                      WHERE id = :id
-                      RETURNING revision
-                      """)
-                  .param("note", said.isEmpty() ? null : said)
-                  .param("id", catalogId)
-                  .query(Long.class)
-                  .single();
-          summaries.expect(catalogId, revision);
-
-          return revision;
-        });
+          return List.of(Change.submitted(said.isEmpty() ? null : said));
+        },
+        revision -> summaries.expect(catalogId, revision));
   }
 
   /**
-   * Makes the owner's Submitted catalog a Draft again and answers with the revision it is at
-   * afterwards. It names no revision: only a Submitted catalog can be withdrawn, and nothing
-   * changes one but a withdrawal or a reviewer's decision.
+   * Makes the owner's Submitted catalog a Draft again and answers with where that led. It names no
+   * revision: only a Submitted catalog can be withdrawn, and nothing changes one but a withdrawal
+   * or a reviewer's decision.
    */
-  long withdraw(long catalogId, long ownerId) {
-    return transactions.execute(
-        transaction -> {
-          var status =
-              jdbc.sql("SELECT status FROM catalog WHERE id = :id AND owner_id = :owner FOR UPDATE")
-                  .param("id", catalogId)
-                  .param("owner", ownerId)
-                  .query(Status.class)
-                  .optional()
-                  .orElseThrow(ApiException::notFound);
-          if (status != Status.SUBMITTED) {
-            throw ApiException.conflict(
-                "NOT_SUBMITTED", "Only a catalog in status Submitted can be withdrawn.");
-          }
-
-          jdbc.sql(
-                  """
-                  INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
-                  VALUES (:catalog, :actor, 'WITHDRAWN', '{}')
-                  """)
-              .param("catalog", catalogId)
-              .param("actor", ownerId)
-              .update();
-          return jdbc.sql(
-                  """
-                  UPDATE catalog
-                  SET status = 'DRAFT', revision = revision + 1, updated_at = now()
-                  WHERE id = :id
-                  RETURNING revision
-                  """)
+  Outcome withdraw(long catalogId, long ownerId) {
+    return revisions.withdraw(
+        catalogId,
+        ownerId,
+        () -> {
+          jdbc.sql("UPDATE catalog SET status = 'DRAFT', updated_at = now() WHERE id = :id")
               .param("id", catalogId)
-              .query(Long.class)
-              .single();
+              .update();
+          return List.of(Change.withdrawn());
         });
   }
 }

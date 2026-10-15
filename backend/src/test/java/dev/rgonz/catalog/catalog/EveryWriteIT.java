@@ -3,6 +3,7 @@ package dev.rgonz.catalog.catalog;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.rgonz.catalog.ApplicationIT;
+import dev.rgonz.catalog.core.Role;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,8 +15,9 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
  * Checks every write to a working copy through its address: one that changes something raises the
  * catalog's revision by exactly one and adds to its history, one that changes nothing leaves both
  * as they were, and each answers with the issues the catalog has at the revision the answer names,
- * and with whether it is stale then. Each test starts from the seeded catalogs and a working copy
- * of Compact SUV 2026 that Ana owns, with its rules taken away.
+ * and with whether it is stale then. A delete is the one write that leaves no catalog to number.
+ * Each test starts from the seeded catalogs and a working copy of Compact SUV 2026 that Ana owns,
+ * with its rules taken away.
  */
 class EveryWriteIT extends WorkingCopyTests {
   /** Ana's working copy, at revision 0. */
@@ -95,6 +97,54 @@ class EveryWriteIT extends WorkingCopyTests {
           assertThat(historyEntries(copy)).as("%s: the history", what).isEqualTo(entries);
           assertAnswersAsTheCatalogIs(what, answer);
         });
+  }
+
+  @Test
+  void theOwnersOtherMovesEachRaiseTheRevisionByOneAndADeleteLeavesNoCatalog() {
+    var moves = new LinkedHashMap<String, Write>();
+    moves.put("submitting", at -> post("/submit", at, "{\"note\": \"Ready.\"}"));
+    moves.put("withdrawing", at -> post("/withdraw", null, null));
+    moves.put(
+        "updating from Approved",
+        at -> {
+          approveAnotherVersion();
+          return post("/merge", at, "{\"approvedCatalogId\": %d}".formatted(approvedSince));
+        });
+
+    moves.forEach(
+        (what, write) -> {
+          var before = revision(copy);
+          var entries = historyEntries(copy);
+
+          var answer = write.send("\"%d\"".formatted(before));
+
+          assertThat(answer).as(what).hasStatusOk();
+          assertThat(revision(copy)).as("%s: the revision", what).isEqualTo(before + 1);
+          assertThat(historyEntries(copy)).as("%s: the history", what).isEqualTo(entries + 1);
+          assertAnswersAsTheCatalogIs(what, answer);
+        });
+
+    assertThat(delete("", "\"%d\"".formatted(revision(copy)))).hasStatus(204);
+    assertThat(open(ana(), copy)).as("deleted").hasStatus(404);
+  }
+
+  /** The Approved version that Ben's working copy became. */
+  private long approvedSince;
+
+  /** Approves a working copy of Ben's, which leaves Ana's copy stale. */
+  private void approveAnotherVersion() {
+    approvedSince = workingCopy(ben(), "COMPACT_SUV", 2026);
+    assertThat(
+            edit(ben(), mvc.post().uri("/api/catalogs/{id}/submit", approvedSince), "\"0\"", "{}"))
+        .hasStatusOk();
+    assertThat(
+            edit(
+                signedInAs(Role.MANAGER, "mia"),
+                mvc.post().uri("/api/catalogs/{id}/approve", approvedSince),
+                "\"1\"",
+                "{}"))
+        .hasStatusOk();
+    assertThat(open(ana(), copy)).bodyJson().extractingPath("$.stale").isEqualTo(true);
   }
 
   /** The answer names the catalog's revision and has its issues and staleness, as a read has. */

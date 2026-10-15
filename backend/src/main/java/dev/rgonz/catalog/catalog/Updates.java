@@ -11,6 +11,8 @@ import dev.rgonz.catalog.catalog.Catalogs.Current;
 import dev.rgonz.catalog.catalog.Diff.Changes;
 import dev.rgonz.catalog.catalog.Merge.Conflict;
 import dev.rgonz.catalog.catalog.Merge.Side;
+import dev.rgonz.catalog.catalog.Revisions.Change;
+import dev.rgonz.catalog.catalog.Revisions.Outcome;
 import dev.rgonz.catalog.core.ApiException;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -23,7 +25,6 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Updates a stale working copy from its lineage's current Approved: a merge of the two over the
@@ -34,20 +35,13 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 class Updates {
   private final JdbcClient jdbc;
-  private final TransactionTemplate transactions;
-  private final CatalogEdits edits;
+  private final Revisions revisions;
   private final Catalogs catalogs;
   private final Counter updates;
 
-  Updates(
-      JdbcClient jdbc,
-      TransactionTemplate transactions,
-      CatalogEdits edits,
-      Catalogs catalogs,
-      MeterRegistry metrics) {
+  Updates(JdbcClient jdbc, Revisions revisions, Catalogs catalogs, MeterRegistry metrics) {
     this.jdbc = jdbc;
-    this.transactions = transactions;
-    this.edits = edits;
+    this.revisions = revisions;
     this.catalogs = catalogs;
     this.updates =
         Counter.builder("catalog.merged")
@@ -83,27 +77,29 @@ class Updates {
   }
 
   /**
-   * Updates the owner's stale Draft from its lineage's current Approved and answers with the
-   * revision it is at afterwards. It follows the rules of an edit first: only the owner, only a
-   * Draft, and only as they last saw it. Then the merge is worked out again, with every conflict
-   * settled as the owner chose, and written in place of the catalog's contents. The current
-   * Approved becomes the catalog's base, so it is stale no longer.
+   * Updates the owner's stale Draft from its lineage's current Approved and answers with where that
+   * led. It follows the rules of an edit first: only the owner, only a Draft, and only as they last
+   * saw it. Then the merge is worked out again, with every conflict settled as the owner chose, and
+   * written in place of the catalog's contents. The current Approved becomes the catalog's base, so
+   * it is stale no longer.
    *
    * @param ifMatch the revision the update was worked out from, as its {@code If-Match} header gave
    *     it
    * @param approvedCatalogId the Approved version the owner saw the update worked out against
    * @param resolutions for each conflict, by its id, whose version the owner takes
    */
-  long apply(
+  Outcome apply(
       long catalogId,
       long ownerId,
       String ifMatch,
       Long approvedCatalogId,
       Map<String, Side> resolutions) {
-    long updated =
-        transactions.execute(
-            transaction -> {
-              edits.lockToEdit(catalogId, ownerId, ifMatch);
+    var updated =
+        revisions.move(
+            catalogId,
+            ownerId,
+            ifMatch,
+            () -> {
               var catalog = catalogs.find(catalogId, ownerId).orElseThrow(ApiException::notFound);
               if (!catalog.stale()) {
                 throw notStale();
@@ -127,26 +123,13 @@ class Updates {
 
               write(catalogId, merge.merged());
               jdbc.sql(
-                      """
-                  INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
-                  VALUES (:catalog, :actor, 'MERGED', jsonb_build_object('new', :approved::text))
-                  """)
-                  .param("catalog", catalogId)
-                  .param("actor", ownerId)
-                  .param("approved", "Approved v" + approved.versionNumber())
-                  .update();
-              return jdbc.sql(
-                      """
-                  UPDATE catalog
-                  SET base_catalog_id = :approved, revision = revision + 1, updated_at = now()
-                  WHERE id = :id
-                  RETURNING revision
-                  """)
+                      "UPDATE catalog SET base_catalog_id = :approved, updated_at = now() WHERE id = :id")
                   .param("approved", approved.catalogId())
                   .param("id", catalogId)
-                  .query(Long.class)
-                  .single();
-            });
+                  .update();
+              return List.of(Change.merged("Approved v" + approved.versionNumber()));
+            },
+            revision -> {});
     updates.increment();
 
     return updated;
