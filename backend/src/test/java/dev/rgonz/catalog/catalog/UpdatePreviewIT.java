@@ -56,7 +56,7 @@ class UpdatePreviewIT extends WorkingCopyTests {
     jdbc.sql("UPDATE trim SET active = false WHERE name = 'Touring'").update();
     jdbc.sql("UPDATE region SET active = false WHERE code = 'EU'").update();
     var before = open(ben(), bens);
-    var entries = count("catalog_change WHERE catalog_id = %d", bens);
+    var entries = historyEntries(ben(), bens);
 
     var preview = preview(ben(), bens);
 
@@ -105,7 +105,7 @@ class UpdatePreviewIT extends WorkingCopyTests {
     assertThat(ApplicationIT.<Map<String, Object>>read(open(ben(), bens), "$"))
         .as("the catalog, with its revision and its contents")
         .isEqualTo(ApplicationIT.<Map<String, Object>>read(before, "$"));
-    assertThat(count("catalog_change WHERE catalog_id = %d", bens)).isEqualTo(entries);
+    assertThat(historyEntries(ben(), bens)).isEqualTo(entries);
   }
 
   @Test

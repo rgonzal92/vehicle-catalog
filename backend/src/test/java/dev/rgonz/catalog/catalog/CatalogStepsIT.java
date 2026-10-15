@@ -58,6 +58,18 @@ class CatalogStepsIT extends WorkingCopyTests {
   }
 
   @Test
+  void deletingAWorkingCopyIsAStepUnderTheRequest() {
+    var copy = workingCopy(ana(), "COMPACT_SUV", 2026);
+
+    assertThat(edit(ana(), mvc.delete().uri("/api/catalogs/{id}", copy), "\"0\"", null))
+        .hasStatus(204);
+
+    var trace = traceOf("catalog.save", copy);
+    assertThat(steps(trace)).containsExactly("catalog.save");
+    assertUnderTheRequest(stepsOf(trace).getFirst(), trace, copy);
+  }
+
+  @Test
   void aNewWorkingCopyCopiesItsStartingPointUnderTheRequest() {
     var copy = workingCopy(ana(), "COMPACT_SUV", 2026);
 

@@ -3,6 +3,7 @@ package dev.rgonz.catalog.catalog;
 import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.core.Role;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -144,8 +145,21 @@ abstract class WorkingCopyTests extends ApplicationIT {
 
   /** How many entries the catalog's history shows its owner, Ana. */
   protected int historyEntries(long catalog) {
-    return read(
-        mvc.get().uri("/api/catalogs/{id}/changes", catalog).with(ana()).exchange(), "$.total");
+    return historyEntries(ana(), catalog);
+  }
+
+  /** How many entries the catalog's history shows the person. */
+  protected int historyEntries(RequestPostProcessor who, long catalog) {
+    return read(history(who, catalog), "$.total");
+  }
+
+  /** The kinds of the entries of the catalog's history the person is shown, newest first. */
+  protected List<String> historyKinds(RequestPostProcessor who, long catalog) {
+    return read(history(who, catalog), "$.items[*].kind");
+  }
+
+  private MvcTestResult history(RequestPostProcessor who, long catalog) {
+    return mvc.get().uri("/api/catalogs/{id}/changes", catalog).with(who).exchange();
   }
 
   protected long count(String from, Object... values) {

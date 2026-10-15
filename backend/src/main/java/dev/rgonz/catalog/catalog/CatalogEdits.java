@@ -19,7 +19,6 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.core.simple.JdbcClient.StatementSpec;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Edits working copies: their names, their cells, the library trims, regions, and features they
@@ -48,14 +47,11 @@ class CatalogEdits {
       Arrays.stream(Availability.values()).map(Enum::name).collect(Collectors.toSet());
 
   private final JdbcClient jdbc;
-  private final TransactionTemplate transactions;
   private final CatalogRules rules;
   private final Revisions revisions;
 
-  CatalogEdits(
-      JdbcClient jdbc, TransactionTemplate transactions, CatalogRules rules, Revisions revisions) {
+  CatalogEdits(JdbcClient jdbc, CatalogRules rules, Revisions revisions) {
     this.jdbc = jdbc;
-    this.transactions = transactions;
     this.rules = rules;
     this.revisions = revisions;
   }
@@ -293,9 +289,11 @@ class CatalogEdits {
    * deletes a catalog, only while it is in status Draft, and only as they last saw it.
    */
   void delete(long catalogId, long actorId, String ifMatch) {
-    transactions.executeWithoutResult(
-        transaction -> {
-          lockToEdit(catalogId, actorId, ifMatch);
+    revisions.delete(
+        catalogId,
+        actorId,
+        ifMatch,
+        () -> {
           // Rules go first, since they hold on to the feature rows they name. Cells go with their
           // feature rows, and offerings with their trims.
           jdbc.sql("DELETE FROM catalog_rule WHERE catalog_id = :id")
@@ -642,14 +640,6 @@ class CatalogEdits {
         .param("trims", cells.stream().map(CellChange::trimId).toArray(Long[]::new))
         .param("regions", cells.stream().map(CellChange::regionCode).toArray(String[]::new))
         .param("wanted", cells.stream().map(CellChange::availability).toArray(String[]::new));
-  }
-
-  /**
-   * Locks the catalog's row until the transaction ends and makes sure the caller may edit the
-   * catalog as it is, as {@link Revisions#lockToEdit} does for an edit.
-   */
-  void lockToEdit(long catalogId, long actorId, String ifMatch) {
-    revisions.lockToEdit(catalogId, actorId, ifMatch);
   }
 
   /** One cell of a save: the availability a feature is to have in an offering. */

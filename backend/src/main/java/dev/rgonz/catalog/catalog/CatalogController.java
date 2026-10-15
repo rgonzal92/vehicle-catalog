@@ -376,13 +376,13 @@ class CatalogController {
       Authentication caller) {
     var note = given == null ? null : given.note();
 
-    return saved(id, caller, submissions.submit(id, people.idOf(caller), ifMatch, note));
+    return answered(submissions.submit(id, people.idOf(caller), ifMatch, note));
   }
 
   /** Makes the caller's Submitted catalog a Draft again. */
   @PostMapping("/api/catalogs/{id}/withdraw")
   ResponseEntity<Edited> withdraw(@PathVariable long id, Authentication caller) {
-    return saved(id, caller, submissions.withdraw(id, people.idOf(caller)));
+    return answered(submissions.withdraw(id, people.idOf(caller)));
   }
 
   /**
@@ -549,9 +549,7 @@ class CatalogController {
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       @RequestBody Update given,
       Authentication caller) {
-    return saved(
-        id,
-        caller,
+    return answered(
         updates.apply(
             id, people.idOf(caller), ifMatch, given.approvedCatalogId(), given.resolutions()));
   }

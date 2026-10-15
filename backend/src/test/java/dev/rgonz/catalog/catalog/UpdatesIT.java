@@ -86,7 +86,7 @@ class UpdatesIT extends WorkingCopyTests {
     var history = mvc.get().uri("/api/catalogs/{id}/changes", bens).with(ben()).exchange();
     assertThat(history).bodyJson().extractingPath("$.items[0].kind").isEqualTo("MERGED");
     assertThat(history).bodyJson().extractingPath("$.items[0].newValue").isEqualTo("Approved v3");
-    assertThat(count("catalog_change WHERE catalog_id = %d AND kind = 'MERGED'", bens)).isOne();
+    assertThat(historyKinds(ben(), bens)).containsOnlyOnce("MERGED");
     assertThat(catalogRules.brokenPairs()).isEmpty();
     var review = mvc.get().uri("/api/catalogs/{id}/diff?against=base", bens).with(ben()).exchange();
     assertThat(ApplicationIT.<List<String>>read(review, "$.cellsChanged[*].featureCode"))
@@ -122,7 +122,7 @@ class UpdatesIT extends WorkingCopyTests {
         .hasStatus(422);
     assertThat(revision(bens)).isEqualTo(revision);
     assertThat(open(ben(), bens)).bodyJson().extractingPath("$.stale").isEqualTo(true);
-    assertThat(count("catalog_change WHERE catalog_id = %d AND kind = 'MERGED'", bens)).isZero();
+    assertThat(historyKinds(ben(), bens)).doesNotContain("MERGED");
   }
 
   @Test

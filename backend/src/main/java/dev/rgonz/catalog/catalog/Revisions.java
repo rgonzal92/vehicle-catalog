@@ -10,6 +10,8 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.function.IntFunction;
+import java.util.function.LongConsumer;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
@@ -73,12 +75,12 @@ class Revisions {
             transaction -> {
               var started = System.nanoTime();
               var revision =
-                  Catalogs.step(observations, "catalog.save", catalogId)
-                      .observe(
-                          () -> {
-                            var catalog = lockToEdit(catalogId, ownerId, ifMatch);
-                            return record(catalogId, ownerId, catalog.revision(), edit.make());
-                          });
+                  saved(
+                      catalogId,
+                      ownerId,
+                      () -> lockToEdit(catalogId, ownerId, ifMatch),
+                      edit,
+                      written -> {});
               saving[0] = System.nanoTime() - started;
 
               return answer(catalogId, ownerId, revision);
@@ -89,11 +91,87 @@ class Revisions {
   }
 
   /**
+   * Runs one of the owner's moves of their Draft that is not an edit of its contents, a submit or
+   * an update from Approved, under the checks and in the order of an edit, and answers with where
+   * it led. A move always changes something. It is a step of the request's trace as an edit is, and
+   * is not timed as one.
+   *
+   * @param written told the revision the move led to, in the move's own transaction
+   */
+  Outcome move(long catalogId, long ownerId, String ifMatch, Edit move, LongConsumer written) {
+    return transactions.execute(
+        transaction ->
+            answer(
+                catalogId,
+                ownerId,
+                saved(
+                    catalogId,
+                    ownerId,
+                    () -> lockToEdit(catalogId, ownerId, ifMatch),
+                    move,
+                    written)));
+  }
+
+  /**
+   * Makes the owner's Submitted catalog a Draft again by the withdrawal given, and answers with
+   * where it led. It names no revision: only a Submitted catalog can be withdrawn, and nothing
+   * changes one but a withdrawal or a reviewer's decision. The checks come in this order: that the
+   * catalog is the caller's, and that it is in status Submitted.
+   */
+  Outcome withdraw(long catalogId, long ownerId, Edit withdrawal) {
+    return transactions.execute(
+        transaction ->
+            answer(
+                catalogId,
+                ownerId,
+                saved(
+                    catalogId,
+                    ownerId,
+                    () -> lockToWithdraw(catalogId, ownerId),
+                    withdrawal,
+                    written -> {})));
+  }
+
+  /**
+   * Deletes the owner's Draft by the removal given, under the checks and in the order of an edit. A
+   * deleted catalog has no revision left to raise and nothing to answer with. The deletion is a
+   * step of the request's trace as an edit is.
+   */
+  void delete(long catalogId, long ownerId, String ifMatch, Runnable removal) {
+    transactions.executeWithoutResult(
+        transaction ->
+            Catalogs.step(observations, "catalog.save", catalogId)
+                .observe(
+                    () -> {
+                      lockToEdit(catalogId, ownerId, ifMatch);
+                      removal.run();
+                    }));
+  }
+
+  /**
+   * Checks, makes, records, and numbers one write as one step of the request's trace, which a
+   * refusal leaves marked as failed, and answers with the revision the catalog is at afterwards.
+   */
+  private long saved(
+      long catalogId, long actorId, Supplier<Locked> check, Edit write, LongConsumer written) {
+    return Catalogs.step(observations, "catalog.save", catalogId)
+        .observe(
+            () -> {
+              var catalog = check.get();
+              var revision = record(catalogId, actorId, catalog.revision(), write.make());
+              if (revision != catalog.revision()) {
+                written.accept(revision);
+              }
+              return revision;
+            });
+  }
+
+  /**
    * Locks the catalog's row until the transaction ends and makes sure the caller may edit the
    * catalog as it is: that it is theirs, that it is in status Draft, and that the edit names the
    * revision it is at, in that order.
    */
-  Locked lockToEdit(long catalogId, long ownerId, String ifMatch) {
+  private Locked lockToEdit(long catalogId, long ownerId, String ifMatch) {
     var catalog =
         jdbc.sql("SELECT owner_id, status, revision FROM catalog WHERE id = :id FOR UPDATE")
             .param("id", catalogId)
@@ -106,6 +184,25 @@ class Revisions {
     }
     if (catalog.revision() != expectedRevision(ifMatch)) {
       throw ApiException.revisionConflict(catalog.revision());
+    }
+    return catalog;
+  }
+
+  /**
+   * Locks the catalog's row until the transaction ends and makes sure the caller may withdraw the
+   * catalog: that it is theirs, and that it is in status Submitted, in that order.
+   */
+  private Locked lockToWithdraw(long catalogId, long ownerId) {
+    var catalog =
+        jdbc.sql("SELECT owner_id, status, revision FROM catalog WHERE id = :id FOR UPDATE")
+            .param("id", catalogId)
+            .query(Locked.class)
+            .optional()
+            .filter(found -> found.ownerId() == ownerId)
+            .orElseThrow(ApiException::notFound);
+    if (catalog.status() != Status.SUBMITTED) {
+      throw ApiException.conflict(
+          "NOT_SUBMITTED", "Only a catalog in status Submitted can be withdrawn.");
     }
     return catalog;
   }
@@ -183,7 +280,7 @@ class Revisions {
         List.of());
   }
 
-  /** An edit of a working copy, which makes its changes and answers with them. */
+  /** A write of a working copy, which makes its changes and answers with them. */
   @FunctionalInterface
   interface Edit {
     List<Change> make();
@@ -211,7 +308,8 @@ class Revisions {
    *
    * @param before what the change replaced: a cell's availability, a catalog's name, or a rule in
    *     words
-   * @param after what it was replaced with
+   * @param after what it was replaced with, or for a submit the owner's note and for an update the
+   *     Approved version it came from
    */
   record Change(
       Kind kind, Long featureId, Long trimId, String regionCode, String before, String after) {
@@ -229,7 +327,10 @@ class Revisions {
       RENAMED,
       RULE_ADDED,
       RULE_UPDATED,
-      RULE_REMOVED
+      RULE_REMOVED,
+      SUBMITTED,
+      WITHDRAWN,
+      MERGED
     }
 
     static Change cellSet(long featureId, long trimId, String regionCode, String was, String is) {
@@ -282,6 +383,20 @@ class Revisions {
 
     static Change ruleRemoved(String rule) {
       return new Change(Kind.RULE_REMOVED, null, null, null, rule, null);
+    }
+
+    /** A submit, with what its owner said to the reviewer, or nothing. */
+    static Change submitted(String note) {
+      return new Change(Kind.SUBMITTED, null, null, null, null, note);
+    }
+
+    static Change withdrawn() {
+      return new Change(Kind.WITHDRAWN, null, null, null, null, null);
+    }
+
+    /** An update from Approved, with the Approved version it was updated from, in words. */
+    static Change merged(String approved) {
+      return new Change(Kind.MERGED, null, null, null, null, approved);
     }
   }
 }
