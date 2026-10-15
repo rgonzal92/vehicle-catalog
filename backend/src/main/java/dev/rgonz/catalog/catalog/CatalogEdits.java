@@ -2,11 +2,9 @@ package dev.rgonz.catalog.catalog;
 
 import dev.rgonz.catalog.catalog.CatalogRules.RuleContent;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Availability;
-import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
+import dev.rgonz.catalog.catalog.Revisions.Change;
+import dev.rgonz.catalog.catalog.Revisions.Outcome;
 import dev.rgonz.catalog.core.ApiException;
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
-import io.micrometer.observation.ObservationRegistry;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -15,10 +13,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
-import java.util.function.BooleanSupplier;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.core.simple.JdbcClient.StatementSpec;
@@ -29,8 +25,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * Edits working copies: their names, their cells, the library trims, regions, and features they
  * have added, where each trim is sold, and their rules. It also deletes them. Only a catalog in
  * status Draft can be edited, and only by its owner. Every edit names the revision it was made from
- * and runs in one transaction that locks the catalog, so edits of one catalog happen one after
- * another and none overwrites a change it has not seen.
+ * and runs through {@link Revisions}, in one transaction that locks the catalog, so edits of one
+ * catalog happen one after another and none overwrites a change it has not seen. Each edit says
+ * what it changed, and {@link Revisions} records and numbers it.
  */
 @Service
 class CatalogEdits {
@@ -50,40 +47,27 @@ class CatalogEdits {
   private static final Set<String> AVAILABILITIES =
       Arrays.stream(Availability.values()).map(Enum::name).collect(Collectors.toSet());
 
-  /** A revision as {@code If-Match} carries it: the number in quotes, as the entity tag gave it. */
-  private static final Pattern REVISION = Pattern.compile("\"(\\d{1,18})\"");
-
   private final JdbcClient jdbc;
   private final TransactionTemplate transactions;
   private final CatalogRules rules;
-  private final ObservationRegistry observations;
-  private final Timer editTime;
+  private final Revisions revisions;
 
   CatalogEdits(
-      JdbcClient jdbc,
-      TransactionTemplate transactions,
-      CatalogRules rules,
-      ObservationRegistry observations,
-      MeterRegistry metrics) {
+      JdbcClient jdbc, TransactionTemplate transactions, CatalogRules rules, Revisions revisions) {
     this.jdbc = jdbc;
-    this.rules = rules;
     this.transactions = transactions;
-    this.observations = observations;
-    this.editTime =
-        Timer.builder("catalog.edit")
-            .description("How long saving an edit of a working copy takes")
-            .register(metrics);
+    this.rules = rules;
+    this.revisions = revisions;
   }
 
   /**
-   * Sets cells to the availabilities given, whatever they were, and answers with the catalog's
-   * revision afterwards. A cell set to Not offered is no longer stored. Each cell whose
-   * availability changed gets a change entry.
+   * Sets cells to the availabilities given, whatever they were. A cell set to Not offered is no
+   * longer stored. Each cell whose availability changed is a change.
    *
    * @param ifMatch the revision the edit was made from, as its {@code If-Match} header gave it
    */
-  long setCells(long catalogId, long actorId, String ifMatch, List<CellChange> given) {
-    return edit(
+  Outcome setCells(long catalogId, long actorId, String ifMatch, List<CellChange> given) {
+    return revisions.edit(
         catalogId,
         actorId,
         ifMatch,
@@ -101,7 +85,7 @@ class CatalogEdits {
           given.forEach(
               cell -> cells.put(List.of(cell.featureId(), cell.trimId(), cell.regionCode()), cell));
 
-          return store(catalogId, actorId, cells.values());
+          return store(catalogId, cells.values());
         });
   }
 
@@ -110,8 +94,8 @@ class CatalogEdits {
    * be added, and a catalog has at most {@value #MOST_TRIMS}. A new trim is sold nowhere until the
    * owner says where.
    */
-  long addTrims(long catalogId, long actorId, String ifMatch, List<Long> trimIds) {
-    return edit(
+  Outcome addTrims(long catalogId, long actorId, String ifMatch, List<Long> trimIds) {
+    return revisions.edit(
         catalogId,
         actorId,
         ifMatch,
@@ -141,18 +125,7 @@ class CatalogEdits {
               .param("catalog", catalogId)
               .param("ids", ids)
               .update();
-          jdbc.sql(
-                  """
-                  INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
-                  SELECT :catalog, :actor, 'TRIM_ADDED', jsonb_build_object('trimId', id)
-                  FROM unnest(:ids::bigint[]) WITH ORDINALITY AS added (id, place)
-                  ORDER BY place
-                  """)
-              .param("catalog", catalogId)
-              .param("actor", actorId)
-              .param("ids", ids)
-              .update();
-          return true;
+          return Stream.of(ids).map(Change::trimAdded).toList();
         });
   }
 
@@ -160,8 +133,8 @@ class CatalogEdits {
    * Adds library regions to the catalog, under the same rules as trims, up to {@value
    * #MOST_REGIONS}.
    */
-  long addRegions(long catalogId, long actorId, String ifMatch, List<String> regionCodes) {
-    return edit(
+  Outcome addRegions(long catalogId, long actorId, String ifMatch, List<String> regionCodes) {
+    return revisions.edit(
         catalogId,
         actorId,
         ifMatch,
@@ -193,18 +166,7 @@ class CatalogEdits {
               .param("catalog", catalogId)
               .param("codes", codes)
               .update();
-          jdbc.sql(
-                  """
-                  INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
-                  SELECT :catalog, :actor, 'REGION_ADDED', jsonb_build_object('regionCode', code)
-                  FROM unnest(:codes::text[]) WITH ORDINALITY AS added (code, place)
-                  ORDER BY place
-                  """)
-              .param("catalog", catalogId)
-              .param("actor", actorId)
-              .param("codes", codes)
-              .update();
-          return true;
+          return Stream.of(codes).map(Change::regionAdded).toList();
         });
   }
 
@@ -213,15 +175,15 @@ class CatalogEdits {
    * sees to. The trim leaves the trim scope of every rule, and a rule that covered no other trim is
    * deleted.
    */
-  Removed removeTrim(long catalogId, long actorId, String ifMatch, long trimId) {
-    var rulesDeleted = new ArrayList<String>();
-    var revision =
-        edit(
+  Outcome removeTrim(long catalogId, long actorId, String ifMatch, long trimId) {
+    var changes = new ArrayList<Change>();
+    var outcome =
+        revisions.edit(
             catalogId,
             actorId,
             ifMatch,
             () -> {
-              rulesDeleted.addAll(rules.deleteThoseOnlyOnTrim(catalogId, actorId, trimId));
+              changes.addAll(rules.deleteThoseOnlyOnTrim(catalogId, trimId));
               var removed =
                   jdbc.sql(
                           "DELETE FROM catalog_trim WHERE catalog_id = :catalog AND trim_id = :trim")
@@ -231,34 +193,26 @@ class CatalogEdits {
               if (removed == 0) {
                 throw ApiException.notFound();
               }
-              jdbc.sql(
-                      """
-                  INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
-                  VALUES (:catalog, :actor, 'TRIM_REMOVED', jsonb_build_object('trimId', :trim))
-                  """)
-                  .param("catalog", catalogId)
-                  .param("actor", actorId)
-                  .param("trim", trimId)
-                  .update();
-              return true;
+              changes.add(Change.trimRemoved(trimId));
+              return changes;
             });
 
-    return new Removed(revision, rulesDeleted);
+    return outcome.withRulesDeleted(rulesIn(changes));
   }
 
   /**
    * Removes a region from the catalog, and with it its offerings and their cells. The region leaves
    * the region scope of every rule, and a rule that covered no other region is deleted.
    */
-  Removed removeRegion(long catalogId, long actorId, String ifMatch, String regionCode) {
-    var rulesDeleted = new ArrayList<String>();
-    var revision =
-        edit(
+  Outcome removeRegion(long catalogId, long actorId, String ifMatch, String regionCode) {
+    var changes = new ArrayList<Change>();
+    var outcome =
+        revisions.edit(
             catalogId,
             actorId,
             ifMatch,
             () -> {
-              rulesDeleted.addAll(rules.deleteThoseOnlyInRegion(catalogId, actorId, regionCode));
+              changes.addAll(rules.deleteThoseOnlyInRegion(catalogId, regionCode));
               var removed =
                   jdbc.sql(
                           """
@@ -271,58 +225,37 @@ class CatalogEdits {
               if (removed == 0) {
                 throw ApiException.notFound();
               }
-              jdbc.sql(
-                      """
-                  INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
-                  VALUES (:catalog, :actor, 'REGION_REMOVED',
-                          jsonb_build_object('regionCode', :region))
-                  """)
-                  .param("catalog", catalogId)
-                  .param("actor", actorId)
-                  .param("region", regionCode)
-                  .update();
-              return true;
+              changes.add(Change.regionRemoved(regionCode));
+              return changes;
             });
 
-    return new Removed(revision, rulesDeleted);
+    return outcome.withRulesDeleted(rulesIn(changes));
   }
 
   /** Adds a rule to the catalog, or for an exclusion a pair for each target. */
-  long addRule(long catalogId, long actorId, String ifMatch, RuleContent given) {
-    return edit(
-        catalogId,
-        actorId,
-        ifMatch,
-        () -> {
-          rules.add(catalogId, actorId, given);
-          return true;
-        });
+  Outcome addRule(long catalogId, long actorId, String ifMatch, RuleContent given) {
+    return revisions.edit(catalogId, actorId, ifMatch, () -> rules.add(catalogId, given));
   }
 
   /** Changes a rule of the catalog, and its pair with it. */
-  long changeRule(long catalogId, long actorId, String ifMatch, UUID ruleKey, RuleContent given) {
-    return edit(
-        catalogId, actorId, ifMatch, () -> rules.change(catalogId, actorId, ruleKey, given));
+  Outcome changeRule(
+      long catalogId, long actorId, String ifMatch, UUID ruleKey, RuleContent given) {
+    return revisions.edit(
+        catalogId, actorId, ifMatch, () -> rules.change(catalogId, ruleKey, given));
   }
 
   /** Deletes a rule of the catalog, and its pair with it. */
-  long deleteRule(long catalogId, long actorId, String ifMatch, UUID ruleKey) {
-    return edit(
-        catalogId,
-        actorId,
-        ifMatch,
-        () -> {
-          rules.delete(catalogId, actorId, ruleKey);
-          return true;
-        });
+  Outcome deleteRule(long catalogId, long actorId, String ifMatch, UUID ruleKey) {
+    return revisions.edit(
+        catalogId, actorId, ifMatch, () -> List.of(rules.delete(catalogId, ruleKey)));
   }
 
   /**
    * Renames the catalog. The name is 1 to 80 characters, and no other working copy of the owner's
    * has it, whatever its case.
    */
-  long rename(long catalogId, long actorId, String ifMatch, String name) {
-    return edit(
+  Outcome rename(long catalogId, long actorId, String ifMatch, String name) {
+    return revisions.edit(
         catalogId,
         actorId,
         ifMatch,
@@ -340,7 +273,7 @@ class CatalogEdits {
                   .query(String.class)
                   .single();
           if (had.equals(wanted)) {
-            return false;
+            return List.of();
           }
           try {
             jdbc.sql("UPDATE catalog SET name = :name WHERE id = :id")
@@ -350,17 +283,7 @@ class CatalogEdits {
           } catch (DuplicateKeyException taken) {
             throw WorkingCopies.nameTaken();
           }
-          jdbc.sql(
-                  """
-                  INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
-                  VALUES (:catalog, :actor, 'RENAMED', jsonb_build_object('old', :had, 'new', :name))
-                  """)
-              .param("catalog", catalogId)
-              .param("actor", actorId)
-              .param("had", had)
-              .param("name", wanted)
-              .update();
-          return true;
+          return List.of(Change.renamed(had, wanted));
         });
   }
 
@@ -405,8 +328,8 @@ class CatalogEdits {
    * can be added, and a catalog has at most {@value #MOST_FEATURE_ROWS}. A new row has no cells,
    * which is every cell Not offered.
    */
-  long addFeatures(long catalogId, long actorId, String ifMatch, List<Long> featureIds) {
-    return edit(
+  Outcome addFeatures(long catalogId, long actorId, String ifMatch, List<Long> featureIds) {
+    return revisions.edit(
         catalogId,
         actorId,
         ifMatch,
@@ -438,18 +361,7 @@ class CatalogEdits {
               .param("catalog", catalogId)
               .param("ids", ids)
               .update();
-          jdbc.sql(
-                  """
-                  INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
-                  SELECT :catalog, :actor, 'FEATURE_ADDED', jsonb_build_object('featureId', id)
-                  FROM unnest(:ids::bigint[]) WITH ORDINALITY AS added (id, place)
-                  ORDER BY place
-                  """)
-              .param("catalog", catalogId)
-              .param("actor", actorId)
-              .param("ids", ids)
-              .update();
-          return true;
+          return Stream.of(ids).map(Change::featureAdded).toList();
         });
   }
 
@@ -459,17 +371,17 @@ class CatalogEdits {
    *
    * @param removeRules whether the rules that name the feature are deleted with its row
    */
-  Removed removeFeature(
+  Outcome removeFeature(
       long catalogId, long actorId, String ifMatch, long featureId, boolean removeRules) {
-    var rulesDeleted = new ArrayList<String>();
-    var revision =
-        edit(
+    var changes = new ArrayList<Change>();
+    var outcome =
+        revisions.edit(
             catalogId,
             actorId,
             ifMatch,
             () -> {
               if (removeRules) {
-                rulesDeleted.addAll(rules.deleteThoseNaming(catalogId, actorId, featureId));
+                changes.addAll(rules.deleteThoseNaming(catalogId, featureId));
               }
               var naming = rules.naming(catalogId, featureId);
               if (!naming.isEmpty()) {
@@ -490,20 +402,11 @@ class CatalogEdits {
               if (removed == 0) {
                 throw ApiException.notFound();
               }
-              jdbc.sql(
-                      """
-                  INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
-                  VALUES (:catalog, :actor, 'FEATURE_REMOVED',
-                          jsonb_build_object('featureId', :feature))
-                  """)
-                  .param("catalog", catalogId)
-                  .param("actor", actorId)
-                  .param("feature", featureId)
-                  .update();
-              return true;
+              changes.add(Change.featureRemoved(featureId));
+              return changes;
             });
 
-    return new Removed(revision, rulesDeleted);
+    return outcome.withRulesDeleted(rulesIn(changes));
   }
 
   /**
@@ -511,8 +414,9 @@ class CatalogEdits {
    * catalog has to have. An offering that is no longer wanted goes with its cells and nothing else;
    * a new one starts with every cell Not offered.
    */
-  long sellIn(long catalogId, long actorId, String ifMatch, long trimId, List<String> regionCodes) {
-    return edit(
+  Outcome sellIn(
+      long catalogId, long actorId, String ifMatch, long trimId, List<String> regionCodes) {
+    return revisions.edit(
         catalogId,
         actorId,
         ifMatch,
@@ -543,44 +447,41 @@ class CatalogEdits {
                 "A trim can be sold only in a region the catalog has added.");
           }
 
-          // The history is written first, while the offerings to be removed are still there and
-          // the ones to be added are not.
-          var removed =
-              jdbc.sql(
-                      """
-                  INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
-                  SELECT :catalog, :actor, 'OFFERING_REMOVED',
-                         jsonb_build_object('trimId', o.trim_id, 'regionCode', o.region_code)
+          // The changes are worked out first, while the offerings to be removed are still there
+          // and the ones to be added are not.
+          var changes = new ArrayList<Change>();
+          jdbc.sql(
+                  """
+                  SELECT o.region_code
                   FROM catalog_trim_region o
                   JOIN region r ON r.code = o.region_code
                   WHERE o.catalog_id = :catalog AND o.trim_id = :trim
                     AND o.region_code <> ALL (:codes::text[])
                   ORDER BY r.sort_order, r.code
                   """)
-                  .param("catalog", catalogId)
-                  .param("actor", actorId)
-                  .param("trim", trimId)
-                  .param("codes", codes)
-                  .update();
-          var added =
-              jdbc.sql(
-                      """
-                  INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
-                  SELECT :catalog, :actor, 'OFFERING_ADDED',
-                         jsonb_build_object('trimId', :trim, 'regionCode', code)
+              .param("catalog", catalogId)
+              .param("trim", trimId)
+              .param("codes", codes)
+              .query(String.class)
+              .list()
+              .forEach(region -> changes.add(Change.offeringRemoved(trimId, region)));
+          jdbc.sql(
+                  """
+                  SELECT code
                   FROM unnest(:codes::text[]) WITH ORDINALITY AS wanted (code, place)
                   WHERE NOT EXISTS (
                       SELECT 1 FROM catalog_trim_region o
                       WHERE o.catalog_id = :catalog AND o.trim_id = :trim AND o.region_code = code)
                   ORDER BY place
                   """)
-                  .param("catalog", catalogId)
-                  .param("actor", actorId)
-                  .param("trim", trimId)
-                  .param("codes", codes)
-                  .update();
-          if (removed + added == 0) {
-            return false;
+              .param("catalog", catalogId)
+              .param("trim", trimId)
+              .param("codes", codes)
+              .query(String.class)
+              .list()
+              .forEach(region -> changes.add(Change.offeringAdded(trimId, region)));
+          if (changes.isEmpty()) {
+            return changes;
           }
           jdbc.sql(
                   """
@@ -602,8 +503,17 @@ class CatalogEdits {
               .param("trim", trimId)
               .param("codes", codes)
               .update();
-          return true;
+          return changes;
         });
+  }
+
+  /** The rules that the changes deleted, each in words, in the order of their words. */
+  private static List<String> rulesIn(List<Change> changes) {
+    return changes.stream()
+        .filter(change -> change.kind() == Change.Kind.RULE_REMOVED)
+        .map(Change::before)
+        .sorted()
+        .toList();
   }
 
   /** The library entries a request names to be added: at least one, each named once. */
@@ -640,10 +550,10 @@ class CatalogEdits {
   }
 
   /**
-   * Stores the cells, each named once, records every one whose availability changes, and says
-   * whether any did. They have to be cells of the catalog's own feature rows and offerings.
+   * Stores the cells, each named once, and answers with a change for every one whose availability
+   * changes. They have to be cells of the catalog's own feature rows and offerings.
    */
-  private boolean store(long catalogId, long actorId, Collection<CellChange> cells) {
+  private List<Change> store(long catalogId, Collection<CellChange> cells) {
     var outside =
         over(
                 cells,
@@ -666,16 +576,13 @@ class CatalogEdits {
           "A cell can be set only for a feature row and an offering of this catalog.");
     }
 
-    // The history is written first, while the cells still hold their old values.
+    // The changes are worked out first, while the cells still hold their old values.
     var changed =
         over(
                 cells,
                 """
-            INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
-            SELECT :catalog, :actor, 'CELL_SET',
-                   jsonb_build_object('featureId', g.feature_id, 'trimId', g.trim_id,
-                                      'regionCode', g.region_code,
-                                      'old', COALESCE(c.availability, 'N'), 'new', g.wanted)
+            SELECT g.feature_id, g.trim_id, g.region_code,
+                   COALESCE(c.availability, 'N') AS was, g.wanted AS wanted
             FROM given g
             LEFT JOIN catalog_cell c
                 ON c.catalog_id = :catalog AND c.feature_id = g.feature_id
@@ -684,10 +591,17 @@ class CatalogEdits {
             ORDER BY g.place
             """)
             .param("catalog", catalogId)
-            .param("actor", actorId)
-            .update();
-    if (changed == 0) {
-      return false;
+            .query(
+                (row, number) ->
+                    Change.cellSet(
+                        row.getLong("feature_id"),
+                        row.getLong("trim_id"),
+                        row.getString("region_code"),
+                        row.getString("was"),
+                        row.getString("wanted")))
+            .list();
+    if (changed.isEmpty()) {
+      return changed;
     }
     over(
             cells,
@@ -710,7 +624,7 @@ class CatalogEdits {
         .param("catalog", catalogId)
         .update();
 
-    return true;
+    return changed;
   }
 
   /** A statement over the cells, which it reads as the rows of {@code given}, in their order. */
@@ -731,79 +645,11 @@ class CatalogEdits {
   }
 
   /**
-   * Runs one edit of a working copy and answers with the revision the catalog is at afterwards. An
-   * edit that asks for what is already so changes nothing: the revision stays where it was, which
-   * tells the caller so, and nothing is recorded. The catalog's row stays locked from the first
-   * check to the commit. The checks come in one order for every edit: that the catalog is the
-   * caller's, that it is in status Draft, that the edit names the revision the catalog is at, and
-   * only then whatever the change itself asks. So no refusal tells anybody anything about a catalog
-   * that is not theirs. A refused edit changes nothing. From the lock through the commit the save
-   * is one step of the request's trace, which a refusal leaves marked as failed.
-   *
-   * @param change makes the change and says whether it changed anything
-   *     <p>The time is taken through the commit, and only of an edit that is saved.
-   */
-  private long edit(long catalogId, long actorId, String ifMatch, BooleanSupplier change) {
-    var started = System.nanoTime();
-    var revision =
-        Catalogs.step(observations, "catalog.save", catalogId)
-            .observe(
-                () ->
-                    transactions.execute(
-                        transaction -> {
-                          var catalog = lockToEdit(catalogId, actorId, ifMatch);
-                          if (!change.getAsBoolean()) {
-                            return catalog.revision();
-                          }
-
-                          return jdbc.sql(
-                                  """
-                                  UPDATE catalog SET revision = revision + 1, updated_at = now()
-                                  WHERE id = :id
-                                  RETURNING revision
-                                  """)
-                              .param("id", catalogId)
-                              .query(Long.class)
-                              .single();
-                        }));
-    editTime.record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
-
-    return revision;
-  }
-
-  /**
    * Locks the catalog's row until the transaction ends and makes sure the caller may edit the
-   * catalog as it is: that it is theirs, that it is in status Draft, and that the edit names the
-   * revision it is at, in that order.
+   * catalog as it is, as {@link Revisions#lockToEdit} does for an edit.
    */
-  Locked lockToEdit(long catalogId, long actorId, String ifMatch) {
-    var catalog =
-        jdbc.sql("SELECT owner_id, status, revision FROM catalog WHERE id = :id FOR UPDATE")
-            .param("id", catalogId)
-            .query(Locked.class)
-            .optional()
-            .filter(found -> found.ownerId() == actorId)
-            .orElseThrow(ApiException::notFound);
-    if (catalog.status() != Status.DRAFT) {
-      throw ApiException.conflict("NOT_DRAFT", "Only a catalog in status Draft can be edited.");
-    }
-    if (catalog.revision() != expectedRevision(ifMatch)) {
-      throw ApiException.revisionConflict(catalog.revision());
-    }
-    return catalog;
-  }
-
-  /** The revision an edit says it was made from. */
-  private static long expectedRevision(String ifMatch) {
-    if (ifMatch == null) {
-      throw ApiException.revisionRequired();
-    }
-    var revision = REVISION.matcher(ifMatch.strip());
-    if (!revision.matches()) {
-      throw ApiException.badRequest(
-          "If-Match takes the catalog's revision in quotes, as in \"42\".");
-    }
-    return Long.parseLong(revision.group(1));
+  void lockToEdit(long catalogId, long actorId, String ifMatch) {
+    revisions.lockToEdit(catalogId, actorId, ifMatch);
   }
 
   /** One cell of a save: the availability a feature is to have in an offering. */
@@ -815,13 +661,4 @@ class CatalogEdits {
           && AVAILABILITIES.contains(availability);
     }
   }
-
-  /**
-   * What removing a feature row, a trim, or a region answers with: the revision the catalog is at
-   * afterwards, and the rules that were deleted with it, each in words and a pair once.
-   */
-  record Removed(long revision, List<String> rulesDeleted) {}
-
-  /** What an edit checks of a catalog once it has locked it. */
-  record Locked(long ownerId, Status status, long revision) {}
 }

@@ -83,7 +83,7 @@ class CatalogOfferingsIT extends WorkingCopyTests {
         .bodyJson()
         .extractingPath("$.revision")
         .isEqualTo(2);
-    assertThat(count("catalog_change WHERE catalog_id = %d", copy)).isEqualTo(2);
+    assertThat(historyEntries(copy)).isEqualTo(2);
 
     assertThat(sellIn(ana(), copy, "\"2\"", trim("Sport")))
         .as("a trim can be sold nowhere and stay in the catalog")
@@ -337,7 +337,7 @@ class CatalogOfferingsIT extends WorkingCopyTests {
         });
     assertThat(revision(copy)).isZero();
     assertThat(offerings(copy)).hasSize(7);
-    assertThat(count("catalog_change WHERE catalog_id = %d", copy)).isZero();
+    assertThat(historyEntries(copy)).isZero();
   }
 
   @Test

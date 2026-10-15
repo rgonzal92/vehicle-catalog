@@ -85,6 +85,14 @@ _Avoid_: Outdated, conflicted
 Said of a current Approved that a change of the library has left with an Error. The Approved version itself never changes; a new version puts it right.
 _Avoid_: Broken, invalid, stale (that is said of a working copy)
 
+**Revision**:
+A number a catalog carries that goes up by one with every change of it and every decision about it. A write names the revision its writer last read, and one made from an older revision is refused as a revision conflict.
+_Avoid_: version (that is an Approved version's number), entity tag
+
+**Change**:
+One step an owner takes on a working copy, kept in its history with who took it and when: a cell set, a trim, region, or feature row added or removed, a rule added, changed, or removed, a rename, a submit, a withdrawal, or an update from Approved. A reviewer's decision is kept in the same history but is not a change.
+_Avoid_: edit (an edit is the request; a change is what it leaves), event
+
 **Revision conflict**:
 A write refused because the catalog changed after the writer last read it.
 _Avoid_: Stale write

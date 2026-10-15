@@ -1,0 +1,162 @@
+package dev.rgonz.catalog.catalog;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import dev.rgonz.catalog.ApplicationIT;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.test.web.servlet.assertj.MvcTestResult;
+
+/**
+ * Checks every write to a working copy through its address: one that changes something raises the
+ * catalog's revision by exactly one and adds to its history, one that changes nothing leaves both
+ * as they were, and each answers with the issues the catalog has at the revision the answer names,
+ * and with whether it is stale then. Each test starts from the seeded catalogs and a working copy
+ * of Compact SUV 2026 that Ana owns, with its rules taken away.
+ */
+class EveryWriteIT extends WorkingCopyTests {
+  /** Ana's working copy, at revision 0. */
+  private long copy;
+
+  @BeforeEach
+  void anasWorkingCopy() throws Exception {
+    seedLibraryAndCatalogs();
+    copy = workingCopy(ana(), "COMPACT_SUV", 2026);
+    jdbc.sql("DELETE FROM catalog_rule WHERE catalog_id = :copy").param("copy", copy).update();
+  }
+
+  @Test
+  void everyEditThatChangesSomethingRaisesTheRevisionByOneAndAnswersAsTheCatalogThenIs() {
+    var edits = new LinkedHashMap<String, Write>();
+    edits.put(
+        "setting a cell", at -> setCells(ana(), copy, at, cell("TRANS_MANUAL", "Base", "NA", "A")));
+    edits.put(
+        "adding a trim", at -> post("/trims", at, "{\"trimIds\": [%d]}".formatted(trim("Luxury"))));
+    edits.put("selling a trim in a region", at -> sellLuxuryIn(at, "NA"));
+    edits.put("adding a region", at -> post("/regions", at, "{\"regionCodes\": [\"SA\"]}"));
+    edits.put("removing a region", at -> delete("/regions/SA", at));
+    edits.put("removing a trim", at -> delete("/trims/" + trim("Luxury"), at));
+    edits.put(
+        "adding a feature row",
+        at -> post("/features", at, "{\"featureIds\": [%d]}".formatted(feature("ROOF_REMOVABLE"))));
+    edits.put("removing a feature row", at -> delete("/features/" + feature("ROOF_REMOVABLE"), at));
+    edits.put("renaming", at -> rename(at, "Renamed"));
+    edits.put("adding a rule", at -> post("/rules", at, rule("AUDIO_PREMIUM")));
+    edits.put("changing a rule", at -> put("/rules/" + ruleKey(), at, rule("ROOF_PANORAMIC")));
+    edits.put("deleting a rule", at -> delete("/rules/" + ruleKey(), at));
+
+    edits.forEach(
+        (what, write) -> {
+          var before = revision(copy);
+          var entries = historyEntries(copy);
+
+          var answer = write.send("\"%d\"".formatted(before));
+
+          assertThat(answer).as(what).hasStatusOk();
+          assertThat(revision(copy)).as("%s: the revision", what).isEqualTo(before + 1);
+          assertThat(historyEntries(copy)).as("%s: the history", what).isGreaterThan(entries);
+          assertAnswersAsTheCatalogIs(what, answer);
+        });
+  }
+
+  @Test
+  void everyEditThatChangesNothingLeavesTheRevisionAndTheHistoryAndAnswersAsTheCatalogIs() {
+    post("/rules", "\"0\"", rule("AUDIO_PREMIUM"));
+    post("/trims", "\"1\"", "{\"trimIds\": [%d]}".formatted(trim("Luxury")));
+    sellLuxuryIn("\"2\"", "NA");
+    setCells(ana(), copy, "\"3\"", cell("TRANS_MANUAL", "Base", "NA", "A"));
+    var edits = new LinkedHashMap<String, Write>();
+    edits.put(
+        "setting a cell to what it is",
+        at -> setCells(ana(), copy, at, cell("TRANS_MANUAL", "Base", "NA", "A")));
+    edits.put("selling a trim where it is sold", at -> sellLuxuryIn(at, "NA"));
+    edits.put("renaming to its name", at -> rename(at, "COMPACT_SUV 2026"));
+    edits.put(
+        "changing a rule to what it says",
+        at -> put("/rules/" + ruleKey(), at, rule("AUDIO_PREMIUM")));
+
+    edits.forEach(
+        (what, write) -> {
+          var before = revision(copy);
+          var entries = historyEntries(copy);
+
+          var answer = write.send("\"%d\"".formatted(before));
+
+          assertThat(answer).as(what).hasStatusOk();
+          assertThat(answer)
+              .as(what)
+              .bodyJson()
+              .extractingPath("$.revision")
+              .isEqualTo((int) before);
+          assertThat(revision(copy)).as("%s: the revision", what).isEqualTo(before);
+          assertThat(historyEntries(copy)).as("%s: the history", what).isEqualTo(entries);
+          assertAnswersAsTheCatalogIs(what, answer);
+        });
+  }
+
+  /** The answer names the catalog's revision and has its issues and staleness, as a read has. */
+  private void assertAnswersAsTheCatalogIs(String what, MvcTestResult answer) {
+    var opened = open(ana(), copy);
+    assertThat(ApplicationIT.<Integer>read(answer, "$.revision").longValue())
+        .as("%s: the revision answered", what)
+        .isEqualTo(revision(copy));
+    assertThat(ApplicationIT.<List<Map<String, Object>>>read(answer, "$.issues"))
+        .as("%s: the issues answered", what)
+        .isEqualTo(ApplicationIT.<List<Map<String, Object>>>read(opened, "$.issues"));
+    assertThat(ApplicationIT.<Boolean>read(answer, "$.stale"))
+        .as("%s: whether it is stale", what)
+        .isEqualTo(ApplicationIT.<Boolean>read(opened, "$.stale"));
+  }
+
+  private MvcTestResult sellLuxuryIn(String revision, String region) {
+    return put(
+        "/trims/%d/regions".formatted(trim("Luxury")),
+        revision,
+        "{\"regionCodes\": [\"%s\"]}".formatted(region));
+  }
+
+  private MvcTestResult rename(String revision, String name) {
+    return edit(
+        ana(),
+        mvc.patch().uri("/api/catalogs/{id}", copy),
+        revision,
+        "{\"name\": \"%s\"}".formatted(name));
+  }
+
+  private MvcTestResult post(String part, String revision, String body) {
+    return edit(ana(), mvc.post().uri("/api/catalogs/{id}" + part, copy), revision, body);
+  }
+
+  private MvcTestResult put(String part, String revision, String body) {
+    return edit(ana(), mvc.put().uri("/api/catalogs/{id}" + part, copy), revision, body);
+  }
+
+  private MvcTestResult delete(String part, String revision) {
+    return edit(ana(), mvc.delete().uri("/api/catalogs/{id}" + part, copy), revision, null);
+  }
+
+  /** Leather Seats requires the target, on every trim and in every region. */
+  private String rule(String target) {
+    return """
+        {"kind": "REQUIRES", "sourceFeatureId": %d, "targetFeatureIds": [%d],
+         "allTrims": true, "trimIds": [], "allRegions": true, "regionCodes": []}
+        """
+        .formatted(feature("SEAT_LEATHER"), feature(target));
+  }
+
+  /** The key of the copy's one rule. */
+  private String ruleKey() {
+    return jdbc.sql("SELECT rule_key::text FROM catalog_rule WHERE catalog_id = :copy")
+        .param("copy", copy)
+        .query(String.class)
+        .single();
+  }
+
+  /** A write of the copy, made from the revision given as {@code If-Match} carries it. */
+  private interface Write {
+    MvcTestResult send(String revision);
+  }
+}

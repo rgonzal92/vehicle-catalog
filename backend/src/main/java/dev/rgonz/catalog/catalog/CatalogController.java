@@ -9,6 +9,7 @@ import dev.rgonz.catalog.catalog.Catalogs.VersionSummary;
 import dev.rgonz.catalog.catalog.ChangeHistory.ChangePage;
 import dev.rgonz.catalog.catalog.Diff.Changes;
 import dev.rgonz.catalog.catalog.Issue.Severity;
+import dev.rgonz.catalog.catalog.Revisions.Outcome;
 import dev.rgonz.catalog.catalog.Updates.Preview;
 import dev.rgonz.catalog.catalog.WorkingCopies.Counts;
 import dev.rgonz.catalog.catalog.WorkingCopies.NewWorkingCopy;
@@ -212,7 +213,7 @@ class CatalogController {
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       @RequestBody List<CellChange> cells,
       Authentication caller) {
-    return saved(id, caller, edits.setCells(id, people.idOf(caller), ifMatch, cells));
+    return answered(edits.setCells(id, people.idOf(caller), ifMatch, cells));
   }
 
   /** Adds library trims to the caller's working copy. */
@@ -222,7 +223,7 @@ class CatalogController {
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       @RequestBody TrimsToAdd given,
       Authentication caller) {
-    return saved(id, caller, edits.addTrims(id, people.idOf(caller), ifMatch, given.trimIds()));
+    return answered(edits.addTrims(id, people.idOf(caller), ifMatch, given.trimIds()));
   }
 
   /**
@@ -235,9 +236,7 @@ class CatalogController {
       @PathVariable long trimId,
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       Authentication caller) {
-    var removed = edits.removeTrim(id, people.idOf(caller), ifMatch, trimId);
-
-    return saved(id, caller, removed.revision(), removed.rulesDeleted());
+    return answered(edits.removeTrim(id, people.idOf(caller), ifMatch, trimId));
   }
 
   /** Adds library regions to the caller's working copy. */
@@ -247,8 +246,7 @@ class CatalogController {
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       @RequestBody RegionCodes given,
       Authentication caller) {
-    return saved(
-        id, caller, edits.addRegions(id, people.idOf(caller), ifMatch, given.regionCodes()));
+    return answered(edits.addRegions(id, people.idOf(caller), ifMatch, given.regionCodes()));
   }
 
   /**
@@ -261,9 +259,7 @@ class CatalogController {
       @PathVariable String regionCode,
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       Authentication caller) {
-    var removed = edits.removeRegion(id, people.idOf(caller), ifMatch, regionCode);
-
-    return saved(id, caller, removed.revision(), removed.rulesDeleted());
+    return answered(edits.removeRegion(id, people.idOf(caller), ifMatch, regionCode));
   }
 
   /** Says in which of the catalog's regions a trim is sold: in exactly the ones given. */
@@ -274,8 +270,7 @@ class CatalogController {
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       @RequestBody RegionCodes given,
       Authentication caller) {
-    return saved(
-        id, caller, edits.sellIn(id, people.idOf(caller), ifMatch, trimId, given.regionCodes()));
+    return answered(edits.sellIn(id, people.idOf(caller), ifMatch, trimId, given.regionCodes()));
   }
 
   /** Renames the caller's working copy. */
@@ -285,7 +280,7 @@ class CatalogController {
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       @RequestBody NewName given,
       Authentication caller) {
-    return saved(id, caller, edits.rename(id, people.idOf(caller), ifMatch, given.name()));
+    return answered(edits.rename(id, people.idOf(caller), ifMatch, given.name()));
   }
 
   /** Deletes the caller's working copy, with its contents and its change history. */
@@ -305,8 +300,7 @@ class CatalogController {
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       @RequestBody FeaturesToAdd given,
       Authentication caller) {
-    return saved(
-        id, caller, edits.addFeatures(id, people.idOf(caller), ifMatch, given.featureIds()));
+    return answered(edits.addFeatures(id, people.idOf(caller), ifMatch, given.featureIds()));
   }
 
   /**
@@ -320,9 +314,7 @@ class CatalogController {
       @RequestParam(defaultValue = "false") boolean removeRules,
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       Authentication caller) {
-    var removed = edits.removeFeature(id, people.idOf(caller), ifMatch, featureId, removeRules);
-
-    return saved(id, caller, removed.revision(), removed.rulesDeleted());
+    return answered(edits.removeFeature(id, people.idOf(caller), ifMatch, featureId, removeRules));
   }
 
   /**
@@ -335,7 +327,7 @@ class CatalogController {
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       @RequestBody RuleContent given,
       Authentication caller) {
-    return saved(id, caller, edits.addRule(id, people.idOf(caller), ifMatch, given));
+    return answered(edits.addRule(id, people.idOf(caller), ifMatch, given));
   }
 
   /**
@@ -359,7 +351,7 @@ class CatalogController {
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       @RequestBody RuleContent given,
       Authentication caller) {
-    return saved(id, caller, edits.changeRule(id, people.idOf(caller), ifMatch, ruleKey, given));
+    return answered(edits.changeRule(id, people.idOf(caller), ifMatch, ruleKey, given));
   }
 
   /** Deletes a rule of the caller's working copy, and its pair with it. */
@@ -369,7 +361,7 @@ class CatalogController {
       @PathVariable UUID ruleKey,
       @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       Authentication caller) {
-    return saved(id, caller, edits.deleteRule(id, people.idOf(caller), ifMatch, ruleKey));
+    return answered(edits.deleteRule(id, people.idOf(caller), ifMatch, ruleKey));
   }
 
   /**
@@ -430,6 +422,19 @@ class CatalogController {
 
   /** What an owner says when they submit a catalog: a note, or nothing. */
   record Submission(String note) {}
+
+  /**
+   * A write answers with the revision the catalog is at afterwards, which is also the entity tag,
+   * with the issues the catalog then has and whether it is stale, as the caller may see it, and
+   * with the rules it deleted along the way.
+   */
+  private static ResponseEntity<Edited> answered(Outcome outcome) {
+    return ResponseEntity.ok()
+        .eTag(String.valueOf(outcome.revision()))
+        .body(
+            new Edited(
+                outcome.revision(), outcome.issues(), outcome.rulesDeleted(), outcome.stale()));
+  }
 
   private ResponseEntity<Edited> saved(long id, Authentication caller, long revision) {
     return saved(id, caller, revision, List.of());
