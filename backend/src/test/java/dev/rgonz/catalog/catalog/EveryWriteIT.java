@@ -15,9 +15,9 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
  * Checks every write to a working copy through its address: one that changes something raises the
  * catalog's revision by exactly one and adds to its history, one that changes nothing leaves both
  * as they were, and each answers with the issues the catalog has at the revision the answer names,
- * and with whether it is stale then. A delete is the one write that leaves no catalog to number.
- * Each test starts from the seeded catalogs and a working copy of Compact SUV 2026 that Ana owns,
- * with its rules taken away.
+ * and with whether it is stale then, as the writer may see the catalog. A delete is the one write
+ * that leaves no catalog to number. Each test starts from the seeded catalogs and a working copy of
+ * Compact SUV 2026 that Ana owns, with its rules taken away.
  */
 class EveryWriteIT extends WorkingCopyTests {
   /** Ana's working copy, at revision 0. */
@@ -126,6 +126,54 @@ class EveryWriteIT extends WorkingCopyTests {
 
     assertThat(delete("", "\"%d\"".formatted(revision(copy)))).hasStatus(204);
     assertThat(open(ana(), copy)).as("deleted").hasStatus(404);
+  }
+
+  @Test
+  void aDecisionRaisesTheRevisionByOneAndAnApprovalSendsTheOthersBackEachRaisedByOne() {
+    var mia = signedInAs(Role.MANAGER, "mia");
+    var bens = workingCopy(ben(), "COMPACT_SUV", 2026);
+    assertThat(edit(ben(), mvc.post().uri("/api/catalogs/{id}/submit", bens), "\"0\"", "{}"))
+        .hasStatusOk();
+    assertThat(post("/submit", "\"0\"", "{}")).hasStatusOk();
+
+    var before = revision(copy);
+    var rejected =
+        edit(
+            mia,
+            mvc.post().uri("/api/catalogs/{id}/reject", copy),
+            "\"%d\"".formatted(before),
+            "{\"comment\": \"Not yet.\"}");
+
+    assertThat(rejected).hasStatusOk();
+    assertThat(revision(copy)).as("rejected: the revision").isEqualTo(before + 1);
+    assertThat(historyKinds(ana(), copy)).first().isEqualTo("REJECTED");
+    assertThat(open(mia, copy)).as("a Draft, to the reviewer").hasStatus(404);
+    assertThat(rejected)
+        .as("a rejection tells the reviewer nothing of the Draft it made")
+        .bodyJson()
+        .isEqualTo(
+            "{\"revision\": %d, \"issues\": [], \"rulesDeleted\": [], \"stale\": false}"
+                .formatted(before + 1));
+
+    assertThat(post("/submit", "\"%d\"".formatted(revision(copy)), "{}")).hasStatusOk();
+    before = revision(copy);
+    var bensBefore = revision(bens);
+    var approved =
+        edit(
+            mia,
+            mvc.post().uri("/api/catalogs/{id}/approve", copy),
+            "\"%d\"".formatted(before),
+            "{}");
+
+    assertThat(approved).hasStatusOk();
+    assertThat(revision(copy)).as("approved: the revision").isEqualTo(before + 1);
+    assertThat(historyKinds(ana(), copy)).first().isEqualTo("APPROVED");
+    assertThat(ApplicationIT.<List<Map<String, Object>>>read(approved, "$.issues"))
+        .as("an approval answers with the Approved version's issues")
+        .isEqualTo(ApplicationIT.<List<Map<String, Object>>>read(open(mia, copy), "$.issues"));
+    assertThat(revision(bens)).as("sent back: the revision").isEqualTo(bensBefore + 1);
+    assertThat(historyKinds(ben(), bens)).first().isEqualTo("RETURNED_STALE");
+    assertThat(open(ben(), bens)).bodyJson().extractingPath("$.snapshot.status").isEqualTo("DRAFT");
   }
 
   /** The Approved version that Ben's working copy became. */

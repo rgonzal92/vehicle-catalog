@@ -398,7 +398,7 @@ class CatalogController {
       Authentication caller) {
     var comment = given == null ? null : given.comment();
 
-    return saved(id, caller, reviews.approve(id, people.idOf(caller), ifMatch, comment));
+    return answered(reviews.approve(id, people.idOf(caller), ifMatch, comment));
   }
 
   /**
@@ -414,7 +414,7 @@ class CatalogController {
       Authentication caller) {
     var comment = given == null ? null : given.comment();
 
-    return saved(id, caller, reviews.reject(id, people.idOf(caller), ifMatch, comment));
+    return answered(reviews.reject(id, people.idOf(caller), ifMatch, comment));
   }
 
   /** What a reviewer says with a decision. A rejection needs it. */
@@ -434,30 +434,6 @@ class CatalogController {
         .body(
             new Edited(
                 outcome.revision(), outcome.issues(), outcome.rulesDeleted(), outcome.stale()));
-  }
-
-  private ResponseEntity<Edited> saved(long id, Authentication caller, long revision) {
-    return saved(id, caller, revision, List.of());
-  }
-
-  /**
-   * An edit answers with the revision the catalog is at afterwards, which is also the entity tag,
-   * with every issue the catalog then has, with the rules it deleted along the way, and with
-   * whether the catalog is stale. The revision is the one the edit was made from when the edit
-   * changed nothing.
-   */
-  private ResponseEntity<Edited> saved(
-      long id, Authentication caller, long revision, List<String> rulesDeleted) {
-    var catalog = catalogs.find(id, people.idOf(caller));
-
-    return ResponseEntity.ok()
-        .eTag(String.valueOf(revision))
-        .body(
-            new Edited(
-                revision,
-                catalog.map(CatalogView::issues).orElseGet(List::of),
-                rulesDeleted,
-                catalog.map(CatalogView::stale).orElse(false)));
   }
 
   /** The name a working copy is to have. */
