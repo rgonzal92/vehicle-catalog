@@ -68,7 +68,7 @@ class RenameAndDeleteIT extends WorkingCopyTests {
         .as("no name at all")
         .hasStatus(422);
     assertThat(revision(copy)).isZero();
-    assertThat(count("catalog_change WHERE catalog_id = %d", copy)).isZero();
+    assertThat(historyEntries(copy)).isZero();
 
     assertThat(rename(ana(), copy, "\"0\"", "Ben's own"))
         .as("another owner's name is free")
@@ -86,7 +86,7 @@ class RenameAndDeleteIT extends WorkingCopyTests {
         .bodyJson()
         .extractingPath("$.revision")
         .isEqualTo(0);
-    assertThat(count("catalog_change WHERE catalog_id = %d", copy)).isZero();
+    assertThat(historyEntries(copy)).isZero();
 
     assertThat(rename(ana(), copy, "\"0\"", "Compact SUV 2026"))
         .hasStatusOk()

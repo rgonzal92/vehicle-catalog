@@ -142,6 +142,12 @@ abstract class WorkingCopyTests extends ApplicationIT {
         .single();
   }
 
+  /** How many entries the catalog's history shows its owner, Ana. */
+  protected int historyEntries(long catalog) {
+    return read(
+        mvc.get().uri("/api/catalogs/{id}/changes", catalog).with(ana()).exchange(), "$.total");
+  }
+
   protected long count(String from, Object... values) {
     return jdbc.sql("SELECT count(*) FROM " + from.formatted(values)).query(Long.class).single();
   }

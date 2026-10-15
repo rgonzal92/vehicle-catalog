@@ -1,5 +1,6 @@
 package dev.rgonz.catalog.catalog;
 
+import dev.rgonz.catalog.catalog.Revisions.Change;
 import dev.rgonz.catalog.core.ApiException;
 import dev.rgonz.catalog.library.RuleKind;
 import java.util.ArrayList;
@@ -23,7 +24,8 @@ import org.springframework.stereotype.Component;
  * one.
  *
  * <p>Every method here is part of an edit of a working copy: it runs inside that edit's
- * transaction, once the catalog is locked and the caller is known to be its owner.
+ * transaction, once the catalog is locked and the caller is known to be its owner. A method that
+ * changes rules answers with the changes it made, which the edit records.
  */
 @Component
 class CatalogRules {
@@ -38,8 +40,9 @@ class CatalogRules {
     this.jdbc = jdbc;
   }
 
-  /** Adds a rule, or for an exclusion a pair for each target. It records each as a change. */
-  void add(long catalogId, long actorId, RuleContent given) {
+  /** Adds a rule, or for an exclusion a pair for each target, each of which is a change. */
+  List<Change> add(long catalogId, RuleContent given) {
+    var changes = new ArrayList<Change>();
     for (var rule : whatToAdd(catalogId, given)) {
       var pairKey = rule.kind() == RuleKind.EXCLUDES ? UUID.randomUUID() : null;
       var key = insert(catalogId, rule, pairKey);
@@ -49,8 +52,9 @@ class CatalogRules {
             rule.naming(rule.targetFeatureIds().getFirst(), rule.sourceFeatureId()),
             pairKey);
       }
-      record(catalogId, actorId, "RULE_ADDED", null, inWords(catalogId, key));
+      changes.add(Change.ruleAdded(inWords(catalogId, key)));
     }
+    return changes;
   }
 
   /**
@@ -93,10 +97,10 @@ class CatalogRules {
   }
 
   /**
-   * Changes a rule, and its pair with it by the mirrored change, and says whether anything changed.
-   * It records one change.
+   * Changes a rule, and its pair with it by the mirrored change, which is one change, or none when
+   * the rule says so already.
    */
-  boolean change(long catalogId, long actorId, UUID ruleKey, RuleContent given) {
+  List<Change> change(long catalogId, UUID ruleKey, RuleContent given) {
     var before = find(catalogId, ruleKey).orElseThrow(ApiException::notFound);
     if (before.kind() != given.kind()) {
       throw ApiException.invalid(
@@ -113,7 +117,7 @@ class CatalogRules {
     var same = sayingTheSame(catalogId, given);
     // A pair says the same whichever of its two rules says it.
     if (same.stream().anyMatch(pair::contains)) {
-      return false;
+      return List.of();
     }
     if (!same.isEmpty()) {
       throw ApiException.invalid(ALREADY_THERE);
@@ -128,15 +132,14 @@ class CatalogRules {
             given.naming(given.targetFeatureIds().getFirst(), given.sourceFeatureId()));
       }
     }
-    record(catalogId, actorId, "RULE_UPDATED", said, inWords(catalogId, ruleKey));
 
-    return true;
+    return List.of(Change.ruleUpdated(said, inWords(catalogId, ruleKey)));
   }
 
-  /** Deletes a rule, and its pair with it. It records one change. */
-  void delete(long catalogId, long actorId, UUID ruleKey) {
+  /** Deletes a rule, and its pair with it, which is one change. */
+  Change delete(long catalogId, UUID ruleKey) {
     var rule = find(catalogId, ruleKey).orElseThrow(ApiException::notFound);
-    record(catalogId, actorId, "RULE_REMOVED", inWords(catalogId, ruleKey), null);
+    var removed = Change.ruleRemoved(inWords(catalogId, ruleKey));
     jdbc.sql(
             """
             DELETE FROM catalog_rule
@@ -147,6 +150,8 @@ class CatalogRules {
         .param("key", ruleKey)
         .param("pairKey", rule.pairKey())
         .update();
+
+    return removed;
   }
 
   /**
@@ -162,17 +167,12 @@ class CatalogRules {
 
   /**
    * Deletes the rules that name the feature, a pair as one, which is what lets its feature row be
-   * removed. It records each as a change, a pair once, and answers with the deleted rules in words.
+   * removed. Each is a change, a pair once.
    */
-  List<String> deleteThoseNaming(long catalogId, long actorId, long featureId) {
-    var deleted = new ArrayList<String>();
-    for (var key : keysOfThoseNaming(catalogId, featureId)) {
-      deleted.add(inWords(catalogId, key));
-      delete(catalogId, actorId, key);
-    }
-    deleted.sort(null);
-
-    return deleted;
+  List<Change> deleteThoseNaming(long catalogId, long featureId) {
+    return keysOfThoseNaming(catalogId, featureId).stream()
+        .map(key -> delete(catalogId, key))
+        .toList();
   }
 
   /** The rules that name the feature. Of a pair, it is the rule that starts from the feature. */
@@ -198,20 +198,19 @@ class CatalogRules {
   /**
    * Deletes the rules whose trim scope lists the trim and no other, which are the ones that would
    * cover nothing once the trim has left the catalog. A pair has the same scopes, so it goes as
-   * one. It records each as a change, a pair once, and answers with the deleted rules in words.
+   * one. Each is a change, a pair once.
    */
-  List<String> deleteThoseOnlyOnTrim(long catalogId, long actorId, long trimId) {
-    return deleteThoseListingOnly(catalogId, actorId, "catalog_rule_trim", "trim_id", trimId);
+  List<Change> deleteThoseOnlyOnTrim(long catalogId, long trimId) {
+    return deleteThoseListingOnly(catalogId, "catalog_rule_trim", "trim_id", trimId);
   }
 
   /** The same for the rules whose region scope lists the region and no other. */
-  List<String> deleteThoseOnlyInRegion(long catalogId, long actorId, String regionCode) {
-    return deleteThoseListingOnly(
-        catalogId, actorId, "catalog_rule_region", "region_code", regionCode);
+  List<Change> deleteThoseOnlyInRegion(long catalogId, String regionCode) {
+    return deleteThoseListingOnly(catalogId, "catalog_rule_region", "region_code", regionCode);
   }
 
-  private List<String> deleteThoseListingOnly(
-      long catalogId, long actorId, String scope, String column, Object listed) {
+  private List<Change> deleteThoseListingOnly(
+      long catalogId, String scope, String column, Object listed) {
     var alone =
         jdbc.sql(
                 """
@@ -234,13 +233,11 @@ class CatalogRules {
             .param("listed", listed)
             .query(Header.class)
             .list();
-    var deleted = new ArrayList<String>();
+    var deleted = new ArrayList<Change>();
     var pairsSaid = new HashSet<UUID>();
     for (var rule : alone) {
       if (rule.pairKey() == null || pairsSaid.add(rule.pairKey())) {
-        var said = inWords(catalogId, rule.ruleKey());
-        deleted.add(said);
-        record(catalogId, actorId, "RULE_REMOVED", said, null);
+        deleted.add(Change.ruleRemoved(inWords(catalogId, rule.ruleKey())));
       }
     }
     for (var rule : alone) {
@@ -249,7 +246,6 @@ class CatalogRules {
           .param("key", rule.ruleKey())
           .update();
     }
-    deleted.sort(null);
 
     return deleted;
   }
@@ -571,22 +567,6 @@ class CatalogRules {
         .query(Worded.class)
         .single()
         .sentence();
-  }
-
-  /** Records a change to a rule: what the rule said before, and what it says now. */
-  private void record(long catalogId, long actorId, String kind, String old, String now) {
-    jdbc.sql(
-            """
-            INSERT INTO catalog_change (catalog_id, actor_id, kind, payload)
-            VALUES (:catalog, :actor, :kind,
-                    jsonb_strip_nulls(jsonb_build_object('old', :old::text, 'new', :new::text)))
-            """)
-        .param("catalog", catalogId)
-        .param("actor", actorId)
-        .param("kind", kind)
-        .param("old", old)
-        .param("new", now)
-        .update();
   }
 
   /**

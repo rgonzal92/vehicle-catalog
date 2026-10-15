@@ -110,7 +110,7 @@ class CellEditsIT extends WorkingCopyTests {
   @Test
   void aSaveFromAnEarlierRevisionIsARevisionConflictThatNamesTheCurrentOne() {
     setCells(ana(), copy, "\"0\"", cell("TRANS_MANUAL", "Base", "NA", "A"));
-    var changes = count("catalog_change WHERE catalog_id = %d", copy);
+    var changes = historyEntries(copy);
 
     var refused = setCells(ana(), copy, "\"0\"", cell("TRANS_MANUAL", "Base", "NA", "S"));
 
@@ -122,7 +122,7 @@ class CellEditsIT extends WorkingCopyTests {
     assertThat(refused).bodyJson().extractingPath("$.revision").isEqualTo(1);
     assertThat(stored("TRANS_MANUAL", "Base", "NA")).isEqualTo("A");
     assertThat(revision(copy)).isEqualTo(1);
-    assertThat(count("catalog_change WHERE catalog_id = %d", copy)).isEqualTo(changes);
+    assertThat(historyEntries(copy)).isEqualTo(changes);
     assertThat(setCells(ana(), copy, "\"7\"", cell("TRANS_MANUAL", "Base", "NA", "S")))
         .as("a revision the catalog has not reached yet is no better")
         .hasStatus(412);
@@ -228,7 +228,7 @@ class CellEditsIT extends WorkingCopyTests {
           .containsExactlyInAnyOrder(200, 412);
     }
     assertThat(revision(copy)).isEqualTo(1);
-    assertThat(count("catalog_change WHERE catalog_id = %d", copy)).isEqualTo(1);
+    assertThat(historyEntries(copy)).isEqualTo(1);
   }
 
   private static void await(CountDownLatch latch) {
@@ -252,7 +252,7 @@ class CellEditsIT extends WorkingCopyTests {
         .hasStatusOk();
 
     assertThat(stored("TRANS_MANUAL", "Base", "NA")).isEqualTo("A");
-    assertThat(count("catalog_change WHERE catalog_id = %d", copy)).isEqualTo(1);
+    assertThat(historyEntries(copy)).isEqualTo(1);
   }
 
   @Test
@@ -404,9 +404,7 @@ class CellEditsIT extends WorkingCopyTests {
 
   @Test
   void everyCellChangeIsRecordedWithItsOldAndNewValueWhoMadeItAndWhen() {
-    assertThat(count("catalog_change WHERE catalog_id = %d", copy))
-        .as("a new working copy has no change history")
-        .isZero();
+    assertThat(historyEntries(copy)).as("a new working copy has no change history").isZero();
 
     setCells(
         ana(),
@@ -514,7 +512,7 @@ class CellEditsIT extends WorkingCopyTests {
    */
   private void assertNothingChanged(long catalog) {
     assertThat(revision(catalog)).isZero();
-    assertThat(count("catalog_change WHERE catalog_id = %d", catalog)).isZero();
+    assertThat(historyEntries(catalog)).isZero();
     assertThat(
             jdbc.sql(
                     """

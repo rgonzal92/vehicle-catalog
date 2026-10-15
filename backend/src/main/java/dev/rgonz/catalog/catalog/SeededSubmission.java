@@ -70,39 +70,45 @@ class SeededSubmission {
                   id("vehicle_line", "code", seeded.vehicleLine()),
                   seeded.modelYear()));
       long revision =
-          edits.addFeatures(
-              copy.id(),
-              owner,
-              at(copy.revision()),
-              seeded.featureRows().stream().map(this::feature).toList());
+          edits
+              .addFeatures(
+                  copy.id(),
+                  owner,
+                  at(copy.revision()),
+                  seeded.featureRows().stream().map(this::feature).toList())
+              .revision();
       revision =
-          edits.setCells(
-              copy.id(),
-              owner,
-              at(revision),
-              seeded.cells().stream()
-                  .map(
-                      cell ->
-                          new CellChange(
-                              feature(cell.feature()),
-                              id("trim", "name", cell.trim()),
-                              cell.region(),
-                              cell.availability()))
-                  .toList());
+          edits
+              .setCells(
+                  copy.id(),
+                  owner,
+                  at(revision),
+                  seeded.cells().stream()
+                      .map(
+                          cell ->
+                              new CellChange(
+                                  feature(cell.feature()),
+                                  id("trim", "name", cell.trim()),
+                                  cell.region(),
+                                  cell.availability()))
+                      .toList())
+              .revision();
       for (var rule : seeded.rules()) {
         revision =
-            edits.addRule(
-                copy.id(),
-                owner,
-                at(revision),
-                new RuleContent(
-                    rule.kind(),
-                    feature(rule.source()),
-                    rule.targets().stream().map(this::feature).toList(),
-                    true,
-                    List.of(),
-                    true,
-                    List.of()));
+            edits
+                .addRule(
+                    copy.id(),
+                    owner,
+                    at(revision),
+                    new RuleContent(
+                        rule.kind(),
+                        feature(rule.source()),
+                        rule.targets().stream().map(this::feature).toList(),
+                        true,
+                        List.of(),
+                        true,
+                        List.of()))
+                .revision();
       }
       submissions.submit(copy.id(), owner, at(revision), seeded.note());
     } catch (RuntimeException refused) {

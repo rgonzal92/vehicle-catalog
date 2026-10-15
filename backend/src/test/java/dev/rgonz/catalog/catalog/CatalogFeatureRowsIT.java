@@ -218,7 +218,7 @@ class CatalogFeatureRowsIT extends WorkingCopyTests {
         });
     assertThat(revision(copy)).isZero();
     assertThat(count("catalog_feature WHERE catalog_id = %d", copy)).isEqualTo(151);
-    assertThat(count("catalog_change WHERE catalog_id = %d", copy)).isZero();
+    assertThat(historyEntries(copy)).isZero();
   }
 
   @Test
