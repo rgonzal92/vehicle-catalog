@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injector } from '@angular/core';
 import { NavigationEnd, Router } from '@angular/router';
 import { MessageService } from 'primeng/api';
@@ -23,6 +23,16 @@ describe('Tour', () => {
   /** Working copies made, and deleted with the revision named, as the backend was asked. */
   let made: { name: string; vehicleLineId: number; modelYear: number }[];
   let deleted: [number, number][];
+
+  /** The working copy this page made last, as the catalog service has it. */
+  let lastMade: number | null;
+
+  /** Whether the backend refuses to make a copy, and how many deletes it refuses first. */
+  let refusesCopies: boolean;
+  let deletesRefused: number;
+
+  /** The names of working copies the owner has already, which a new copy may not take. */
+  let taken: string[];
 
   const manager: Person = {
     id: 2,
@@ -65,10 +75,21 @@ describe('Tour', () => {
               snapshot: { catalogId, revision: catalogId === 41 ? 9 : 1 },
             }),
             create: async (given: { name: string; vehicleLineId: number; modelYear: number }) => {
+              if (refusesCopies) {
+                throw new Error('The owner has as many working copies as one may have.');
+              }
+              if (taken.includes(given.name)) {
+                throw new HttpErrorResponse({ status: 409, error: { code: 'NAME_TAKEN' } });
+              }
               made.push(given);
+              lastMade = 41;
               return { id: 41 };
             },
+            lastMade: () => lastMade,
             delete: async (catalogId: number, revision: number) => {
+              if (deletesRefused-- > 0) {
+                throw new Error('The catalog has changed.');
+              }
               deleted.push([catalogId, revision]);
             },
           },
@@ -112,6 +133,10 @@ describe('Tour', () => {
     navigations = new Subject();
     made = [];
     deleted = [];
+    lastMade = null;
+    refusesCopies = false;
+    deletesRefused = 0;
+    taken = [];
   });
 
   afterEach(() => {
@@ -357,9 +382,22 @@ describe('Tour', () => {
       expect(JSON.parse(sessionStorage.getItem('tour')!)).toMatchObject({ copy: 41 });
     });
 
+    it("gives its copy a name of its own when another tour's copy has the same time", async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date(2026, 9, 16, 18, 11, 28));
+      taken = ['Tour copy 18:11:28'];
+      const tour = await on('copy');
+
+      await tour.next();
+
+      expect(made.map(({ name }) => name)).toEqual(['Tour copy 18:11:28 (2)']);
+      expect(tour.step()?.id).toBe('break');
+    });
+
     it('takes a copy the visitor made themselves on that step as the one it made', async () => {
       const tour = await on('copy');
 
+      lastMade = 52;
       navigations.next(new NavigationEnd(2, '/catalogs/52', '/catalogs/52'));
       await vi.waitFor(() => expect(tour.step()?.id).toBe('break'));
 
@@ -367,8 +405,45 @@ describe('Tour', () => {
       expect(JSON.parse(sessionStorage.getItem('tour')!)).toMatchObject({ copy: 52 });
     });
 
+    it('leaves alone a copy opened on that step that this page did not make', async () => {
+      const tour = await on('copy');
+
+      navigations.next(new NavigationEnd(2, '/catalogs/60', '/catalogs/60'));
+      await new Promise((resolve) => setTimeout(resolve));
+
+      expect(tour.step()?.id).toBe('copy');
+      expect(JSON.parse(sessionStorage.getItem('tour')!).copy).toBeUndefined();
+    });
+
+    it('makes no second copy when the visitor comes back to that step', async () => {
+      const tour = await on('break', { copy: 41 });
+      await tour.back();
+      expect(tour.step()?.id).toBe('copy');
+
+      await tour.next();
+
+      expect(made).toEqual([]);
+      expect(tour.step()?.id).toBe('break');
+      expect(url).toBe('/catalogs/41');
+    });
+
+    it('says it cannot make a copy that is refused, and goes on without one', async () => {
+      refusesCopies = true;
+      const tour = await on('copy');
+
+      await tour.next();
+      expect(tour.step()?.id).toBe('copy');
+      expect(tour.missing()).toBe(true);
+
+      await tour.next();
+      expect(tour.step()?.id).toBe('break');
+      expect(made).toEqual([]);
+    });
+
     it('asks for its cell to be shown, sets it to not offered, and then back to what it held', async () => {
-      const pressed = theCell('S');
+      const pressed = theCell('A');
+      const counts = onThePage('counts');
+      counts.setAttribute('data-issue-counts', '');
       const tour = await on('break', { copy: 41 });
       expect(url).toBe('/catalogs/41');
       expect(tour.cell()).toEqual({ feature: 'SEAT_HEATED_FRONT', trim: 'Luxury', region: 'NA' });
@@ -376,9 +451,10 @@ describe('Tour', () => {
       await tour.next();
       expect(pressed).toEqual(['-']);
       expect(tour.step()?.id).toBe('fix');
+      expect(counts.classList).toContain('tour-target');
 
       await tour.next();
-      expect(pressed).toEqual(['-', 's']);
+      expect(pressed).toEqual(['-', 'a']);
       expect(tour.step()?.id).toBe('card');
     });
 
@@ -390,6 +466,15 @@ describe('Tour', () => {
 
       await vi.waitFor(() => expect(deleted).toEqual([[41, 9]]));
       await vi.waitFor(() => expect(url).toBe('/dashboard'));
+    });
+
+    it('asks once more for a delete that is refused, as an edit still saving can do', async () => {
+      deletesRefused = 1;
+      const tour = await on('fix', { copy: 41, held: 'S' });
+
+      tour.end();
+
+      await vi.waitFor(() => expect(deleted).toEqual([[41, 9]]));
     });
   });
 });

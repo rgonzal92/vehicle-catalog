@@ -1,12 +1,12 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { NavigationEnd, Router } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { filter, firstValueFrom } from 'rxjs';
 import { reasonOf } from '../shared/reason-of';
-import { Catalogs } from './catalogs';
+import { Catalogs, LineageSummary } from './catalogs';
 import { NAVIGATE, Session } from './session';
-import { SEDAN, StepId, STEPS } from './tour-steps';
+import { cellOnPage, SEDAN, StepId, STEPS } from './tour-steps';
 
 /** The login the tour signs in with, as the landing page publishes it; some have no password. */
 interface Login {
@@ -14,11 +14,14 @@ interface Login {
   password: string | null;
 }
 
+/** What a cell of the matrix shows for each availability. */
+type Shown = 'S' | 'A' | '-';
+
 /** What the tab keeps of a tour: its step, the working copy it made, and what its cell held. */
 interface Kept {
   step?: StepId;
   copy?: number;
-  held?: string;
+  held?: Shown;
 }
 
 /** The class that rings the element a step is about. */
@@ -38,8 +41,8 @@ export const WIDE = '(min-width: 1024px)';
 /** Where in the steps signing in comes; every step after it needs a session. */
 const SIGN_IN = STEPS.findIndex((step) => step.id === 'sign-in');
 
-/** The keys that set a cell of the matrix to each availability, by the symbol the cell shows. */
-const KEY_OF: Record<string, string> = { S: 's', A: 'a', '-': '-' };
+/** The keys that set a cell of the matrix to each availability, by what the cell shows. */
+const KEY_OF: Record<Shown, string> = { S: 's', A: 'a', '-': '-' };
 
 /**
  * The tour: which step a visitor is on, the page it shows on, and the element it is about. The step
@@ -58,8 +61,10 @@ export class Tour {
   private readonly at = signal<number | null>(null);
   private looking?: ReturnType<typeof setInterval>;
   private focusedBefore: Element | null = null;
+  private ringed: Element[] = [];
+  private opening: Promise<void> = Promise.resolve();
   private copy: number | null = null;
-  private held: string | null = null;
+  private held: Shown | null = null;
 
   /** The step open, or null while there is no tour. */
   readonly step = computed(() => {
@@ -91,12 +96,14 @@ export class Tour {
 
   constructor() {
     // A working copy the visitor makes on the step that asks for one is the copy the tour made.
+    // One that is opened and was not made on this page is somebody's own, and is left alone.
     this.router.events
       .pipe(filter((event) => event instanceof NavigationEnd))
       .subscribe((event) => {
         const opened = /^\/catalogs\/(\d+)$/.exec(event.urlAfterRedirects);
         const at = this.at();
-        if (opened !== null && at !== null && STEPS[at].id === 'copy') {
+        const made = opened !== null && Number(opened[1]) === this.catalogs.lastMade();
+        if (made && at !== null && STEPS[at].id === 'copy' && this.copy === null) {
           this.copy = Number(opened[1]);
           void this.open(at + 1);
         }
@@ -160,38 +167,41 @@ export class Tour {
 
   /**
    * Goes on, doing what the step asks for a visitor who would rather watch: signs in, makes the
-   * working copy, or sets the cell. Every other step goes to the step after.
+   * working copy unless it is made, or sets the cell. A step that cannot be shown goes on without
+   * doing it, and every other step goes to the step after.
    */
   async next(): Promise<void> {
+    await this.opening;
     const at = this.at();
     if (at === null) {
       return;
     }
-    switch (STEPS[at].id) {
-      case 'sign-in': {
-        const login = this.login();
-        const hint = login === null ? '' : `?login_hint=${encodeURIComponent(login.username)}`;
-        this.navigate(`/api/oauth2/authorization/cognito${hint}`);
-        return;
-      }
-      case 'copy':
+    const step = STEPS[at];
+    if (step.id === 'sign-in') {
+      const login = this.login();
+      const hint = login === null ? '' : `?login_hint=${encodeURIComponent(login.username)}`;
+      this.navigate(`/api/oauth2/authorization/cognito${hint}`);
+      return;
+    }
+    if (!this.missing()) {
+      if (step.id === 'copy' && this.copy === null) {
         this.copy = await this.makeCopy();
         if (this.copy === null) {
+          this.missing.set(true);
           return;
         }
-        break;
-      case 'break':
+      } else if (step.id === 'break') {
         this.press('-');
-        break;
-      case 'fix':
-        this.press(this.held ?? 's');
-        break;
+      } else if (step.id === 'fix') {
+        this.press(this.held ?? 'S');
+      }
     }
     await this.open(at + 1, 1);
   }
 
   /** Goes to the step before. */
   async back(): Promise<void> {
+    await this.opening;
     const at = this.at();
     if (at !== null && at > 0) {
       await this.open(at - 1, -1);
@@ -200,9 +210,15 @@ export class Tour {
 
   /**
    * Opens a step, or the one past it in the direction of travel when it is signing in and someone is
-   * signed in. A step that needs a session sends someone who is not signed in to sign in.
+   * signed in. A step that needs a session sends someone who is not signed in to sign in. Going on
+   * or back waits for a step still opening, which may be finding its page.
    */
-  private async open(wanted: number, direction: 1 | -1 = 1): Promise<void> {
+  private open(wanted: number, direction: 1 | -1 = 1): Promise<void> {
+    this.opening = this.opened(wanted, direction);
+    return this.opening;
+  }
+
+  private async opened(wanted: number, direction: 1 | -1): Promise<void> {
     const signedIn = (await this.session.load()) !== null;
     let index = wanted;
     if (signedIn && index === SIGN_IN) {
@@ -236,7 +252,7 @@ export class Tour {
   }
 
   /** The lineage of Sedan 2027, found by its line and year since its id changes at every reset. */
-  private async sedan() {
+  private async sedan(): Promise<LineageSummary | null> {
     const lineages = await this.catalogs.lineages().catch(() => []);
     return (
       lineages.find(
@@ -247,9 +263,10 @@ export class Tour {
   }
 
   /**
-   * Makes a working copy of the current Approved Sedan 2027, named for the time to the second: an
-   * owner's copies need names of their own, and everyone on the tour is the same owner, so that two
-   * visitors at once each get one. A refusal is told as the app tells it, and leaves none.
+   * Makes a working copy of the current Approved Sedan 2027, named for the time to the second. An
+   * owner's copies need names of their own and everyone on the tour is the same owner, so a name
+   * another tour took in the same second gets a number after it. A refusal is told as the app
+   * tells it, and leaves none.
    */
   private async makeCopy(): Promise<number | null> {
     try {
@@ -259,35 +276,53 @@ export class Tour {
       }
       const approved = await this.catalogs.find(sedan.catalogId);
       const time = new Date().toTimeString().slice(0, 8);
-      const made = await this.catalogs.create({
-        name: `Tour copy ${time}`,
-        vehicleLineId: approved.vehicleLineId,
-        modelYear: approved.modelYear,
-      });
-      return made.id;
+      for (let tried = 1; ; tried++) {
+        try {
+          const made = await this.catalogs.create({
+            name: tried === 1 ? `Tour copy ${time}` : `Tour copy ${time} (${tried})`,
+            vehicleLineId: approved.vehicleLineId,
+            modelYear: approved.modelYear,
+          });
+          return made.id;
+        } catch (error) {
+          const taken = error instanceof HttpErrorResponse && error.error?.code === 'NAME_TAKEN';
+          if (!taken || tried === 3) {
+            throw error;
+          }
+        }
+      }
     } catch (error) {
       this.messages.add({ severity: 'error', summary: 'Not created', detail: reasonOf(error) });
       return null;
     }
   }
 
-  /** Sets the cell the step is about as a visitor does, with the key for an availability. */
-  private press(key: string): void {
-    const cell = this.target();
-    if (cell instanceof HTMLElement) {
+  /** Sets the cell the step is about as a visitor does, with the key for what it is to show. */
+  private press(shown: Shown): void {
+    const cell = this.cellOnPage();
+    if (cell !== null) {
       cell.focus();
-      cell.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      cell.dispatchEvent(new KeyboardEvent('keydown', { key: KEY_OF[shown], bubbles: true }));
     }
   }
 
+  /** The cell of the matrix the open step is about, if it is drawn. */
+  private cellOnPage(): HTMLElement | null {
+    const cell = this.step()?.cell;
+    return cell === undefined ? null : document.querySelector<HTMLElement>(cellOnPage(cell));
+  }
+
   /**
-   * Deletes the working copy the tour made, with the revision it is at, and leaves its page. A
-   * delete that fails is not tried again: the copy stays until the demo's reset.
+   * Deletes the working copy the tour made, with the revision it is at, and leaves its page. An
+   * edit still being saved can leave that revision behind by the time the delete arrives, so a
+   * delete that is refused is asked once more, from the copy as it is read then. One refused again
+   * is not: the copy stays until the demo's reset.
    */
   private async deleteCopy(copy: number): Promise<void> {
+    const remove = async () =>
+      this.catalogs.delete(copy, (await this.catalogs.find(copy)).snapshot.revision);
     try {
-      const catalog = await this.catalogs.find(copy);
-      await this.catalogs.delete(copy, catalog.snapshot.revision);
+      await remove().catch(remove);
       if (this.router.url === `/catalogs/${copy}`) {
         await this.router.navigateByUrl('/dashboard');
       }
@@ -297,13 +332,14 @@ export class Tour {
   }
 
   /**
-   * Takes the ring off the element of the step before, and looks for this step's, again and again
-   * until it appears or the step gives up on it. The first time the cell the tour breaks is found,
-   * what it holds is kept, to be set back.
+   * Takes the rings off the elements of the step before, and looks for this step's, again and
+   * again until they appear or the step gives up on them. The first time the cell the tour breaks
+   * is found, what it shows is kept, to be set back.
    */
   private look(selector: string | undefined): void {
     clearInterval(this.looking);
-    this.target()?.classList.remove(RING);
+    this.ringed.forEach((element) => element.classList.remove(RING));
+    this.ringed = [];
     this.target.set(null);
     this.missing.set(false);
     if (selector === undefined) {
@@ -313,13 +349,18 @@ export class Tour {
     let waited = -LOOK_EVERY_MS;
     const find = (): boolean => {
       waited += LOOK_EVERY_MS;
-      const found = document.querySelector(selector);
-      if (found !== null) {
-        found.classList.add(RING);
-        found.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
-        this.target.set(found);
-        if (this.step()?.cell !== undefined && this.held === null) {
-          this.held = KEY_OF[found.textContent?.trim().charAt(0) ?? ''] ?? null;
+      const found = Array.from(document.querySelectorAll(selector));
+      if (found.length > 0) {
+        found.forEach((element) => element.classList.add(RING));
+        // A cell is brought into view by the editor, which scrolls the matrix to it.
+        if (this.step()?.cell === undefined) {
+          found[0].scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+        }
+        this.ringed = found;
+        this.target.set(found[0]);
+        const shown = this.cellOnPage()?.textContent?.trim().charAt(0);
+        if (this.held === null && (shown === 'S' || shown === 'A' || shown === '-')) {
+          this.held = shown;
           this.keep();
         }
       } else if (waited >= WAIT_MS) {

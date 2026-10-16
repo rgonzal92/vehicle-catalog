@@ -9,12 +9,12 @@ const offer = (page: Page) => page.locator('.p-toast-message', { hasText: 'New h
 /** The step of the tour with this title. */
 const step = (page: Page, title: string) => page.getByRole('dialog', { name: title });
 
-/** A cell of the working copy's matrix, by its feature's code, its trim, and its region. */
+/** The cell of the working copy's matrix that a feature has on Luxury in North America. */
 const cell = (page: Page, feature: string) => page.locator(`td[data-cell="${feature} Luxury NA"]`);
 
 /** The name of the working copy a tour made, as the editor's heading shows it. */
 const tourCopy = async (page: Page) => {
-  const heading = page.getByRole('heading', { name: /^Tour copy \d\d:\d\d:\d\d$/ });
+  const heading = page.getByRole('heading', { name: /^Tour copy \d\d:\d\d:\d\d( \(\d\))?$/ });
   await expect(heading).toBeVisible();
   return (await heading.textContent())!.trim();
 };
@@ -24,7 +24,11 @@ const tourCopy = async (page: Page) => {
  * at the same time, so a test looks for its own copy and not for every tour's.
  */
 const listed = (page: Page, name: string) =>
-  page.getByRole('region', { name: 'My catalogs' }).getByRole('row', { name });
+  page.getByRole('region', { name: 'My catalogs' }).getByRole('cell', { name, exact: true });
+
+/** Resolves once the dashboard has read the person's working copies. */
+const myCatalogsRead = (page: Page) =>
+  page.waitForResponse((response) => response.url().includes('/api/catalogs?scope=mine'));
 
 /**
  * Takes the tour from the header, signed in, to the step that breaks a rule. Answers with the name
@@ -95,10 +99,12 @@ test('a visitor takes the tour from its offer to its last card, going on with En
   await expect(cell(page, 'SEAT_HEATED_FRONT')).toContainText('-');
   await expect(cell(page, 'SEAT_HEATED_REAR')).toHaveClass(/matrix-error/);
   await expect(page.locator('[data-issue-counts]')).toContainText('1 Error');
+  await expect(page.locator('[data-issue-counts]')).toHaveClass(/tour-target/);
   await page.keyboard.press('Enter');
 
   await expect(cell(page, 'SEAT_HEATED_FRONT')).toContainText('S');
   await expect(cell(page, 'SEAT_HEATED_REAR')).not.toHaveClass(/matrix-error/);
+  await expect(page.locator('[data-issue-counts]')).not.toContainText('Error');
 
   const card = step(page, "That's the tour");
   await expect(card.getByRole('link', { name: 'View the code' })).toHaveAttribute(
@@ -110,11 +116,12 @@ test('a visitor takes the tour from its offer to its last card, going on with En
     'https://www.linkedin.com/in/rgonzal92',
   );
   await expect(card.getByRole('button', { name: 'Keep exploring' })).toBeFocused();
+  const read = myCatalogsRead(page);
   await page.keyboard.press('Enter');
 
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page).toHaveURL('/dashboard');
-  await expect(page.getByRole('region', { name: 'My catalogs' })).toBeVisible();
+  await read;
   await expect(listed(page, name)).toHaveCount(0);
 });
 
@@ -125,10 +132,11 @@ test('a visitor who skips the tour on the step that breaks a rule leaves no work
   const name = await toBreakingARule(page);
   await expectAccessible(page);
 
+  const read = myCatalogsRead(page);
   await step(page, 'Break a rule').getByRole('button', { name: 'Skip tour' }).click();
 
   await expect(page).toHaveURL('/dashboard');
-  await expect(page.getByRole('region', { name: 'My catalogs' })).toBeVisible();
+  await read;
   await expect(listed(page, name)).toHaveCount(0);
 });
 

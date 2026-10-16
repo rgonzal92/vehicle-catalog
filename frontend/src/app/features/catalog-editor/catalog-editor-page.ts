@@ -43,8 +43,8 @@ import {
   STATUS_SEVERITIES,
 } from '../../core/catalogs';
 import { FixedLists } from '../../core/fixed-lists';
-import { Tour } from '../../core/tour';
 import { FeatureKind, KIND_FILTERS } from '../../core/library';
+import { Tour } from '../../core/tour';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
 import { Cell, FeatureRow, Issue } from '../../shared/availability-matrix/matrix';
 import { ExportDialog } from '../../shared/export-dialog';
@@ -533,15 +533,15 @@ export class CatalogEditorPage {
   private readonly catalogs = inject(Catalogs);
   private readonly editing = inject(Editing);
   private readonly tour = inject(Tour);
-
-  /** Whether the working copy has been read, which changes once and not with every edit. */
-  private readonly read = computed(() => this.editing.catalog() !== null);
   protected readonly fixedLists = inject(FixedLists);
   private readonly messages = inject(MessageService);
   private readonly injector = inject(Injector);
   protected readonly id = Number(inject(ActivatedRoute).snapshot.paramMap.get('id'));
 
   protected readonly catalog = this.editing.catalog;
+
+  /** Whether the working copy has been read, which changes once and not with every edit. */
+  private readonly read = computed(() => this.editing.catalog() !== null);
 
   /** The catalog's issues as of the highest revision heard, Errors before Warnings. */
   protected readonly issues = this.editing.issues;
@@ -937,14 +937,15 @@ export class CatalogEditorPage {
   }
 
   /**
-   * Shows the Features tab with the cell an issue is about in view. A filter on the rows, or a
-   * region left out of the matrix, would keep the cell from view, so both give way.
+   * Shows the Features tab with a cell in view: the one an issue is about, or the tour's. A filter
+   * on the rows, or a region left out of the matrix, would keep the cell from view, so both give
+   * way.
    */
   protected showCell(
-    issue: Pick<Issue, 'featureId' | 'trimId' | 'regionCode'>,
+    cell: Pick<Issue, 'featureId' | 'trimId' | 'regionCode'>,
     matrix: AvailabilityMatrix,
   ): void {
-    const { featureId, trimId, regionCode } = issue;
+    const { featureId, trimId, regionCode } = cell;
     if (featureId === null || trimId === null || regionCode === null) {
       return;
     }

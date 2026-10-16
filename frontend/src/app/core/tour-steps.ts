@@ -26,7 +26,10 @@ export const SEDAN = { vehicleLine: 'Sedan', modelYear: 2027 };
  * Approved Sedan 2027 and in the version after it, once the seeded submission is approved.
  */
 export const BROKEN: CellAt = { feature: 'SEAT_HEATED_FRONT', trim: 'Luxury', region: 'NA' };
-const BROKEN_CELL = `td[data-cell="${BROKEN.feature} ${BROKEN.trim} ${BROKEN.region}"]`;
+
+/** Where a cell of the matrix is on the page. */
+export const cellOnPage = (cell: CellAt) =>
+  `td[data-cell="${cell.feature} ${cell.trim} ${cell.region}"]`;
 
 /** One step of the tour: where it shows, the element it is about, and what it says. */
 export interface TourStep {
@@ -38,7 +41,10 @@ export interface TourStep {
   readonly path?: string;
   /** The cell of the matrix the step is about, which the catalog's editor brings into view. */
   readonly cell?: CellAt;
-  /** The element the step is about, which gets a ring; without one, it is about no one element. */
+  /**
+   * The elements the step is about, which get a ring, the first of them the one it points to;
+   * without any, it is about no one element.
+   */
   readonly target?: string;
   readonly title: string;
   readonly words: string;
@@ -90,7 +96,7 @@ export const STEPS: readonly TourStep[] = [
     id: 'break',
     path: '/catalogs/{copy}',
     cell: BROKEN,
-    target: BROKEN_CELL,
+    target: cellOnPage(BROKEN),
     title: 'Break a rule',
     words:
       'Rules keep a catalog consistent: some features need others to be offered. Set this cell to - and watch: the app checks every rule on each save and marks what breaks as an Error.',
@@ -99,7 +105,7 @@ export const STEPS: readonly TourStep[] = [
     id: 'fix',
     path: '/catalogs/{copy}',
     cell: BROKEN,
-    target: BROKEN_CELL,
+    target: `${cellOnPage(BROKEN)}, [data-issue-counts]`,
     title: 'Put it right',
     words:
       "Set the cell back to what it was and the Error goes away. A copy with an Error can't be sent for review, so a mistake never reaches the approver.",
