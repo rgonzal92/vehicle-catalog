@@ -136,7 +136,13 @@ The run's requests, from 16:13:54 to 16:14:12, show as two points where the run 
 
 ### The maintainer's screenshot
 
-The trace of the median ask as the CloudWatch console draws it is the maintainer's to take, from Application Signals, Transaction Search, by the trace's id, which the ticket's comment gives him. It goes here, beside the chart, cropped to the trace's spans with nothing of the console's frame, and looked at first for everything [the dashboard's record](dashboard-and-alarms.md#how-a-picture-is-made-safe-to-publish) lists. It has not been taken yet, and the table above stands on its own meanwhile.
+The trace of the median ask before the change, `ce6f6f045daebad2208fec70a34111c5`, as the CloudWatch console draws it under Application Signals, Transaction Search, taken by the maintainer on 2026-10-16:
+
+![The span timeline waterfall of the trace: 61 spans, the request /api of 418 ms on top as one long bar, and under it sixty short bars in a staircase from left to right, catalog.read, catalog.library, and catalog.issues for each of the twenty working copies in turn, reads of 9 to 16 ms, library reads of 7 to 15 ms, and issues of 1 ms or less](working-copy-list-trace-before.png)
+
+The staircase is the twenty working copies read one after another, each with its read, its library, and its issues, and nothing of the request running beside them. The console gives each step's length in whole milliseconds, so its figures are the table's, rounded.
+
+The panel scrolls, so it was taken as two pictures and joined where they overlap: the steps 21 to 36 are in both, the same to the pixel, and are kept once. The crop is the panel "Spans" alone: the console's bar and menu, the browser's address line, and everything of the console above the panel are outside it, and no span's details are open. It was looked at for everything [the dashboard's record](dashboard-and-alarms.md#how-a-picture-is-made-safe-to-publish) lists and shows none of them.
 
 ## What they say
 
