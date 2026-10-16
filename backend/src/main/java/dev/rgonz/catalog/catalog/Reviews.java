@@ -1,6 +1,6 @@
 package dev.rgonz.catalog.catalog;
 
-import dev.rgonz.catalog.catalog.Issue.Severity;
+import dev.rgonz.catalog.catalog.Issue.Counts;
 import dev.rgonz.catalog.catalog.Revisions.Decision;
 import dev.rgonz.catalog.catalog.Revisions.Outcome;
 import dev.rgonz.catalog.core.ApiException;
@@ -98,7 +98,7 @@ class Reviews {
                     "The vehicle line %s is deactivated, so its catalogs cannot be approved."
                         .formatted(catalog.vehicleLine()));
               }
-              if (catalog.issues().stream().anyMatch(issue -> issue.severity() == Severity.ERROR)) {
+              if (Counts.of(catalog.issues()).errors() > 0) {
                 throw ApiException.hasErrors(
                     "This catalog has Errors, so it cannot be approved.", catalog.issues());
               }

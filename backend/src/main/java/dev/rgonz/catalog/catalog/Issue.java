@@ -54,4 +54,12 @@ record Issue(
 
   /** A rule, by its origin and by what identifies it there. */
   record RuleReference(String origin, String key) {}
+
+  /** How many Errors and how many Warnings validation found in a catalog. */
+  record Counts(long errors, long warnings) {
+    static Counts of(List<Issue> issues) {
+      var errors = issues.stream().filter(issue -> issue.severity() == Severity.ERROR).count();
+      return new Counts(errors, issues.size() - errors);
+    }
+  }
 }

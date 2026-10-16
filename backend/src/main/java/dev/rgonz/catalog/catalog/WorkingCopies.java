@@ -1,6 +1,7 @@
 package dev.rgonz.catalog.catalog;
 
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
+import dev.rgonz.catalog.catalog.Issue.Counts;
 import dev.rgonz.catalog.core.ApiException;
 import dev.rgonz.catalog.reference.FixedLists;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -47,16 +48,19 @@ class WorkingCopies {
       """;
 
   private final JdbcClient jdbc;
+  private final Catalogs catalogs;
   private final FixedLists fixedLists;
   private final ObservationRegistry observations;
   private final Timer copyTime;
 
   WorkingCopies(
       JdbcClient jdbc,
+      Catalogs catalogs,
       FixedLists fixedLists,
       ObservationRegistry observations,
       MeterRegistry metrics) {
     this.jdbc = jdbc;
+    this.catalogs = catalogs;
     this.fixedLists = fixedLists;
     this.observations = observations;
     this.copyTime =
@@ -119,11 +123,29 @@ class WorkingCopies {
   }
 
   /**
-   * The person's working copies, the one changed last first, each with whether it is stale and with
-   * the counts of Errors and Warnings kept for it, when they were kept at the revision it is at and
-   * the revision the library is at.
+   * The person's working copies, the one changed last first, each with whether it is stale and how
+   * many Errors and Warnings it has today.
    */
   List<Listed> ownedBy(long ownerId) {
+    // Each working copy's counts are kept with the revisions of the copy and of the library they
+    // were worked out at. A copy is read whole and validated, twelve queries with the keeping, only
+    // when it or the library has changed since it was last listed: twenty listed from their kept
+    // counts take one query in all.
+    return kept(ownerId).stream()
+        .map(
+            kept ->
+                new Listed(
+                    kept.copy(),
+                    kept.stale(),
+                    kept.counts() != null ? kept.counts() : counted(kept.copy().id(), ownerId)))
+        .toList();
+  }
+
+  /**
+   * The person's working copies with the counts kept for each, when they were kept at the revision
+   * it is at and the revision the library is at, and null otherwise.
+   */
+  private List<Kept> kept(long ownerId) {
     return jdbc.sql(
             """
             SELECT c.id, c.name, v.name AS vehicle_line, l.model_year, c.status, c.revision,
@@ -143,7 +165,7 @@ class WorkingCopies {
         .param("owner", ownerId)
         .query(
             (row, number) ->
-                new Listed(
+                new Kept(
                     new WorkingCopy(
                         row.getLong("id"),
                         row.getString("name"),
@@ -160,11 +182,27 @@ class WorkingCopies {
   }
 
   /**
+   * Reads the owner's working copy whole and validates it, and keeps what that finds for the next
+   * time it is listed. A working copy that is gone counts nothing.
+   */
+  private Counts counted(long id, long owner) {
+    return catalogs
+        .findWithLibraryRevision(id, owner)
+        .map(
+            read -> {
+              var counts = Counts.of(read.catalog().issues());
+              keepCounts(id, read.catalog().snapshot().revision(), read.libraryRevision(), counts);
+              return counts;
+            })
+        .orElse(new Counts(0, 0));
+  }
+
+  /**
    * Keeps a working copy's counts with the revisions they were worked out at. Counts kept at a
    * later revision of the working copy or of the library are kept instead, and a working copy
    * deleted since it was read keeps nothing.
    */
-  void keepCounts(long catalogId, long revision, long libraryRevision, Counts counts) {
+  private void keepCounts(long catalogId, long revision, long libraryRevision, Counts counts) {
     try {
       jdbc.sql(
               """
@@ -361,11 +399,10 @@ class WorkingCopies {
    * A working copy as its owner's list has it.
    *
    * @param stale whether its base is no longer its lineage's current Approved
-   * @param counts what validation found in it, when that was kept at the revision it is at and the
-   *     one the library is at; null otherwise
+   * @param counts what validation finds in it
    */
   record Listed(WorkingCopy copy, boolean stale, Counts counts) {}
 
-  /** How many Errors and how many Warnings validation found in a catalog. */
-  record Counts(long errors, long warnings) {}
+  /** A working copy as the list reads it, with the counts kept for it or null. */
+  private record Kept(WorkingCopy copy, boolean stale, Counts counts) {}
 }

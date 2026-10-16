@@ -2,21 +2,17 @@ package dev.rgonz.catalog.catalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.read.ListAppender;
 import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.core.Role;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /**
@@ -24,6 +20,8 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  * opening each working copy shows. Each test starts from the seeded catalogs.
  */
 class WorkingCopyListIT extends WorkingCopyTests {
+  @Autowired WorkingCopies workingCopies;
+
   @BeforeEach
   void seededCatalogs() throws Exception {
     seedLibraryAndCatalogs();
@@ -96,30 +94,63 @@ class WorkingCopyListIT extends WorkingCopyTests {
     assertThat(listed()).isEqualTo(opened(suv, sedan));
   }
 
+  @Test
+  void workingCopiesListsEachCopyAsOpeningItCountsAndReadsAgainOnlyTheOnesThatChanged() {
+    for (var number = 1; number <= 20; number++) {
+      assertThat(create(ana(), "Sedan " + number, line("SEDAN"), 2027)).hasStatus(201);
+    }
+    var ana = person("ana");
+    var listed = new ArrayList<WorkingCopies.Listed>();
+
+    var first = statementsWhile(() -> listed.addAll(workingCopies.ownedBy(ana)));
+
+    assertThat(counted(listed)).as("errors, warnings, stale").isEqualTo(opened(ids(listed)));
+    // The list's own statement, and for each copy the ten statements of a read, the library's
+    // revision read in the same view, and the counts kept.
+    assertThat(first).hasSize(1 + 20 * 12);
+    assertThat(statementsWhile(() -> workingCopies.ownedBy(ana)))
+        .as("every copy listed from its kept counts")
+        .hasSize(1);
+
+    var changed = listed.getFirst().copy().id();
+    assertThat(
+            setCells(
+                ana(),
+                changed,
+                "\"" + revision(changed) + "\"",
+                cell("TRANS_MANUAL", "Base", "NA", "A")))
+        .hasStatusOk();
+    listed.clear();
+
+    assertThat(statementsWhile(() -> listed.addAll(workingCopies.ownedBy(ana))))
+        .as("the one copy that changed read whole again")
+        .hasSize(1 + 12);
+    assertThat(counted(listed)).as("errors, warnings, stale").isEqualTo(opened(ids(listed)));
+  }
+
+  /** The working copies as WorkingCopies lists them: "errors, warnings, stale" by id. */
+  private static Map<Long, String> counted(List<WorkingCopies.Listed> listed) {
+    return listed.stream()
+        .collect(
+            Collectors.toMap(
+                copy -> copy.copy().id(),
+                copy ->
+                    "%d, %d, %s"
+                        .formatted(
+                            copy.counts().errors(), copy.counts().warnings(), copy.stale())));
+  }
+
+  private static long[] ids(List<WorkingCopies.Listed> listed) {
+    return listed.stream().mapToLong(copy -> copy.copy().id()).toArray();
+  }
+
   /** The statements sent on this thread while Ana's list is asked for. */
   private List<String> statementsOfTheList() {
     // Ana is put on record before the counting begins, as she is once she has signed in.
     var ana = ana();
-    var statements = new ListAppender<ILoggingEvent>();
-    var logger = (Logger) LoggerFactory.getLogger(JdbcTemplate.class);
-    var level = logger.getLevel();
-    statements.start();
-    logger.addAppender(statements);
-    logger.setLevel(Level.DEBUG);
 
-    try {
-      assertThat(mvc.get().uri("/api/catalogs?scope=mine").with(ana)).hasStatusOk();
-    } finally {
-      logger.setLevel(level);
-      logger.detachAppender(statements);
-    }
-
-    return statements.list.stream()
-        // Other threads, such as the one that clears out expired sessions, log here too.
-        .filter(event -> event.getThreadName().equals(Thread.currentThread().getName()))
-        .map(ILoggingEvent::getFormattedMessage)
-        .filter(message -> message.startsWith("Executing prepared SQL statement"))
-        .toList();
+    return statementsWhile(
+        () -> assertThat(mvc.get().uri("/api/catalogs?scope=mine").with(ana)).hasStatusOk());
   }
 
   /** Ana's working copies as her list has them: "errors, warnings, stale" by id. */

@@ -1,6 +1,6 @@
 package dev.rgonz.catalog.catalog;
 
-import dev.rgonz.catalog.catalog.Issue.Severity;
+import dev.rgonz.catalog.catalog.Issue.Counts;
 import dev.rgonz.catalog.catalog.Revisions.Change;
 import dev.rgonz.catalog.catalog.Revisions.Outcome;
 import dev.rgonz.catalog.core.ApiException;
@@ -100,7 +100,7 @@ class Submissions {
                     "The vehicle line %s is deactivated, so its catalogs cannot be submitted."
                         .formatted(catalog.vehicleLine())));
           }
-          if (catalog.issues().stream().anyMatch(issue -> issue.severity() == Severity.ERROR)) {
+          if (Counts.of(catalog.issues()).errors() > 0) {
             throw refused(
                 "HAS_ERRORS",
                 ApiException.hasErrors(
