@@ -57,6 +57,17 @@ class LoginFlowIT extends ApplicationIT {
   }
 
   @Test
+  void aSignInStartedForADemoAccountHasItsUsernameFilledInAtTheProvider() throws Exception {
+    assertThat(location(app("GET", "/api/oauth2/authorization/cognito?login_hint=demo-manager")))
+        .contains("login_hint=demo-manager");
+    assertThat(location(app("GET", "/api/oauth2/authorization/cognito?login_hint=someone-else")))
+        .as("only a published username is filled in")
+        .doesNotContain("login_hint");
+    assertThat(location(app("GET", "/api/oauth2/authorization/cognito")))
+        .doesNotContain("login_hint");
+  }
+
+  @Test
   void aPersonInTheAdminGroupHoldsEveryRole() throws Exception {
     finishSignIn(app("GET", "/api/oauth2/authorization/cognito"), "admin");
 

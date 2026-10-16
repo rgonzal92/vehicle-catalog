@@ -264,3 +264,6 @@ _Avoid_: Owner account
 
 **Demo reset**:
 The daily restore of seeded data, which deletes all visitor work.
+
+**Tour**:
+The guided steps that show a visitor one workflow in the live app.

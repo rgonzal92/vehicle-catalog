@@ -13,9 +13,16 @@ const stillOpening = '[class*="-enter-active"]';
  * the focus into its first field, and only then does a list hear Escape. On a machine whose
  * browser is short of processor time a test got in before that, and what it typed for one field
  * landed in another, or its Escape was heard by no one.
+ *
+ * The landing page offers a tour once in each browser, and every test starts in a new one. A test
+ * that is not about the tour has declined it, so that the offer stays out of its way.
  */
-export const test = base.extend({
-  page: async ({ page }, use) => {
+export const test = base.extend<{ offersTour: boolean }>({
+  offersTour: [false, { option: true }],
+  page: async ({ page, offersTour }, use) => {
+    if (!offersTour) {
+      await page.addInitScript(() => localStorage.setItem('tour', 'declined'));
+    }
     await page.addLocatorHandler(page.locator(stillOpening).first(), async () => {});
     await use(page);
   },
