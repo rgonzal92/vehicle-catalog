@@ -88,3 +88,8 @@
 @utility matrix-changed {
   @apply shadow-[inset_0_-3px_0_var(--p-primary-color)];
 }
+
+/* The element a step of the tour is about. */
+.tour-target {
+  @apply rounded-border outline-3 outline-offset-4 outline-primary;
+}

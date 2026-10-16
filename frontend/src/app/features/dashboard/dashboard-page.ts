@@ -44,7 +44,7 @@ import { reasonOf } from '../../shared/reason-of';
   ],
   selector: 'app-dashboard-page',
   template: `
-    <div class="grid max-w-6xl gap-6">
+    <div class="grid max-w-6xl gap-6" data-tour="dashboard">
       <section class="surface" aria-labelledby="my-catalogs">
         <div class="surface-header">
           <h2 id="my-catalogs" class="font-semibold" tabindex="-1">My catalogs</h2>

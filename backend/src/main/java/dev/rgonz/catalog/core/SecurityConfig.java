@@ -23,6 +23,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.authority.mapping.GrantedAuthoritiesMapper;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRepository;
 import org.springframework.security.oauth2.core.oidc.user.OidcUserAuthority;
 import org.springframework.security.web.SecurityFilterChain;
@@ -68,6 +69,7 @@ class SecurityConfig {
       HttpSecurity http,
       SecurityContextRepository contexts,
       AuthenticationSuccessHandler signedIn,
+      OAuth2AuthorizationRequestResolver signInRequests,
       ClientRegistrationRepository registrations,
       ProblemWriter problems,
       @Qualifier("requestMappingHandlerMapping") RequestMappingHandlerMapping handlers,
@@ -93,7 +95,11 @@ class SecurityConfig {
     http.oauth2Login(
         login ->
             login
-                .authorizationEndpoint(endpoint -> endpoint.baseUri("/api/oauth2/authorization"))
+                .authorizationEndpoint(
+                    endpoint ->
+                        endpoint
+                            .baseUri("/api/oauth2/authorization")
+                            .authorizationRequestResolver(signInRequests))
                 .redirectionEndpoint(endpoint -> endpoint.baseUri("/api/login/oauth2/code/*"))
                 .userInfoEndpoint(userInfo -> userInfo.userAuthoritiesMapper(rolesFromGroups()))
                 .authorizedClientRepository(new DiscardedTokens())

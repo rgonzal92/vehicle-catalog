@@ -12,6 +12,7 @@ import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } fro
 import { AngleDoubleLeft } from '@primeicons/angular/angle-double-left';
 import { AngleDoubleRight } from '@primeicons/angular/angle-double-right';
 import { Car } from '@primeicons/angular/car';
+import { Compass } from '@primeicons/angular/compass';
 import { Comments } from '@primeicons/angular/comments';
 import { File as FileIcon } from '@primeicons/angular/file';
 import { Globe } from '@primeicons/angular/globe';
@@ -48,6 +49,7 @@ import { filter } from 'rxjs';
 import { ColorScheme } from './color-scheme';
 import { NotificationsButton } from './notifications-button';
 import { Session } from './session';
+import { Tour } from './tour';
 
 /** Where the browser keeps whether the sidebar is collapsed. */
 const SIDEBAR = 'sidebar';
@@ -66,6 +68,7 @@ const SIDEBAR = 'sidebar';
     AngleDoubleLeft,
     AngleDoubleRight,
     Car,
+    Compass,
     Comments,
     FileIcon,
     Globe,
@@ -308,6 +311,17 @@ const SIDEBAR = 'sidebar';
           <h1 #heading tabindex="-1" class="mr-auto truncate text-lg font-semibold outline-none">
             {{ title() }}
           </h1>
+          <button
+            pButton
+            type="button"
+            severity="secondary"
+            [text]="true"
+            class="hidden lg:inline-flex"
+            (click)="tour.start()"
+          >
+            <svg data-p-icon="compass" pButtonIcon />
+            <span pButtonLabel>Take the tour</span>
+          </button>
           <app-notifications-button />
           <button
             pButton
@@ -359,6 +373,7 @@ const SIDEBAR = 'sidebar';
 export class Shell {
   protected readonly session = inject(Session);
   protected readonly scheme = inject(ColorScheme);
+  protected readonly tour = inject(Tour);
   private readonly router = inject(Router);
   private readonly injector = inject(Injector);
 

@@ -28,6 +28,7 @@ const parts = [
     'documents',
     'sign-out',
     'seeded-catalogs',
+    'tour',
   ],
   [
     'catalog-rules',

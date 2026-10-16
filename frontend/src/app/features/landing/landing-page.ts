@@ -1,10 +1,13 @@
 import { HttpClient } from '@angular/common/http';
 import { Component, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
+import { Compass } from '@primeicons/angular/compass';
 import { SignIn } from '@primeicons/angular/sign-in';
 import { ButtonDirective, ButtonIcon, ButtonLabel } from 'primeng/button';
+import { Message } from 'primeng/message';
 import { TableModule } from 'primeng/table';
 import { catchError, of } from 'rxjs';
+import { Tour } from '../../core/tour';
 
 /** A shared login a visitor can use, one per role. */
 interface DemoAccount {
@@ -15,7 +18,7 @@ interface DemoAccount {
 
 /** The public page a visitor sees first. */
 @Component({
-  imports: [SignIn, ButtonDirective, ButtonIcon, ButtonLabel, TableModule],
+  imports: [Compass, SignIn, ButtonDirective, ButtonIcon, ButtonLabel, Message, TableModule],
   selector: 'app-landing-page',
   template: `
     <main class="mx-auto grid max-w-3xl gap-10 px-6 py-16">
@@ -25,15 +28,31 @@ interface DemoAccount {
           aria-hidden="true"
           >VC</span
         >
-        <h1 class="text-4xl font-semibold tracking-tight">Vehicle Catalog</h1>
+        <h1 class="text-4xl font-semibold tracking-tight" data-tour="about">Vehicle Catalog</h1>
         <p class="text-lg text-muted-color">
           State which features each trim of a vehicle line offers in each region, and the rules that
           relate them.
         </p>
-        <a pButton size="large" href="/api/oauth2/authorization/cognito">
-          <svg data-p-icon="sign-in" pButtonIcon />
-          <span pButtonLabel>Sign in</span>
-        </a>
+        <div class="flex flex-wrap gap-3">
+          <a pButton size="large" href="/api/oauth2/authorization/cognito" data-tour="sign-in">
+            <svg data-p-icon="sign-in" pButtonIcon />
+            <span pButtonLabel>Sign in</span>
+          </a>
+          <button
+            pButton
+            type="button"
+            size="large"
+            severity="secondary"
+            class="hidden lg:inline-flex"
+            (click)="tour.start()"
+          >
+            <svg data-p-icon="compass" pButtonIcon />
+            <span pButtonLabel>Take the tour</span>
+          </button>
+        </div>
+        <p-message class="lg:hidden" severity="info"
+          >Open this on a laptop for a 3-minute guided tour.</p-message
+        >
       </header>
 
       <section class="surface" aria-labelledby="demo-accounts">
@@ -66,6 +85,8 @@ interface DemoAccount {
   `,
 })
 export class LandingPage {
+  protected readonly tour = inject(Tour);
+
   /** The list stays empty when the backend cannot be reached; sign-in is still offered. */
   protected readonly accounts = toSignal(
     inject(HttpClient)
@@ -73,4 +94,8 @@ export class LandingPage {
       .pipe(catchError(() => of<DemoAccount[]>([]))),
     { initialValue: [] as DemoAccount[] },
   );
+
+  constructor() {
+    this.tour.offer();
+  }
 }
