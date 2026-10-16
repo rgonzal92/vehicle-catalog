@@ -6,7 +6,7 @@ import { NAVIGATE, Session } from './session';
 import { STEPS } from './tour-steps';
 
 /** The login the tour signs in with, as the landing page publishes it; some have no password. */
-export interface Login {
+interface Login {
   username: string;
   password: string | null;
 }
@@ -88,16 +88,22 @@ export class Tour {
     await this.open(0);
   }
 
-  /** Ends the tour, which counts as declining it, and gives focus back to where it was. */
+  /**
+   * Ends the tour, which counts as declining it, and gives focus back to where it was. When that is
+   * gone, as the offer is and as the page the tour started from may be, the page's heading has it.
+   */
   end(): void {
     this.look(undefined);
     this.at.set(null);
     sessionStorage.removeItem(KEPT);
     this.decline();
-    if (this.focusedBefore instanceof HTMLElement && this.focusedBefore.isConnected) {
-      this.focusedBefore.focus();
-    }
+    const before = this.focusedBefore;
     this.focusedBefore = null;
+    if (before instanceof HTMLElement && before.isConnected) {
+      before.focus();
+    } else {
+      document.querySelector<HTMLElement>('h1[tabindex="-1"]')?.focus();
+    }
   }
 
   /** Opens the step the tab kept, after a reload or the return from signing in. */
@@ -147,7 +153,7 @@ export class Tour {
     const step = STEPS[index];
     this.at.set(index);
     sessionStorage.setItem(KEPT, JSON.stringify({ step: step.id }));
-    if (step.id === 'sign-in') {
+    if (index === SIGN_IN) {
       this.login.set(await this.manager());
     }
     if (step.path !== undefined && this.router.url !== step.path) {

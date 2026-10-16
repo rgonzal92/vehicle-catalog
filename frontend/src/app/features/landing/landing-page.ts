@@ -28,7 +28,13 @@ interface DemoAccount {
           aria-hidden="true"
           >VC</span
         >
-        <h1 class="text-4xl font-semibold tracking-tight" data-tour="about">Vehicle Catalog</h1>
+        <h1
+          class="text-4xl font-semibold tracking-tight outline-none"
+          tabindex="-1"
+          data-tour="about"
+        >
+          Vehicle Catalog
+        </h1>
         <p class="text-lg text-muted-color">
           State which features each trim of a vehicle line offers in each region, and the rules that
           relate them.

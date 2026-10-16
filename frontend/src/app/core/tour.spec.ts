@@ -3,7 +3,7 @@ import { Injector } from '@angular/core';
 import { Router } from '@angular/router';
 import { of } from 'rxjs';
 import { NAVIGATE, Person, Session } from './session';
-import { Tour } from './tour';
+import { Tour, WIDE } from './tour';
 
 describe('Tour', () => {
   /** Who the backend says is signed in: nobody, until a test signs someone in. */
@@ -129,6 +129,19 @@ describe('Tour', () => {
     expect(url).toBe('/');
   });
 
+  it('closes on its card, which stays on the page the visitor is on', async () => {
+    signedIn = manager;
+    const tour = load();
+    await tour.start();
+    await tour.next();
+
+    await tour.next();
+
+    expect(tour.step()?.id).toBe('card');
+    expect(url).toBe('/dashboard');
+    expect(tour.number()).toBeNull();
+  });
+
   it('sends someone who is not signed in to sign in, from a step that needs a session', async () => {
     sessionStorage.setItem('tour', JSON.stringify({ step: 'dashboard' }));
     const tour = load();
@@ -185,7 +198,7 @@ describe('Tour', () => {
     /** A screen as wide as the tour needs, or narrower. */
     const screen = (wide: boolean) =>
       vi.stubGlobal('matchMedia', (query: string) => ({
-        matches: query === '(min-width: 1024px)' && wide,
+        matches: query === WIDE && wide,
       }));
 
     afterEach(() => vi.unstubAllGlobals());
@@ -207,8 +220,9 @@ describe('Tour', () => {
 
     it('is not made on a narrow screen, or while a tour is open', async () => {
       screen(false);
-      load().offer();
-      expect(load().offering()).toBe(false);
+      const narrow = load();
+      narrow.offer();
+      expect(narrow.offering()).toBe(false);
 
       screen(true);
       const tour = load();
@@ -239,6 +253,22 @@ describe('Tour', () => {
       expect(document.activeElement).toBe(button);
       tour.offer();
       expect(tour.offering()).toBe(false);
+    });
+
+    it("gives focus to the page's heading when what had it before is gone", async () => {
+      const heading = document.createElement('h1');
+      heading.tabIndex = -1;
+      document.body.append(heading);
+      const offered = document.createElement('button');
+      document.body.append(offered);
+      offered.focus();
+      const tour = load();
+      await tour.start();
+      offered.remove();
+
+      tour.end();
+
+      expect(document.activeElement).toBe(heading);
     });
   });
 });
