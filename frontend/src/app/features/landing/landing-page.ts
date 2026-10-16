@@ -56,9 +56,10 @@ interface DemoAccount {
             <span pButtonLabel>Take the tour</span>
           </button>
         </div>
-        <p-message class="lg:hidden" severity="info"
-          >Open this on a laptop for a 3-minute guided tour.</p-message
-        >
+        <!-- A message's own element keeps the display its style gives it, so a wrapper hides it. -->
+        <div class="lg:hidden">
+          <p-message severity="info">Open this on a laptop for a 3-minute guided tour.</p-message>
+        </div>
       </header>
 
       <section class="surface" aria-labelledby="demo-accounts">

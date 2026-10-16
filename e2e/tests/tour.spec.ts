@@ -98,10 +98,15 @@ test('someone signed in takes the tour from the header past signing in, and keep
 test('on a narrow screen the landing page says to open it on a laptop, and offers no tour', async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 800, height: 900 });
+  const laptop = page.getByText('Open this on a laptop for a 3-minute guided tour.');
   await page.goto('/');
+  await expect(offer(page)).toBeVisible();
+  await expect(laptop).toBeHidden();
 
-  await expect(page.getByText('Open this on a laptop for a 3-minute guided tour.')).toBeVisible();
+  await page.setViewportSize({ width: 800, height: 900 });
+  await page.reload();
+
+  await expect(laptop).toBeVisible();
   await expect(page.getByRole('main').getByRole('button', { name: 'Take the tour' })).toBeHidden();
   await expect(offer(page)).toHaveCount(0);
 });
