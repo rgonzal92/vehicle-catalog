@@ -35,6 +35,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.support.ScheduledTaskObservationContext;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.module.SimpleModule;
@@ -112,7 +114,10 @@ class ApprovedContents implements HealthIndicator, ResetCleanup {
    * An Approved version's contents: from the cache when it holds them, and otherwise from the
    * database, after which the cache is given them. Reads of one version that the cache does not
    * hold ask the database for it one at a time, so those that arrive together ask it once: the
-   * others wait, and then find in the cache what the first one read.
+   * others wait, and then find in the cache what the first one read. A read inside a transaction
+   * that is not read-only gives the cache what it read only once that transaction has committed,
+   * since the approval that made the version may be that transaction and may yet be rolled back;
+   * reads that wait for it then ask the database as well.
    *
    * @param fromDatabase reads the contents from the database
    */
@@ -128,7 +133,7 @@ class ApprovedContents implements HealthIndicator, ResetCleanup {
           if (kept == null) {
             misses.increment();
             var contents = fromDatabase.get();
-            keep(catalogId, contents);
+            keepOnceCommitted(catalogId, contents);
             return contents;
           }
         }
@@ -164,6 +169,25 @@ class ApprovedContents implements HealthIndicator, ResetCleanup {
     } catch (JacksonException unreadable) {
       return null;
     }
+  }
+
+  /**
+   * Gives the cache an Approved version's contents now or, inside a transaction that is not
+   * read-only, once that transaction has committed.
+   */
+  private void keepOnceCommitted(long catalogId, Contents contents) {
+    if (!TransactionSynchronizationManager.isSynchronizationActive()
+        || TransactionSynchronizationManager.isCurrentTransactionReadOnly()) {
+      keep(catalogId, contents);
+      return;
+    }
+    TransactionSynchronizationManager.registerSynchronization(
+        new TransactionSynchronization() {
+          @Override
+          public void afterCommit() {
+            keep(catalogId, contents);
+          }
+        });
   }
 
   /** Gives the cache an Approved version's contents, which is left undone when it cannot be. */
