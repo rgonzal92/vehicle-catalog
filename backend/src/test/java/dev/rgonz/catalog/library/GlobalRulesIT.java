@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.core.Role;
+import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
@@ -153,6 +154,38 @@ class GlobalRulesIT extends ApplicationIT {
         .bodyJson()
         .extractingPath("$.detail")
         .isEqualTo("Choose active regions from the library.");
+  }
+
+  @Test
+  void aNullRegionCodeIsRefusedAsNoActiveRegionOfTheLibrary() {
+    var refused =
+        add(
+            rule("REQUIRES", "ROOF_PANORAMIC", List.of("EU", "NA"), "SEAT_LEATHER")
+                .replace("\"NA\"", "null"));
+
+    assertThat(refused).hasStatus(422);
+    assertThat(refused).bodyJson().extractingPath("$.code").isEqualTo("VALIDATION");
+    assertThat(refused)
+        .bodyJson()
+        .extractingPath("$.detail")
+        .isEqualTo("Choose active regions from the library.");
+  }
+
+  @Test
+  void aNullTargetIsRefusedAsATargetStillToChoose() {
+    var refused =
+        add(
+            content(
+                "REQUIRES",
+                feature("ROOF_PANORAMIC"),
+                null,
+                Arrays.asList(feature("SEAT_LEATHER"), null)));
+
+    assertThat(refused).hasStatus(422);
+    assertThat(refused)
+        .bodyJson()
+        .extractingPath("$.detail")
+        .isEqualTo("Choose at least one target.");
   }
 
   @Test

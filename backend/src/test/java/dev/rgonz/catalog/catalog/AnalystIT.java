@@ -375,6 +375,37 @@ class AnalystIT extends WorkingCopyTests {
   }
 
   @Test
+  void aGlobalRuleSaysItsRegionsInTheLibrarysOrderOnEveryRun() {
+    long catalog = approved("COMPACT_SUV", 2027, 1);
+    long rule =
+        jdbc.sql(
+                """
+                INSERT INTO global_rule (kind, source_feature_id, all_regions)
+                VALUES ('REQUIRES', :source, false)
+                RETURNING id
+                """)
+            .param("source", feature("SKID_PLATES"))
+            .query(Long.class)
+            .single();
+    jdbc.sql("INSERT INTO global_rule_target VALUES (:rule, :target)")
+        .param("rule", rule)
+        .param("target", feature("TOW_HITCH_RECEIVER"))
+        .update();
+    for (var region : List.of("ASIA", "EU", "NA")) {
+      jdbc.sql("INSERT INTO global_rule_region VALUES (:rule, :region)")
+          .param("rule", rule)
+          .param("region", region)
+          .update();
+    }
+
+    assertThat(rulesNaming(catalog, "SKID_PLATES"))
+        .as("as the library lists its regions")
+        .contains(
+            "{\"origin\":\"GLOBAL\",\"rule\":\"%s requires %s (in North America, Europe, Asia)\"}"
+                .formatted(nameOf("SKID_PLATES"), nameOf("TOW_HITCH_RECEIVER")));
+  }
+
+  @Test
   void aLineagesVersionsAreListedWithWhenEachWasApprovedAndTheModelIsSentNoOnesName() {
     long first = approved("COMPACT_SUV", 2026, 1);
     long second = approved("COMPACT_SUV", 2026, 2);

@@ -9,6 +9,7 @@ import dev.rgonz.catalog.catalog.CatalogSnapshot.Trim;
 import dev.rgonz.catalog.catalog.Issue.Code;
 import dev.rgonz.catalog.catalog.Issue.RuleReference;
 import dev.rgonz.catalog.catalog.Issue.Severity;
+import dev.rgonz.catalog.library.Rules;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -256,16 +257,21 @@ final class Validation {
                           List.of(),
                           new RuleReference(rule.origin().name(), rule.key()),
                           "%s is retired, and the rule that %s names it."
-                              .formatted(name(retired), inWords(rule)))));
+                              .formatted(name(retired), withoutScopes(rule)))));
     }
 
-    /** A rule as a sentence without its full stop: "Tow Package requires Heavy-Duty Cooling". */
-    private String inWords(Rule rule) {
-      return "%s %s %s"
-          .formatted(
+    /**
+     * A rule as a sentence without its full stop or its scopes: "Tow Package requires Heavy-Duty
+     * Cooling".
+     */
+    private String withoutScopes(Rule rule) {
+      return new Rules.Named(
               name(rule.sourceFeatureId()),
-              rule.kind().words(),
-              rule.targetFeatureIds().stream().map(this::name).collect(Collectors.joining(", ")));
+              rule.kind(),
+              rule.targetFeatureIds().stream().map(this::name).toList(),
+              null,
+              null)
+          .inWords();
     }
 
     /**

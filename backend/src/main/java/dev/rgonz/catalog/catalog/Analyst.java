@@ -530,7 +530,8 @@ class Analyst {
           || rule.targetFeatureIds().contains(feature.get().id())) {
         said.putIfAbsent(
             rule.origin() + " " + (rule.pairKey() == null ? rule.key() : rule.pairKey()),
-            new RuleSaid(rule.origin().name(), rule.inWords(featureName, trimName, regionName)));
+            new RuleSaid(
+                rule.origin().name(), rule.named(featureName, trimName, regionName).inWords()));
       }
     }
 

@@ -2,12 +2,11 @@ package dev.rgonz.catalog.catalog;
 
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Offering;
 import dev.rgonz.catalog.library.RuleKind;
-import java.util.ArrayList;
+import dev.rgonz.catalog.library.Rules;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /**
  * A rule as validation applies it: a relationship between a source feature and its targets, in the
@@ -37,29 +36,17 @@ record Rule(
     CATALOG
   }
 
-  /**
-   * The rule as a sentence without its full stop, by the names given for what it names: "Tow
-   * Package requires Heavy-Duty Cooling (on Sport; in Europe)". A scope that covers everything is
-   * not said.
-   */
-  String inWords(
+  /** The rule by the names given for what it names, which is how it is put in words. */
+  Rules.Named named(
       Function<Long, String> feature,
       Function<Long, String> trim,
       Function<String, String> region) {
-    var said =
-        "%s %s %s"
-            .formatted(
-                feature.apply(sourceFeatureId),
-                kind.words(),
-                targetFeatureIds.stream().map(feature).collect(Collectors.joining(", ")));
-    var scopes = new ArrayList<String>();
-    if (!allTrims) {
-      scopes.add("on " + trimIds.stream().map(trim).collect(Collectors.joining(", ")));
-    }
-    if (!allRegions) {
-      scopes.add("in " + regionCodes.stream().map(region).collect(Collectors.joining(", ")));
-    }
-    return scopes.isEmpty() ? said : "%s (%s)".formatted(said, String.join("; ", scopes));
+    return new Rules.Named(
+        feature.apply(sourceFeatureId),
+        kind,
+        targetFeatureIds.stream().map(feature).toList(),
+        allTrims ? null : trimIds.stream().map(trim).toList(),
+        allRegions ? null : regionCodes.stream().map(region).toList());
   }
 
   /**

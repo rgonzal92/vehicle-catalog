@@ -4,7 +4,6 @@ import dev.rgonz.catalog.core.RequiresRole;
 import dev.rgonz.catalog.core.Role;
 import dev.rgonz.catalog.library.GlobalRules.GlobalRule;
 import dev.rgonz.catalog.library.GlobalRules.RuleContent;
-import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -36,13 +35,13 @@ class GlobalRuleController {
   @PostMapping
   @RequiresRole(Role.ADMIN)
   @ResponseStatus(HttpStatus.CREATED)
-  List<GlobalRule> add(@Valid @RequestBody RuleContent given) {
+  List<GlobalRule> add(@RequestBody RuleContent given) {
     return rules.add(given);
   }
 
   @PutMapping("/{id}")
   @RequiresRole(Role.ADMIN)
-  GlobalRule change(@PathVariable long id, @Valid @RequestBody RuleContent given) {
+  GlobalRule change(@PathVariable long id, @RequestBody RuleContent given) {
     return rules.change(id, given);
   }
 

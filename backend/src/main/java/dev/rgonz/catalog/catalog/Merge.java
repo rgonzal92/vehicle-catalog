@@ -542,9 +542,9 @@ final class Merge {
               id,
               Kind.RULE,
               featureName(source),
-              inWords(was),
-              inWords(my),
-              inWords(their),
+              sentence(was),
+              sentence(my),
+              sentence(their),
               resolution));
       return resolution == Side.THEIRS ? their : my;
     }
@@ -599,10 +599,10 @@ final class Merge {
       return one == null || other == null ? one == other : one.said().equals(other.said());
     }
 
-    private String inWords(RuleUnit unit) {
+    private String sentence(RuleUnit unit) {
       return unit == null
           ? "No such rule"
-          : unit.first().inWords(this::featureName, this::trimName, this::regionName);
+          : unit.first().named(this::featureName, this::trimName, this::regionName).inWords();
     }
 
     /**

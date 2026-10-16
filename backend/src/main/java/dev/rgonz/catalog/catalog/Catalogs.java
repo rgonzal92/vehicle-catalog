@@ -360,10 +360,13 @@ class Catalogs {
         jdbc.sql(
                 """
                 SELECT r.id, r.kind, r.source_feature_id, r.all_regions, r.pair_key,
-                       ARRAY(SELECT t.feature_id FROM global_rule_target t
-                             WHERE t.global_rule_id = r.id ORDER BY t.feature_id) AS targets,
-                       ARRAY(SELECT s.region_code FROM global_rule_region s
-                             WHERE s.global_rule_id = r.id ORDER BY s.region_code) AS regions
+                       ARRAY(SELECT t.feature_id
+                             FROM global_rule_target t JOIN feature f ON f.id = t.feature_id
+                             WHERE t.global_rule_id = r.id ORDER BY f.code) AS targets,
+                       ARRAY(SELECT s.region_code
+                             FROM global_rule_region s JOIN region g ON g.code = s.region_code
+                             WHERE s.global_rule_id = r.id
+                             ORDER BY g.sort_order, g.code) AS regions
                 FROM global_rule r
                 ORDER BY r.id
                 """)
@@ -378,7 +381,7 @@ class Catalogs {
                         true,
                         Set.of(),
                         row.getBoolean("all_regions"),
-                        Set.of((String[]) row.getArray("regions").getArray()),
+                        new LinkedHashSet<>(List.of((String[]) row.getArray("regions").getArray())),
                         row.getString("pair_key")))
             .list();
     var names =
