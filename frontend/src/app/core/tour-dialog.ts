@@ -191,9 +191,11 @@ export class TourDialog {
       );
     });
 
-    // Each step, as it opens, puts focus on the button that goes on.
+    // Each step, as it opens, puts focus on the button that goes on. A step on another page does
+    // so again once its element is drawn, since the page took the focus to its heading on arrival.
     effect(() => {
       this.tour.step();
+      this.tour.target();
       this.tour.missing();
       afterNextRender(() => this.next()?.nativeElement.focus(), {
         injector: this.injector,

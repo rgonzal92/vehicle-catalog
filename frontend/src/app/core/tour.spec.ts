@@ -1,7 +1,9 @@
 import { HttpClient } from '@angular/common/http';
 import { Injector } from '@angular/core';
-import { Router } from '@angular/router';
-import { of } from 'rxjs';
+import { NavigationEnd, Router } from '@angular/router';
+import { MessageService } from 'primeng/api';
+import { of, Subject } from 'rxjs';
+import { Catalogs } from './catalogs';
 import { NAVIGATE, Person, Session } from './session';
 import { Tour, WIDE } from './tour';
 
@@ -14,6 +16,13 @@ describe('Tour', () => {
 
   /** Addresses the browser was sent to, outside the app. */
   let left: string[];
+
+  /** The router's navigations, each told as it ends. */
+  let navigations: Subject<NavigationEnd>;
+
+  /** Working copies made, and deleted with the revision named, as the backend was asked. */
+  let made: { name: string; vehicleLineId: number; modelYear: number }[];
+  let deleted: [number, number][];
 
   const manager: Person = {
     id: 2,
@@ -34,13 +43,38 @@ describe('Tour', () => {
             get url() {
               return url;
             },
+            events: navigations,
             navigateByUrl: async (to: string) => {
               url = to;
+              navigations.next(new NavigationEnd(1, to, to));
               return true;
             },
           },
         },
+        {
+          provide: Catalogs,
+          useValue: {
+            lineages: async () => [
+              { id: 3, vehicleLine: 'Sedan', modelYear: 2026, catalogId: 30 },
+              { id: 7, vehicleLine: 'Sedan', modelYear: 2027, catalogId: 70 },
+              { id: 9, vehicleLine: 'Compact SUV', modelYear: 2027, catalogId: 90 },
+            ],
+            find: async (catalogId: number) => ({
+              vehicleLineId: 5,
+              modelYear: 2027,
+              snapshot: { catalogId, revision: catalogId === 41 ? 9 : 1 },
+            }),
+            create: async (given: { name: string; vehicleLineId: number; modelYear: number }) => {
+              made.push(given);
+              return { id: 41 };
+            },
+            delete: async (catalogId: number, revision: number) => {
+              deleted.push([catalogId, revision]);
+            },
+          },
+        },
         { provide: NAVIGATE, useValue: (to: string) => left.push(to) },
+        { provide: MessageService, useValue: { add: () => undefined } },
         {
           provide: HttpClient,
           useValue: {
@@ -75,6 +109,9 @@ describe('Tour', () => {
     signedIn = null;
     url = '/';
     left = [];
+    navigations = new Subject();
+    made = [];
+    deleted = [];
   });
 
   afterEach(() => {
@@ -131,14 +168,14 @@ describe('Tour', () => {
 
   it('closes on its card, which stays on the page the visitor is on', async () => {
     signedIn = manager;
+    sessionStorage.setItem('tour', JSON.stringify({ step: 'fix', copy: 41 }));
     const tour = load();
-    await tour.start();
-    await tour.next();
+    await tour.resume();
 
     await tour.next();
 
     expect(tour.step()?.id).toBe('card');
-    expect(url).toBe('/dashboard');
+    expect(url).toBe('/catalogs/41');
     expect(tour.number()).toBeNull();
   });
 
@@ -269,6 +306,90 @@ describe('Tour', () => {
       tour.end();
 
       expect(document.activeElement).toBe(heading);
+    });
+  });
+
+  describe('the working copy', () => {
+    /** A tour signed in as the manager, on the step given, as a reload would find it. */
+    async function on(step: string, kept: object = {}): Promise<Tour> {
+      signedIn = manager;
+      sessionStorage.setItem('tour', JSON.stringify({ step, ...kept }));
+      const tour = load();
+      await tour.resume();
+      return tour;
+    }
+
+    /** The cell the tour breaks, holding the availability given, with the keys pressed on it. */
+    function theCell(holding: string): string[] {
+      const cell = document.createElement('td');
+      cell.dataset['cell'] = 'SEAT_HEATED_FRONT Luxury NA';
+      cell.tabIndex = -1;
+      cell.textContent = holding;
+      const pressed: string[] = [];
+      cell.addEventListener('keydown', (event) => pressed.push(event.key));
+      document.body.append(cell);
+      return pressed;
+    }
+
+    it('opens the current Approved Sedan 2027 from the dashboard, found by its line and year', async () => {
+      const tour = await on('dashboard');
+
+      await tour.next();
+
+      expect(tour.step()?.id).toBe('approved');
+      expect(url).toBe('/approved/7');
+    });
+
+    it('makes a working copy named for the time to the second, opens it, and keeps its id', async () => {
+      const tour = await on('copy');
+
+      await tour.next();
+
+      expect(made).toEqual([
+        {
+          name: expect.stringMatching(/^Tour copy \d\d:\d\d:\d\d$/),
+          vehicleLineId: 5,
+          modelYear: 2027,
+        },
+      ]);
+      expect(url).toBe('/catalogs/41');
+      expect(tour.step()?.id).toBe('break');
+      expect(JSON.parse(sessionStorage.getItem('tour')!)).toMatchObject({ copy: 41 });
+    });
+
+    it('takes a copy the visitor made themselves on that step as the one it made', async () => {
+      const tour = await on('copy');
+
+      navigations.next(new NavigationEnd(2, '/catalogs/52', '/catalogs/52'));
+      await vi.waitFor(() => expect(tour.step()?.id).toBe('break'));
+
+      expect(made).toEqual([]);
+      expect(JSON.parse(sessionStorage.getItem('tour')!)).toMatchObject({ copy: 52 });
+    });
+
+    it('asks for its cell to be shown, sets it to not offered, and then back to what it held', async () => {
+      const pressed = theCell('S');
+      const tour = await on('break', { copy: 41 });
+      expect(url).toBe('/catalogs/41');
+      expect(tour.cell()).toEqual({ feature: 'SEAT_HEATED_FRONT', trim: 'Luxury', region: 'NA' });
+
+      await tour.next();
+      expect(pressed).toEqual(['-']);
+      expect(tour.step()?.id).toBe('fix');
+
+      await tour.next();
+      expect(pressed).toEqual(['-', 's']);
+      expect(tour.step()?.id).toBe('card');
+    });
+
+    it('deletes the copy it made once, with its current revision, and leaves its page', async () => {
+      const tour = await on('fix', { copy: 41, held: 'S' });
+
+      tour.end();
+      tour.end();
+
+      await vi.waitFor(() => expect(deleted).toEqual([[41, 9]]));
+      await vi.waitFor(() => expect(url).toBe('/dashboard'));
     });
   });
 });

@@ -65,7 +65,12 @@ import { Loading, ReadFailed } from '../../shared/read-state';
           <div class="flex flex-wrap items-center gap-2">
             <p-button label="Export" severity="secondary" (onClick)="exporting.start()" />
             <app-export-dialog #exporting [catalogId]="catalog.snapshot.catalogId" />
-            <button pButton type="button" (click)="newCatalog.open(catalog)">
+            <button
+              pButton
+              type="button"
+              data-tour="create-copy"
+              (click)="newCatalog.open(catalog)"
+            >
               <svg data-p-icon="copy" pButtonIcon />
               <span pButtonLabel>Create working copy</span>
             </button>
@@ -166,7 +171,7 @@ import { Loading, ReadFailed } from '../../shared/read-state';
           />
         </section>
 
-        <section class="surface" aria-labelledby="matrix">
+        <section class="surface" aria-labelledby="matrix" data-tour="approved-matrix">
           <div class="surface-header">
             <h2 id="matrix" class="font-semibold">Features</h2>
           </div>

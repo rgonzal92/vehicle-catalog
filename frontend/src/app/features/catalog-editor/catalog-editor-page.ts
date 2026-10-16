@@ -9,6 +9,7 @@ import {
   Injector,
   linkedSignal,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
@@ -42,6 +43,7 @@ import {
   STATUS_SEVERITIES,
 } from '../../core/catalogs';
 import { FixedLists } from '../../core/fixed-lists';
+import { Tour } from '../../core/tour';
 import { FeatureKind, KIND_FILTERS } from '../../core/library';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
 import { Cell, FeatureRow, Issue } from '../../shared/availability-matrix/matrix';
@@ -530,6 +532,10 @@ import { UpdateDialog } from './update-dialog';
 export class CatalogEditorPage {
   private readonly catalogs = inject(Catalogs);
   private readonly editing = inject(Editing);
+  private readonly tour = inject(Tour);
+
+  /** Whether the working copy has been read, which changes once and not with every edit. */
+  private readonly read = computed(() => this.editing.catalog() !== null);
   protected readonly fixedLists = inject(FixedLists);
   private readonly messages = inject(MessageService);
   private readonly injector = inject(Injector);
@@ -693,6 +699,25 @@ export class CatalogEditorPage {
       if (this.tab() !== 'rules') {
         this.shownRule.set(null);
       }
+    });
+    // The tour's step about a cell has it shown, as an issue about it would, once the copy is read.
+    effect(() => {
+      const wanted = this.tour.cell();
+      const matrix = this.matrix();
+      if (wanted === null || matrix === undefined || !this.read()) {
+        return;
+      }
+      untracked(() => {
+        const { featureRows, trims } = this.editing.catalog()!.snapshot;
+        this.showCell(
+          {
+            featureId: featureRows.find((row) => row.code === wanted.feature)?.id ?? null,
+            trimId: trims.find((trim) => trim.name === wanted.trim)?.id ?? null,
+            regionCode: wanted.region,
+          },
+          matrix,
+        );
+      });
     });
     void this.fixedLists.load();
     void this.editing.open(this.id);
@@ -915,7 +940,10 @@ export class CatalogEditorPage {
    * Shows the Features tab with the cell an issue is about in view. A filter on the rows, or a
    * region left out of the matrix, would keep the cell from view, so both give way.
    */
-  protected showCell(issue: Issue, matrix: AvailabilityMatrix): void {
+  protected showCell(
+    issue: Pick<Issue, 'featureId' | 'trimId' | 'regionCode'>,
+    matrix: AvailabilityMatrix,
+  ): void {
     const { featureId, trimId, regionCode } = issue;
     if (featureId === null || trimId === null || regionCode === null) {
       return;
