@@ -6,7 +6,7 @@ import { filter, firstValueFrom } from 'rxjs';
 import { reasonOf } from '../shared/reason-of';
 import { Catalogs, LineageSummary } from './catalogs';
 import { NAVIGATE, Session } from './session';
-import { cellOnPage, SEDAN, StepId, STEPS } from './tour-steps';
+import { CellAt, cellOnPage, SEDAN, StepId, STEPS } from './tour-steps';
 
 /** The login the tour signs in with, as the landing page publishes it; some have no password. */
 interface Login {
@@ -30,6 +30,9 @@ const RING = 'tour-target';
 /** How often a step looks for its element again, and how long it waits for it. */
 const LOOK_EVERY_MS = 250;
 const WAIT_MS = 10_000;
+
+/** How often a step asks again for its cell to be shown while the matrix has not drawn it. */
+const ASK_FOR_THE_CELL_EVERY_MS = 1_000;
 
 /** Where the tab keeps the step a visitor is on, and the browser that the tour was declined. */
 const KEPT = 'tour';
@@ -76,8 +79,12 @@ export class Tour {
   readonly number = computed(() => (this.step()?.id === 'card' ? null : (this.at() ?? 0) + 1));
   readonly total = STEPS.length - 1;
 
-  /** The cell of the matrix the open step is about, for the catalog's editor to bring into view. */
-  readonly cell = computed(() => this.step()?.cell ?? null);
+  /**
+   * The cell of the matrix the open step is about, for the catalog's editor to bring into view. A
+   * matrix that has only just been drawn may not yet scroll that far, so while the cell is not on
+   * the page it is asked for again, as a new value.
+   */
+  readonly cell = signal<CellAt | null>(null);
 
   /** The element the open step is about, once it is on the page. */
   readonly target = signal<Element | null>(null);
@@ -138,6 +145,7 @@ export class Tour {
   end(): void {
     this.look(undefined);
     this.at.set(null);
+    this.cell.set(null);
     sessionStorage.removeItem(KEPT);
     this.decline();
     if (this.copy !== null) {
@@ -228,6 +236,10 @@ export class Tour {
     }
     const step = STEPS[index];
     this.at.set(index);
+    // A step about the cell the step before was about leaves the editor's view of it as it is.
+    if (JSON.stringify(step.cell ?? null) !== JSON.stringify(this.cell())) {
+      this.cell.set(step.cell ?? null);
+    }
     this.keep();
     if (index === SIGN_IN) {
       this.login.set(await this.manager());
@@ -366,6 +378,10 @@ export class Tour {
       } else if (waited >= WAIT_MS) {
         this.missing.set(true);
       } else {
+        const cell = this.cell();
+        if (cell !== null && waited > 0 && waited % ASK_FOR_THE_CELL_EVERY_MS === 0) {
+          this.cell.set({ ...cell });
+        }
         return false;
       }
       clearInterval(this.looking);

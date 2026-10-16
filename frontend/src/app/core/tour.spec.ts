@@ -405,6 +405,29 @@ describe('Tour', () => {
       expect(JSON.parse(sessionStorage.getItem('tour')!)).toMatchObject({ copy: 52 });
     });
 
+    it('asks again each second for its cell to be shown while the cell is not drawn', async () => {
+      vi.useFakeTimers();
+      const tour = await on('break', { copy: 41 });
+      const asked = tour.cell();
+
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(tour.cell()).toEqual(asked);
+      expect(tour.cell()).not.toBe(asked);
+
+      theCell('S');
+      await vi.advanceTimersByTimeAsync(1_000);
+      const found = tour.cell();
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(tour.cell()).toBe(found);
+
+      // The next step is about the same cell, which is not asked for again: the editor would bring
+      // it into view anew, from the top.
+      await tour.next();
+      expect(tour.step()?.id).toBe('fix');
+      expect(tour.cell()).toBe(found);
+    });
+
     it('leaves alone a copy opened on that step that this page did not make', async () => {
       const tour = await on('copy');
 

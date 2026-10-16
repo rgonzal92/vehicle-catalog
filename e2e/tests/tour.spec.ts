@@ -9,7 +9,10 @@ const offer = (page: Page) => page.locator('.p-toast-message', { hasText: 'New h
 /** The step of the tour with this title. */
 const step = (page: Page, title: string) => page.getByRole('dialog', { name: title });
 
-/** The cell of the working copy's matrix that a feature has on Luxury in North America. */
+/**
+ * The cell of the working copy's matrix that a feature has on Luxury in North America. Its ring can
+ * take as long as the tour waits for an element, 10 s, on a machine running every test at once.
+ */
 const cell = (page: Page, feature: string) => page.locator(`td[data-cell="${feature} Luxury NA"]`);
 
 /** The name of the working copy a tour made, as the editor's heading shows it. */
@@ -46,7 +49,7 @@ async function toBreakingARule(page: Page): Promise<string> {
     await page.keyboard.press('Enter');
   }
   await expect(step(page, 'Break a rule')).toBeVisible();
-  await expect(cell(page, 'SEAT_HEATED_FRONT')).toHaveClass(/tour-target/);
+  await expect(cell(page, 'SEAT_HEATED_FRONT')).toHaveClass(/tour-target/, { timeout: 10_000 });
   return tourCopy(page);
 }
 
@@ -90,7 +93,7 @@ test('a visitor takes the tour from its offer to its last card, going on with En
   const breaking = step(page, 'Break a rule');
   await expect(page).toHaveURL(/\/catalogs\/\d+$/);
   const name = await tourCopy(page);
-  await expect(cell(page, 'SEAT_HEATED_FRONT')).toHaveClass(/tour-target/);
+  await expect(cell(page, 'SEAT_HEATED_FRONT')).toHaveClass(/tour-target/, { timeout: 10_000 });
   await expect(breaking.getByRole('button', { name: 'Next' })).toBeFocused();
   await page.keyboard.press('Enter');
 
