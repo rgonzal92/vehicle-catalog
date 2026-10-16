@@ -1,9 +1,8 @@
 package dev.rgonz.catalog.catalog;
 
 import dev.rgonz.catalog.ai.Model;
+import dev.rgonz.catalog.catalog.CatalogAccess.Act;
 import dev.rgonz.catalog.catalog.CatalogRules.RuleContent;
-import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
-import dev.rgonz.catalog.catalog.Catalogs.Read;
 import dev.rgonz.catalog.catalog.Catalogs.Reader;
 import dev.rgonz.catalog.core.ApiException;
 import dev.rgonz.catalog.library.RuleKind;
@@ -151,15 +150,12 @@ class RuleSuggestions {
       throw ApiException.invalid(
           "Describe the rule in at most %d characters.".formatted(LONGEST_SENTENCE));
     }
-    var catalog =
+    var read =
         catalogs
             .contents(catalogId, new Reader.Person(actorId, false))
-            .filter(Read::owned)
-            .orElseThrow(ApiException::notFound)
-            .snapshot();
-    if (catalog.status() != Status.DRAFT) {
-      throw ApiException.conflict("NOT_DRAFT", "Only a catalog in status Draft can be edited.");
-    }
+            .orElseThrow(ApiException::notFound);
+    CatalogAccess.check(Act.EDIT, read.owned(), read.snapshot().status());
+    var catalog = read.snapshot();
 
     var said =
         model.ask(

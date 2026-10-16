@@ -1,5 +1,6 @@
 package dev.rgonz.catalog.catalog;
 
+import dev.rgonz.catalog.catalog.CatalogAccess.Act;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
 import dev.rgonz.catalog.catalog.Catalogs.CatalogView;
 import dev.rgonz.catalog.catalog.Catalogs.Read;
@@ -302,13 +303,8 @@ class Revisions {
    * revision it is at, in that order.
    */
   private Locked lockToEdit(long catalogId, long ownerId, String ifMatch) {
-    var catalog =
-        lock(catalogId)
-            .filter(found -> found.ownerId() == ownerId)
-            .orElseThrow(ApiException::notFound);
-    if (catalog.status() != Status.DRAFT) {
-      throw ApiException.conflict("NOT_DRAFT", "Only a catalog in status Draft can be edited.");
-    }
+    var catalog = lock(catalogId).orElseThrow(ApiException::notFound);
+    CatalogAccess.check(Act.EDIT, catalog.ownerId() == ownerId, catalog.status());
     if (catalog.revision() != expectedRevision(ifMatch)) {
       throw ApiException.revisionConflict(catalog.revision());
     }
@@ -320,14 +316,8 @@ class Revisions {
    * catalog: that it is theirs, and that it is in status Submitted, in that order.
    */
   private Locked lockToWithdraw(long catalogId, long ownerId) {
-    var catalog =
-        lock(catalogId)
-            .filter(found -> found.ownerId() == ownerId)
-            .orElseThrow(ApiException::notFound);
-    if (catalog.status() != Status.SUBMITTED) {
-      throw ApiException.conflict(
-          "NOT_SUBMITTED", "Only a catalog in status Submitted can be withdrawn.");
-    }
+    var catalog = lock(catalogId).orElseThrow(ApiException::notFound);
+    CatalogAccess.check(Act.WITHDRAW, catalog.ownerId() == ownerId, catalog.status());
     return catalog;
   }
 
@@ -339,16 +329,7 @@ class Revisions {
    */
   private Locked lockToDecide(long catalogId, long reviewerId, String ifMatch) {
     var catalog = lock(catalogId).orElseThrow(ApiException::notFound);
-    if (catalog.ownerId() == reviewerId) {
-      throw ApiException.forbidden("SELF_APPROVAL", "Nobody decides on a catalog of their own.");
-    }
-    if (catalog.status() == Status.DRAFT) {
-      throw ApiException.notFound();
-    }
-    if (catalog.status() != Status.SUBMITTED) {
-      throw ApiException.conflict(
-          "NOT_SUBMITTED", "Only a catalog in status Submitted can be approved or rejected.");
-    }
+    CatalogAccess.check(Act.DECIDE, catalog.ownerId() == reviewerId, catalog.status());
     if (catalog.revision() != expectedRevision(ifMatch)) {
       throw ApiException.revisionConflict(catalog.revision());
     }

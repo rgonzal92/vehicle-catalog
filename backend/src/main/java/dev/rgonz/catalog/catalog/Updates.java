@@ -1,10 +1,10 @@
 package dev.rgonz.catalog.catalog;
 
+import dev.rgonz.catalog.catalog.CatalogAccess.Act;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Cell;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.FeatureRow;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Offering;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Region;
-import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Trim;
 import dev.rgonz.catalog.catalog.Catalogs.Current;
 import dev.rgonz.catalog.catalog.Catalogs.Read;
@@ -59,12 +59,8 @@ class Updates {
     var catalog =
         catalogs
             .contents(catalogId, new Reader.Person(ownerId, false))
-            .filter(Read::owned)
             .orElseThrow(ApiException::notFound);
-    if (catalog.snapshot().status() != Status.DRAFT) {
-      throw ApiException.conflict(
-          "NOT_DRAFT", "Only a catalog in status Draft can be updated from Approved.");
-    }
+    CatalogAccess.check(Act.PREVIEW_UPDATE, catalog.owned(), catalog.snapshot().status());
     if (!catalog.stale()) {
       throw notStale();
     }
