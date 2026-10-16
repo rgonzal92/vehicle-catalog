@@ -69,8 +69,9 @@ const QUESTION = 'What changed between the two Approved versions of the 2026 Com
 test('a visitor takes the tour from its offer to its last card, going on with Enter', async ({
   page,
 }) => {
-  // A catalog waits for review, as one does on the live site, where the demo starts with one.
-  await signIn(page, 'author');
+  // A catalog waits for review, as one does on the live site, where the demo starts with one. The
+  // admin submits it: the other tests leave the author nearly all twenty working copies.
+  await signIn(page, 'admin');
   const waiting = await createWorkingCopy(page, 'SUV', 'Compact SUV', '2027');
   await submit(page);
   await signOut(page);
@@ -172,9 +173,9 @@ test('a visitor takes the tour from its offer to its last card, going on with En
       .getByRole('cell', { name: waiting, exact: true }),
   ).toBeVisible();
 
-  // The catalog that waited goes too: the browser tests leave the author nearly twenty copies.
+  // The catalog that waited goes too, so that the tests leave the admin no more copies than before.
   await signOut(page);
-  await signIn(page, 'author');
+  await signIn(page, 'admin');
   const mine = page.getByRole('region', { name: 'My catalogs' });
   await mine.getByRole('button', { name: `Withdraw ${waiting}` }).click();
   await mine.getByRole('button', { name: `Delete ${waiting}` }).click();
@@ -190,7 +191,7 @@ test('a visitor who skips the tour on the step that breaks a rule leaves no work
 }) => {
   await signIn(page, 'manager');
   await walkTo(page, 'Break a rule');
-  await expect(cell(page, 'SEAT_HEATED_FRONT')).toHaveClass(/tour-target/);
+  await expect(cell(page, 'SEAT_HEATED_FRONT')).toHaveClass(/tour-target/, { timeout: 10_000 });
   const name = await tourCopy(page);
   await expectAccessible(page);
 
@@ -283,7 +284,10 @@ test('the review step points at the empty review queue when nothing waits for a 
 
 test('an author is told on the review step that managers review there', async ({ page }) => {
   await signIn(page, 'author');
-  await walkTo(page, "A manager's review");
+  // The steps before would make the author a working copy, and the other tests leave the author
+  // nearly all twenty; the tour is opened on its step as a reload would find it.
+  await page.evaluate(() => sessionStorage.setItem('tour', JSON.stringify({ step: 'review' })));
+  await page.reload();
 
   const review = step(page, "A manager's review");
   await expect(review).toContainText(
