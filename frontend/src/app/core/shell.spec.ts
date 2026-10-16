@@ -1,12 +1,13 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { Component } from '@angular/core';
+import { Component, Provider, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { MessageService } from 'primeng/api';
 import { NAVIGATE, Role, Session } from './session';
 import { Shell } from './shell';
+import { Tour } from './tour';
 
 @Component({ template: '<p>The page</p>' })
 class Page {}
@@ -16,7 +17,11 @@ describe('Shell', () => {
   let harness: RouterTestingHarness;
 
   /** Opens an address inside the frame as a person with these roles. */
-  async function open(url: string, roles: Role[] = ['author']): Promise<HTMLElement> {
+  async function open(
+    url: string,
+    roles: Role[] = ['author'],
+    others: Provider[] = [],
+  ): Promise<HTMLElement> {
     TestBed.configureTestingModule({
       providers: [
         provideRouter([
@@ -35,6 +40,7 @@ describe('Shell', () => {
         provideHttpClientTesting(),
         MessageService,
         { provide: NAVIGATE, useValue: () => undefined },
+        ...others,
       ],
     });
     backend = TestBed.inject(HttpTestingController);
@@ -130,6 +136,23 @@ describe('Shell', () => {
     await vi.waitFor(() => expect(title.textContent?.trim()).toBe('Users'));
     await vi.waitFor(() => expect(document.activeElement).toBe(title));
     expect(current(frame)).toBe('Users');
+  });
+
+  it('leaves focus on the tour while one of its steps is open, on whatever page it opens', async () => {
+    await open(
+      '/dashboard',
+      ['manager', 'author'],
+      [{ provide: Tour, useValue: { step: signal({ id: 'approved' }) } }],
+    );
+    const next = document.createElement('button');
+    document.body.append(next);
+    next.focus();
+
+    await harness.navigateByUrl('/analyst');
+    await harness.fixture.whenStable();
+
+    expect(document.activeElement).toBe(next);
+    next.remove();
   });
 
   it('leaves focus where it is when the frame first appears', async () => {

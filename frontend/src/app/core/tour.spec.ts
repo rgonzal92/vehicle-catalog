@@ -4,7 +4,7 @@ import { NavigationEnd, Router } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { of, Subject } from 'rxjs';
 import { Catalogs } from './catalogs';
-import { NAVIGATE, Person, Session } from './session';
+import { NAVIGATE, Person, Role, Session } from './session';
 import { Tour, WIDE } from './tour';
 
 describe('Tour', () => {
@@ -34,6 +34,9 @@ describe('Tour', () => {
   /** The names of working copies the owner has already, which a new copy may not take. */
   let taken: string[];
 
+  /** The catalogs waiting for review, as the review queue lists them. */
+  let waiting: { id: number; own: boolean }[];
+
   const manager: Person = {
     id: 2,
     name: 'Demo Manager',
@@ -46,7 +49,13 @@ describe('Tour', () => {
     return Injector.create({
       providers: [
         Tour,
-        { provide: Session, useValue: { load: async () => signedIn } },
+        {
+          provide: Session,
+          useValue: {
+            load: async () => signedIn,
+            holds: (role: Role) => signedIn?.roles.includes(role) ?? false,
+          },
+        },
         {
           provide: Router,
           useValue: {
@@ -86,6 +95,7 @@ describe('Tour', () => {
               return { id: 41 };
             },
             lastMade: () => lastMade,
+            toReview: async () => waiting,
             delete: async (catalogId: number, revision: number) => {
               if (deletesRefused-- > 0) {
                 throw new Error('The catalog has changed.');
@@ -137,6 +147,7 @@ describe('Tour', () => {
     refusesCopies = false;
     deletesRefused = 0;
     taken = [];
+    waiting = [];
   });
 
   afterEach(() => {
@@ -189,19 +200,6 @@ describe('Tour', () => {
 
     expect(tour.step()?.id).toBe('about');
     expect(url).toBe('/');
-  });
-
-  it('closes on its card, which stays on the page the visitor is on', async () => {
-    signedIn = manager;
-    sessionStorage.setItem('tour', JSON.stringify({ step: 'fix', copy: 41 }));
-    const tour = load();
-    await tour.resume();
-
-    await tour.next();
-
-    expect(tour.step()?.id).toBe('card');
-    expect(url).toBe('/catalogs/41');
-    expect(tour.number()).toBeNull();
   });
 
   it('sends someone who is not signed in to sign in, from a step that needs a session', async () => {
@@ -478,7 +476,7 @@ describe('Tour', () => {
 
       await tour.next();
       expect(pressed).toEqual(['-', 'a']);
-      expect(tour.step()?.id).toBe('card');
+      expect(tour.step()?.id).toBe('review');
     });
 
     it('deletes the copy it made once, with its current revision, and leaves its page', async () => {
@@ -498,6 +496,87 @@ describe('Tour', () => {
       tour.end();
 
       await vi.waitFor(() => expect(deleted).toEqual([[41, 9]]));
+    });
+  });
+
+  describe('the review and the analyst', () => {
+    const author: Person = { id: 1, name: 'Demo Author', email: null, roles: ['author'] };
+
+    /** A tour on the step given, as a reload would find it, for the person signed in. */
+    async function on(step: string, person: Person = manager): Promise<Tour> {
+      signedIn = person;
+      sessionStorage.setItem('tour', JSON.stringify({ step }));
+      const tour = load();
+      await tour.resume();
+      return tour;
+    }
+
+    it("opens the review of the first catalog waiting that is not the manager's own", async () => {
+      waiting = [
+        { id: 12, own: true },
+        { id: 34, own: false },
+        { id: 56, own: false },
+      ];
+
+      const tour = await on('review');
+
+      expect(url).toBe('/catalogs/34/review');
+      expect(tour.words()).toContain('Here a manager sees what a submitted copy changes');
+    });
+
+    it('points at the review queue on the dashboard when nothing is waiting', async () => {
+      waiting = [{ id: 12, own: true }];
+      const queue = onThePage('review-queue');
+
+      const tour = await on('review');
+
+      expect(url).toBe('/dashboard');
+      expect(tour.words()).toBe('Nothing is waiting for review right now. Reviews happen here.');
+      expect(tour.target()).toBe(queue);
+    });
+
+    it('tells an author that managers review here, pointing at nothing', async () => {
+      url = '/catalogs/41';
+      waiting = [{ id: 34, own: false }];
+
+      const tour = await on('review', author);
+
+      expect(url).toBe('/catalogs/41');
+      expect(tour.words()).toBe('Managers review submissions here. Sign in as manager to see it.');
+      await vi.waitFor(() => expect(tour.missing()).toBe(false));
+      expect(tour.target()).toBeNull();
+    });
+
+    it('asks the analyst its question once, then closes on its card on the same page', async () => {
+      const form = document.createElement('form');
+      form.dataset['tour'] = 'ask';
+      let asked = 0;
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        asked++;
+      });
+      document.body.append(form);
+      const tour = await on('analyst');
+      expect(url).toBe('/analyst');
+      expect(tour.question()).toBe(
+        'What changed between the two Approved versions of the 2026 Compact SUV?',
+      );
+
+      await tour.next();
+      expect(asked).toBe(1);
+      expect(tour.step()?.id).toBe('analyst');
+
+      const answer = document.createElement('li');
+      answer.dataset['by'] = 'ANALYST';
+      document.body.append(answer);
+      await vi.waitFor(() => expect(tour.target()).toBe(answer));
+
+      await tour.next();
+      expect(asked).toBe(1);
+      expect(tour.step()?.id).toBe('card');
+      // The card stays on the page the visitor is on, and has no number.
+      expect(url).toBe('/analyst');
+      expect(tour.number()).toBeNull();
     });
   });
 });

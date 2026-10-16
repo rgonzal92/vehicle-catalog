@@ -406,8 +406,9 @@ export class Shell {
       .subscribe(() => {
         this.title.set(this.titleOfPage());
         this.onCatalogPages.set(this.amongCatalogPages());
-        if (!arriving) {
-          // Someone who follows a link hears and sees where it led.
+        // Someone who follows a link hears and sees where it led. While a step of the tour is open,
+        // the tour led there, and the focus stays on it.
+        if (!arriving && this.tour.step() === null) {
           afterNextRender(() => this.heading().nativeElement.focus(), { injector: this.injector });
         }
         arriving = false;

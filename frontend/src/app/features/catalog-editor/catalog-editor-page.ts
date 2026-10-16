@@ -716,6 +716,7 @@ export class CatalogEditorPage {
             regionCode: wanted.region,
           },
           matrix,
+          false,
         );
       });
     });
@@ -937,13 +938,14 @@ export class CatalogEditorPage {
   }
 
   /**
-   * Shows the Features tab with a cell in view: the one an issue is about, or the tour's. A filter
-   * on the rows, or a region left out of the matrix, would keep the cell from view, so both give
-   * way.
+   * Shows the Features tab with a cell in view: the one an issue is about, which takes the focus,
+   * or the tour's, which leaves it on the tour. A filter on the rows, or a region left out of the
+   * matrix, would keep the cell from view, so both give way.
    */
   protected showCell(
     cell: Pick<Issue, 'featureId' | 'trimId' | 'regionCode'>,
     matrix: AvailabilityMatrix,
+    focus = true,
   ): void {
     const { featureId, trimId, regionCode } = cell;
     if (featureId === null || trimId === null || regionCode === null) {
@@ -952,7 +954,7 @@ export class CatalogEditorPage {
     this.rowFilters.reset();
     this.showRegion(regionCode, true);
     this.tab.set('features');
-    afterNextRender(() => matrix.show({ featureId, trimId, regionCode }), {
+    afterNextRender(() => matrix.show({ featureId, trimId, regionCode }, focus), {
       injector: this.injector,
     });
   }
