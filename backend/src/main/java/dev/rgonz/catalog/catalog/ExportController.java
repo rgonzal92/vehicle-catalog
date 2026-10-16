@@ -1,7 +1,7 @@
 package dev.rgonz.catalog.catalog;
 
+import dev.rgonz.catalog.catalog.Catalogs.Reader;
 import dev.rgonz.catalog.catalog.Exports.Export;
-import dev.rgonz.catalog.core.Role;
 import dev.rgonz.catalog.user.AppUsers;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -33,10 +33,10 @@ class ExportController {
    */
   @PostMapping("/api/catalogs/{id}/exports")
   ResponseEntity<Export> request(@PathVariable long id, Authentication caller) {
-    var requester = people.idOf(caller);
-    var export = exports.request(id, requester, reviews(caller));
+    var requester = Reader.of(people.idOf(caller), caller, roles);
+    var export = exports.request(id, requester);
 
-    return ResponseEntity.accepted().body(exports.find(export, requester));
+    return ResponseEntity.accepted().body(exports.find(export, requester.id()));
   }
 
   /** How an export the caller asked for stands. */
@@ -49,12 +49,7 @@ class ExportController {
   @GetMapping("/api/exports/{id}/download")
   ResponseEntity<Void> download(@PathVariable long id, Authentication caller) {
     return ResponseEntity.status(HttpStatus.SEE_OTHER)
-        .location(exports.linkTo(id, people.idOf(caller), reviews(caller)))
+        .location(exports.linkTo(id, Reader.of(people.idOf(caller), caller, roles)))
         .build();
-  }
-
-  /** Whether the caller reviews catalogs, as a manager and an admin do. */
-  private boolean reviews(Authentication caller) {
-    return Role.heldBy(caller.getAuthorities(), roles).contains(Role.MANAGER);
   }
 }

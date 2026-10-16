@@ -25,7 +25,6 @@ class Reviews {
 
   private final JdbcClient jdbc;
   private final Revisions revisions;
-  private final Catalogs catalogs;
   private final Jobs jobs;
   private final ApprovedChecks checks;
   private final Counter approvals;
@@ -34,13 +33,11 @@ class Reviews {
   Reviews(
       JdbcClient jdbc,
       Revisions revisions,
-      Catalogs catalogs,
       Jobs jobs,
       ApprovedChecks checks,
       MeterRegistry metrics) {
     this.jdbc = jdbc;
     this.revisions = revisions;
-    this.catalogs = catalogs;
     this.jobs = jobs;
     this.checks = checks;
     this.approvals =
@@ -71,12 +68,11 @@ class Reviews {
    */
   Outcome approve(long catalogId, long reviewerId, String ifMatch, String comment) {
     var approved =
-        revisions.decide(
+        revisions.approve(
             catalogId,
             reviewerId,
             ifMatch,
-            true,
-            submitted -> {
+            (submitted, catalog) -> {
               var said = commentOf(comment);
               var current =
                   jdbc.sql("SELECT current_catalog_id FROM lineage WHERE id = :lineage")
@@ -90,13 +86,11 @@ class Reviews {
                     "Another version of this catalog's lineage was approved after it was made. Its"
                         + " owner has to update it from that version first.");
               }
-              var catalog =
-                  catalogs.find(catalogId, reviewerId, true).orElseThrow(ApiException::notFound);
-              if (!catalog.vehicleLineActive()) {
+              if (!catalog.read().vehicleLineActive()) {
                 throw ApiException.conflict(
                     "VEHICLE_LINE_INACTIVE",
                     "The vehicle line %s is deactivated, so its catalogs cannot be approved."
-                        .formatted(catalog.vehicleLine()));
+                        .formatted(catalog.read().vehicleLine()));
               }
               if (Counts.of(catalog.issues()).errors() > 0) {
                 throw ApiException.hasErrors(
@@ -146,7 +140,6 @@ class Reviews {
             catalogId,
             reviewerId,
             ifMatch,
-            false,
             submitted -> {
               var said = commentOf(comment);
               if (said == null) {

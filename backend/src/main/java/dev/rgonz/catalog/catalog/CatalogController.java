@@ -5,6 +5,7 @@ import dev.rgonz.catalog.catalog.CatalogRules.RuleContent;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
 import dev.rgonz.catalog.catalog.Catalogs.CatalogView;
 import dev.rgonz.catalog.catalog.Catalogs.LineageSummary;
+import dev.rgonz.catalog.catalog.Catalogs.Reader;
 import dev.rgonz.catalog.catalog.Catalogs.VersionSummary;
 import dev.rgonz.catalog.catalog.ChangeHistory.ChangePage;
 import dev.rgonz.catalog.catalog.Diff.Changes;
@@ -150,15 +151,15 @@ class CatalogController {
   @GetMapping(value = "/api/catalogs", params = "scope=review")
   List<Submitted> toReview(Authentication caller) {
     // The owner's list has the same address, so the role is asked for here and not by the address.
-    if (!reviews(caller)) {
+    if (!Reader.reviews(caller, roles)) {
       throw ApiException.forbidden("FORBIDDEN", "Only a manager or an admin reviews catalogs.");
     }
     return workingCopies.submitted(people.idOf(caller));
   }
 
-  /** Whether the caller reviews catalogs, as a manager and an admin do. */
-  private boolean reviews(Authentication caller) {
-    return Role.heldBy(caller.getAuthorities(), roles).contains(Role.MANAGER);
+  /** The caller as a reader of catalogs. */
+  private Reader.Person reader(Authentication caller) {
+    return Reader.of(people.idOf(caller), caller, roles);
   }
 
   /** What a new working copy for the vehicle line and model year would start from. */
@@ -429,17 +430,12 @@ class CatalogController {
       @RequestParam(defaultValue = "0") int page,
       @RequestParam(defaultValue = "25") int size,
       Authentication caller) {
-    if (!catalogs.opensFor(id, people.idOf(caller), reviews(caller))) {
+    if (!catalogs.opensFor(id, reader(caller))) {
       throw ApiException.notFound();
     }
     return history.page(id, page, size);
   }
 
-  /**
-   * What changed from another catalog to this one, for anyone who may open both. The other is named
-   * by its id, or as {@code base}: the catalog this one was copied from, or an empty catalog when
-   * it started empty.
-   */
   /**
    * The summary the language model wrote of what a Submitted catalog changes, for whoever may open
    * its review: pending while it is being written, ready, or unavailable with the reason.
@@ -447,18 +443,20 @@ class CatalogController {
   @GetMapping("/api/catalogs/{id}/summary")
   SubmissionSummaries.Summary summary(@PathVariable long id, Authentication caller) {
     var catalog =
-        catalogs
-            .find(id, people.idOf(caller), reviews(caller))
-            .orElseThrow(ApiException::notFound)
-            .snapshot();
+        catalogs.contents(id, reader(caller)).orElseThrow(ApiException::notFound).snapshot();
 
     return summaries.find(id, catalog.revision()).orElseThrow(ApiException::notFound);
   }
 
+  /**
+   * What changed from another catalog to this one, for anyone who may open both. The other is named
+   * by its id, or as {@code base}: the catalog this one was copied from, or an empty catalog when
+   * it started empty.
+   */
   @GetMapping("/api/catalogs/{id}/diff")
   Changes diff(@PathVariable long id, @RequestParam String against, Authentication caller) {
-    var viewer = people.idOf(caller);
-    var catalog = catalogs.find(id, viewer, reviews(caller)).orElseThrow(ApiException::notFound);
+    var viewer = reader(caller);
+    var catalog = catalogs.contents(id, viewer).orElseThrow(ApiException::notFound);
     Long other;
     if (against.equals("base")) {
       other = catalog.base() == null ? null : catalog.base().catalogId();
@@ -470,7 +468,7 @@ class CatalogController {
     var before =
         other == null
             ? CatalogSnapshot.empty()
-            : catalogs.contents(other, viewer, reviews(caller)).orElseThrow(ApiException::notFound);
+            : catalogs.contents(other, viewer).orElseThrow(ApiException::notFound).snapshot();
 
     return Diff.between(before, catalog.snapshot());
   }
@@ -522,9 +520,10 @@ class CatalogController {
   /** A catalog with its contents. Its revision is the entity tag, which later writes name. */
   @GetMapping("/api/catalogs/{id}")
   ResponseEntity<CatalogView> catalog(@PathVariable long id, Authentication caller) {
-    var catalog =
-        catalogs.find(id, people.idOf(caller), reviews(caller)).orElseThrow(ApiException::notFound);
+    var catalog = catalogs.shown(id, reader(caller)).orElseThrow(ApiException::notFound);
 
-    return ResponseEntity.ok().eTag(String.valueOf(catalog.snapshot().revision())).body(catalog);
+    return ResponseEntity.ok()
+        .eTag(String.valueOf(catalog.read().snapshot().revision()))
+        .body(catalog);
   }
 }

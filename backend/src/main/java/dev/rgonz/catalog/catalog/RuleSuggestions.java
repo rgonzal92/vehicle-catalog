@@ -3,6 +3,8 @@ package dev.rgonz.catalog.catalog;
 import dev.rgonz.catalog.ai.Model;
 import dev.rgonz.catalog.catalog.CatalogRules.RuleContent;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
+import dev.rgonz.catalog.catalog.Catalogs.Read;
+import dev.rgonz.catalog.catalog.Catalogs.Reader;
 import dev.rgonz.catalog.core.ApiException;
 import dev.rgonz.catalog.library.RuleKind;
 import java.util.ArrayList;
@@ -151,8 +153,8 @@ class RuleSuggestions {
     }
     var catalog =
         catalogs
-            .find(catalogId, actorId)
-            .filter(Catalogs.CatalogView::owned)
+            .contents(catalogId, new Reader.Person(actorId, false))
+            .filter(Read::owned)
             .orElseThrow(ApiException::notFound)
             .snapshot();
     if (catalog.status() != Status.DRAFT) {

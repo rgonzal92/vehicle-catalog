@@ -3,6 +3,7 @@ package dev.rgonz.catalog.catalog;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.rgonz.catalog.core.EndedSpans;
+import dev.rgonz.catalog.core.Role;
 import io.micrometer.core.instrument.Meter;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.trace.StatusCode;
@@ -12,6 +13,7 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /**
  * Checks that the steps inside a request leave spans of their own in the request's trace, each
@@ -124,6 +126,62 @@ class CatalogStepsIT extends WorkingCopyTests {
           .singleElement()
           .satisfies(meter -> assertThat(meter.getId().getTags()).isEmpty());
     }
+  }
+
+  @Test
+  void aSubmitAndAnApprovalEachWorkOutTheCatalogsIssuesOnce() {
+    var copy = workingCopy(ana(), "COMPACT_SUV", 2026);
+
+    assertThat(edit(ana(), mvc.post().uri("/api/catalogs/{id}/submit", copy), "\"0\"", "{}"))
+        .hasStatusOk();
+    assertThat(steps(traceOf("catalog.save", copy)))
+        .as("the steps of the submit")
+        .containsOnlyOnce("catalog.issues");
+
+    assertThat(edit(mia(), mvc.post().uri("/api/catalogs/{id}/approve", copy), "\"1\"", "{}"))
+        .hasStatusOk();
+    assertThat(steps(traceOf("catalog.save", copy)))
+        .as("the steps of the approval")
+        .containsOnlyOnce("catalog.issues");
+  }
+
+  @Test
+  void anExportRequestADiffASummaryAndAnUpdatePreviewWorkOutNoIssues() {
+    var anas = workingCopy(ana(), "COMPACT_SUV", 2026);
+    var bens = workingCopy(ben(), "COMPACT_SUV", 2026);
+    assertThat(edit(ana(), mvc.post().uri("/api/catalogs/{id}/submit", anas), "\"0\"", "{}"))
+        .hasStatusOk();
+
+    assertThat(mvc.get().uri("/api/catalogs/{id}/summary", anas).with(mia())).hasStatusOk();
+    assertThat(steps(traceOf("catalog.read", anas)))
+        .as("the steps of a summary")
+        .doesNotContain("catalog.issues");
+
+    assertThat(edit(mia(), mvc.post().uri("/api/catalogs/{id}/approve", anas), "\"1\"", "{}"))
+        .hasStatusOk();
+
+    assertThat(edit(ben(), mvc.post().uri("/api/catalogs/{id}/exports", bens), null, null))
+        .hasStatus2xxSuccessful();
+    assertThat(steps(traceOf("catalog.read", bens)))
+        .as("the steps of an export request")
+        .doesNotContain("catalog.issues");
+
+    assertThat(mvc.get().uri("/api/catalogs/{id}/diff?against=base", bens).with(ben()))
+        .hasStatusOk();
+    assertThat(steps(traceOf("catalog.read", bens)))
+        .as("the steps of a diff")
+        .doesNotContain("catalog.issues");
+
+    assertThat(edit(ben(), mvc.post().uri("/api/catalogs/{id}/merge-preview", bens), null, null))
+        .hasStatusOk();
+    assertThat(steps(traceOf("catalog.read", bens)))
+        .as("the steps of an update preview")
+        .doesNotContain("catalog.issues");
+  }
+
+  /** Mia, a manager who is on record. */
+  private RequestPostProcessor mia() {
+    return signedInAs(Role.MANAGER, "mia");
   }
 
   /**

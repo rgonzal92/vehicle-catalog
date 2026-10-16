@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.catalog.ApprovedContents.Counts;
+import dev.rgonz.catalog.catalog.Catalogs.Reader;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -53,7 +54,7 @@ class WithoutACacheIT extends WorkingCopyTests {
       throws Exception {
     seedLibraryAndCatalogs();
     var approved = approved("COMPACT_SUV", 2026, 2);
-    var ana = person("ana");
+    var anyone = new Reader.Person(person("ana"), false);
 
     transactions.executeWithoutResult(
         transaction -> {
@@ -61,9 +62,9 @@ class WithoutACacheIT extends WorkingCopyTests {
           storeLastKeyFirst(approved);
 
           readTablesOnlyBy("indexscan");
-          var alongTheIndexes = catalogs.find(approved, ana).orElseThrow();
+          var alongTheIndexes = catalogs.shown(approved, anyone).orElseThrow();
           readTablesOnlyBy("seqscan");
-          var asStored = catalogs.find(approved, ana).orElseThrow();
+          var asStored = catalogs.shown(approved, anyone).orElseThrow();
 
           assertThat(asStored)
               .as("the version read as its rows are stored, against it read along its indexes")

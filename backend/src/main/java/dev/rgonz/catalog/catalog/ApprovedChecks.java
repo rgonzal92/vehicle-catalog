@@ -1,5 +1,6 @@
 package dev.rgonz.catalog.catalog;
 
+import dev.rgonz.catalog.catalog.Catalogs.Reader;
 import dev.rgonz.catalog.catalog.Issue.Counts;
 import dev.rgonz.catalog.job.JobHandler;
 import dev.rgonz.catalog.job.JobType;
@@ -20,9 +21,6 @@ import tools.jackson.databind.JsonNode;
  */
 @Component
 class ApprovedChecks implements JobHandler {
-  /** Whoever reads a catalog as no one in particular, which an Approved version allows. */
-  private static final long NO_ONE = 0;
-
   private final JdbcClient jdbc;
   private final Jobs jobs;
   private final Catalogs catalogs;
@@ -84,7 +82,7 @@ class ApprovedChecks implements JobHandler {
       return;
     }
     catalogs
-        .find(catalog, NO_ONE)
+        .shown(catalog, Reader.SYSTEM)
         .ifPresent(approved -> keep(catalog, revision, Counts.of(approved.issues()).errors()));
   }
 

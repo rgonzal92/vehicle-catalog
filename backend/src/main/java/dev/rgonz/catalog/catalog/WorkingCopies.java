@@ -1,8 +1,10 @@
 package dev.rgonz.catalog.catalog;
 
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
+import dev.rgonz.catalog.catalog.Catalogs.Reader;
 import dev.rgonz.catalog.catalog.Issue.Counts;
 import dev.rgonz.catalog.core.ApiException;
+import dev.rgonz.catalog.library.LibraryRevision;
 import dev.rgonz.catalog.reference.FixedLists;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -16,7 +18,9 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Creates working copies and lists a person's own. A new working copy starts from its lineage's
@@ -49,6 +53,8 @@ class WorkingCopies {
 
   private final JdbcClient jdbc;
   private final Catalogs catalogs;
+  private final LibraryRevision libraryRevision;
+  private final TransactionTemplate oneView;
   private final FixedLists fixedLists;
   private final ObservationRegistry observations;
   private final Timer copyTime;
@@ -56,11 +62,17 @@ class WorkingCopies {
   WorkingCopies(
       JdbcClient jdbc,
       Catalogs catalogs,
+      LibraryRevision libraryRevision,
+      TransactionTemplate transactions,
       FixedLists fixedLists,
       ObservationRegistry observations,
       MeterRegistry metrics) {
     this.jdbc = jdbc;
     this.catalogs = catalogs;
+    this.libraryRevision = libraryRevision;
+    this.oneView = new TransactionTemplate(transactions.getTransactionManager());
+    oneView.setReadOnly(true);
+    oneView.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
     this.fixedLists = fixedLists;
     this.observations = observations;
     this.copyTime =
@@ -186,15 +198,23 @@ class WorkingCopies {
    * time it is listed. A working copy that is gone counts nothing.
    */
   private Counts counted(long id, long owner) {
-    return catalogs
-        .findWithLibraryRevision(id, owner)
-        .map(
-            read -> {
-              var counts = Counts.of(read.catalog().issues());
-              keepCounts(id, read.catalog().snapshot().revision(), read.libraryRevision(), counts);
-              return counts;
-            })
-        .orElse(new Counts(0, 0));
+    // The library's revision is read in the same view of the database as the copy, so that it
+    // names the library the counts were worked out against. They are kept once that view is done.
+    var counted =
+        oneView.execute(
+            transaction ->
+                catalogs
+                    .shown(id, new Reader.Person(owner, false))
+                    .map(
+                        shown ->
+                            new Counted(
+                                shown.read().snapshot().revision(),
+                                libraryRevision.current(),
+                                Counts.of(shown.issues()))));
+    counted.ifPresent(
+        found -> keepCounts(id, found.revision(), found.libraryRevision(), found.counts()));
+
+    return counted.map(Counted::counts).orElse(new Counts(0, 0));
   }
 
   /**
@@ -405,4 +425,7 @@ class WorkingCopies {
 
   /** A working copy as the list reads it, with the counts kept for it or null. */
   private record Kept(WorkingCopy copy, boolean stale, Counts counts) {}
+
+  /** What a working copy was counted at: its revision, and the library's. */
+  private record Counted(long revision, long libraryRevision, Counts counts) {}
 }

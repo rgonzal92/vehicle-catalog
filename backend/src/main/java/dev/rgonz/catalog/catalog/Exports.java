@@ -1,6 +1,7 @@
 package dev.rgonz.catalog.catalog;
 
-import dev.rgonz.catalog.catalog.Catalogs.CatalogView;
+import dev.rgonz.catalog.catalog.Catalogs.Read;
+import dev.rgonz.catalog.catalog.Catalogs.Reader;
 import dev.rgonz.catalog.core.ApiException;
 import dev.rgonz.catalog.core.ResetCleanup;
 import dev.rgonz.catalog.job.JobHandler;
@@ -41,13 +42,10 @@ class Exports implements JobHandler, ResetCleanup {
   /**
    * Has a catalog exported for a person who may open it, and answers with the export's id. The
    * export and the job that builds its file are written together.
-   *
-   * @param reviews whether the person reviews catalogs, as a manager and an admin do
    */
   @Transactional
-  long request(long catalogId, long requesterId, boolean reviews) {
-    var catalog =
-        catalogs.find(catalogId, requesterId, reviews).orElseThrow(ApiException::notFound);
+  long request(long catalogId, Reader.Person requester) {
+    var catalog = catalogs.contents(catalogId, requester).orElseThrow(ApiException::notFound);
     var export =
         jdbc.sql(
                 """
@@ -56,7 +54,7 @@ class Exports implements JobHandler, ResetCleanup {
                 RETURNING id
                 """)
             .param("catalog", catalogId)
-            .param("requester", requesterId)
+            .param("requester", requester.id())
             .param("name", fileName(catalog))
             .query(Long.class)
             .single();
@@ -93,9 +91,9 @@ class Exports implements JobHandler, ResetCleanup {
    * catalog. There is none before the file is kept.
    */
   @Transactional(readOnly = true)
-  URI linkTo(long exportId, long requesterId, boolean reviews) {
-    var export = find(exportId, requesterId);
-    if (!catalogs.opensFor(export.catalogId(), requesterId, reviews)) {
+  URI linkTo(long exportId, Reader.Person requester) {
+    var export = find(exportId, requester.id());
+    if (!catalogs.opensFor(export.catalogId(), requester)) {
       throw ApiException.notFound();
     }
     if (!export.status().equals("READY")) {
@@ -118,19 +116,18 @@ class Exports implements JobHandler, ResetCleanup {
     long export = subject.required("exportId").asLong();
     jdbc.sql(
             """
-            SELECT e.catalog_id, c.owner_id, e.file_name
+            SELECT e.catalog_id, e.file_name
             FROM catalog_export e
-            JOIN catalog c ON c.id = e.catalog_id
             WHERE e.id = :id
             """)
         .param("id", export)
         .query(Asked.class)
         .optional()
-        // Its owner may open a catalog whatever its status, and the file is the same for anyone.
+        // The file is the same for anyone who may open the catalog.
         .ifPresent(
             asked ->
                 catalogs
-                    .find(asked.catalogId(), asked.ownerId())
+                    .contents(asked.catalogId(), Reader.SYSTEM)
                     .ifPresent(
                         catalog ->
                             files.put(
@@ -158,7 +155,7 @@ class Exports implements JobHandler, ResetCleanup {
    * What the file is called: the vehicle line, the model year, and the version number or the
    * working copy's name, with nothing in it that a file's name cannot have everywhere.
    */
-  private static String fileName(CatalogView catalog) {
+  private static String fileName(Read catalog) {
     var which = catalog.versionNumber() == null ? catalog.name() : "v" + catalog.versionNumber();
     return "%s %d %s"
             .formatted(catalog.vehicleLine(), catalog.modelYear(), which)
@@ -183,5 +180,5 @@ class Exports implements JobHandler, ResetCleanup {
    */
   record Export(long id, long catalogId, String status, String fileName) {}
 
-  private record Asked(long catalogId, long ownerId, String fileName) {}
+  private record Asked(long catalogId, String fileName) {}
 }
