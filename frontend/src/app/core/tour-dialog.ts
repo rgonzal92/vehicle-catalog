@@ -82,7 +82,7 @@ const AUTHOR = 'https://www.linkedin.com/in/rgonzal92';
 
           @if (step.note; as note) {
             <!-- A note starts collapsed on every step: each step has a fieldset of its own. -->
-            @for (shown of [step]; track shown.id) {
+            @for (opened of [step]; track opened.id) {
               <p-fieldset legend="How it's built" [toggleable]="true" [collapsed]="true">
                 <p class="grid gap-2">
                   <span>{{ note.words }}</span>

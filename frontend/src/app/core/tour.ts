@@ -15,13 +15,13 @@ interface Login {
 }
 
 /** What a cell of the matrix shows for each availability. */
-type Symbol = 'S' | 'A' | '-';
+type Shown = 'S' | 'A' | '-';
 
 /** What the tab keeps of a tour: its step, the working copy it made, and what its cell held. */
 interface Kept {
   step?: StepId;
   copy?: number;
-  held?: Symbol;
+  held?: Shown;
 }
 
 /** The class that rings the element a step is about. */
@@ -37,8 +37,11 @@ const ASK_FOR_THE_CELL_EVERY_MS = 1_000;
 /** How long the analyst's step waits for its answer, which the model can take a while over. */
 const ANSWER_WAIT_MS = 60_000;
 
+/** The analyst's answer, or the page's word on why there is none. */
+const ANSWERED = '[data-by="ANALYST"], [data-analyst-failure]';
+
 /** Where a step shows, the elements it points at, and what it says. */
-interface Shown {
+interface Placement {
   path: string | null;
   target?: string;
   words: string;
@@ -55,7 +58,7 @@ export const WIDE = '(min-width: 1024px)';
 const SIGN_IN = STEPS.findIndex((step) => step.id === 'sign-in');
 
 /** The keys that set a cell of the matrix to each availability, by what the cell shows. */
-const KEY_OF: Record<Symbol, string> = { S: 's', A: 'a', '-': '-' };
+const KEY_OF: Record<Shown, string> = { S: 's', A: 'a', '-': '-' };
 
 /**
  * The tour: which step a visitor is on, the page it shows on, and the element it is about. The step
@@ -78,7 +81,7 @@ export class Tour {
   private opening: Promise<void> = Promise.resolve();
   private lookedFor: Promise<void> = Promise.resolve();
   private copy: number | null = null;
-  private held: Symbol | null = null;
+  private held: Shown | null = null;
   private asked = false;
 
   /** The step open, or null while there is no tour. */
@@ -228,7 +231,7 @@ export class Tour {
         // The step stays open, now pointing at the answer once it arrives.
         this.asked = true;
         (this.target() as HTMLFormElement).requestSubmit();
-        this.look('[data-by="ANALYST"]', ANSWER_WAIT_MS);
+        this.look(ANSWERED, ANSWER_WAIT_MS);
         return;
       }
     }
@@ -272,13 +275,14 @@ export class Tour {
     if (index === SIGN_IN) {
       this.login.set(await this.manager());
     }
-    const shown = await this.shownAs(step);
-    this.words.set(shown.words);
-    this.asked = false;
-    if (shown.path !== null && this.router.url !== shown.path) {
-      await this.router.navigateByUrl(shown.path);
+    const placed = await this.shownAs(step);
+    this.words.set(placed.words);
+    if (placed.path !== null && this.router.url !== placed.path) {
+      await this.router.navigateByUrl(placed.path);
     }
-    this.look(shown.target);
+    // Come back to the analyst's step, the answer is already there and is not asked for again.
+    this.asked = step.id === 'analyst' && document.querySelector(ANSWERED) !== null;
+    this.look(this.asked ? ANSWERED : placed.target);
   }
 
   /**
@@ -286,7 +290,7 @@ export class Tour {
    * catalog waiting for a review that is not the manager's own; with none, the empty queue on the
    * dashboard; and to an author, who reviews nothing, only its words.
    */
-  private async shownAs(step: TourStep): Promise<Shown> {
+  private async shownAs(step: TourStep): Promise<Placement> {
     if (step.id !== 'review') {
       const path = step.path === undefined ? null : await this.pathOf(step.path);
       return { path, target: step.target, words: step.words };
@@ -294,13 +298,14 @@ export class Tour {
     if (!this.session.holds('manager')) {
       return { path: null, words: step.forAuthors ?? step.words };
     }
-    const queue = await this.catalogs.toReview().catch(() => []);
-    const waiting = queue.find((catalog) => !catalog.own);
+    // A queue that cannot be read is shown on the dashboard, which says so, and not as empty.
+    const queue = await this.catalogs.toReview().catch(() => null);
+    const waiting = queue?.find((catalog) => !catalog.own);
     if (waiting === undefined) {
       return {
         path: '/dashboard',
         target: '[data-tour="review-queue"]',
-        words: step.noneWaiting ?? step.words,
+        words: queue === null ? step.words : (step.noneWaiting ?? step.words),
       };
     }
     return {
@@ -369,7 +374,7 @@ export class Tour {
   }
 
   /** Sets the cell the step is about as a visitor does, with the key for what it is to show. */
-  private press(shown: Symbol): void {
+  private press(shown: Shown): void {
     // The key goes to the cell without the focus, which stays on the tour.
     this.cellOnPage()?.dispatchEvent(
       new KeyboardEvent('keydown', { key: KEY_OF[shown], bubbles: true }),

@@ -34,8 +34,8 @@ describe('Tour', () => {
   /** The names of working copies the owner has already, which a new copy may not take. */
   let taken: string[];
 
-  /** The catalogs waiting for review, as the review queue lists them. */
-  let waiting: { id: number; own: boolean }[];
+  /** The catalogs waiting for review, as the review queue lists them, or null when it fails. */
+  let waiting: { id: number; own: boolean }[] | null;
 
   const manager: Person = {
     id: 2,
@@ -95,7 +95,12 @@ describe('Tour', () => {
               return { id: 41 };
             },
             lastMade: () => lastMade,
-            toReview: async () => waiting,
+            toReview: async () => {
+              if (waiting === null) {
+                throw new Error('The queue could not be read.');
+              }
+              return waiting;
+            },
             delete: async (catalogId: number, revision: number) => {
               if (deletesRefused-- > 0) {
                 throw new Error('The catalog has changed.');
@@ -535,9 +540,19 @@ describe('Tour', () => {
       expect(tour.target()).toBe(queue);
     });
 
+    it('says on the dashboard what review is for when the queue cannot be read', async () => {
+      waiting = null;
+
+      const tour = await on('review');
+
+      expect(url).toBe('/dashboard');
+      expect(tour.words()).toContain('Here a manager sees what a submitted copy changes');
+    });
+
     it('tells an author that managers review here, pointing at nothing', async () => {
       url = '/catalogs/41';
       waiting = [{ id: 34, own: false }];
+      onThePage('decide');
 
       const tour = await on('review', author);
 
@@ -577,6 +592,41 @@ describe('Tour', () => {
       // The card stays on the page the visitor is on, and has no number.
       expect(url).toBe('/analyst');
       expect(tour.number()).toBeNull();
+    });
+
+    it("points at the page's word on why a question got no answer", async () => {
+      const form = document.createElement('form');
+      form.dataset['tour'] = 'ask';
+      form.addEventListener('submit', (event) => event.preventDefault());
+      document.body.append(form);
+      const tour = await on('analyst');
+
+      await tour.next();
+      const refusal = document.createElement('p');
+      refusal.setAttribute('data-analyst-failure', '');
+      document.body.append(refusal);
+
+      await vi.waitFor(() => expect(tour.target()).toBe(refusal));
+    });
+
+    it('asks nothing again when the visitor comes back to the analyst with its answer there', async () => {
+      const form = document.createElement('form');
+      form.dataset['tour'] = 'ask';
+      let asked = 0;
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        asked++;
+      });
+      const answer = document.createElement('li');
+      answer.dataset['by'] = 'ANALYST';
+      document.body.append(form, answer);
+
+      const tour = await on('analyst');
+      expect(tour.target()).toBe(answer);
+
+      await tour.next();
+      expect(asked).toBe(0);
+      expect(tour.step()?.id).toBe('card');
     });
   });
 });

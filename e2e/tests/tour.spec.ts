@@ -171,6 +171,18 @@ test('a visitor takes the tour from its offer to its last card, going on with En
       .getByRole('region', { name: 'Review queue' })
       .getByRole('cell', { name: waiting, exact: true }),
   ).toBeVisible();
+
+  // The catalog that waited goes too: the browser tests leave the author nearly twenty copies.
+  await signOut(page);
+  await signIn(page, 'author');
+  const mine = page.getByRole('region', { name: 'My catalogs' });
+  await mine.getByRole('button', { name: `Withdraw ${waiting}` }).click();
+  await mine.getByRole('button', { name: `Delete ${waiting}` }).click();
+  await page
+    .getByRole('dialog', { name: 'Delete working copy' })
+    .getByRole('button', { name: 'Delete', exact: true })
+    .click();
+  await expect(mine.getByRole('cell', { name: waiting, exact: true })).toHaveCount(0);
 });
 
 test('a visitor who skips the tour on the step that breaks a rule leaves no working copy behind', async ({
@@ -285,25 +297,41 @@ test('a note on how a step is built opens to its record, and starts closed on ev
   page,
 }) => {
   await signIn(page, 'manager');
-  await walkTo(page, 'What this app is for');
+  await walkTo(page, 'A published catalog');
 
-  const about = step(page, 'What this app is for');
-  const toggle = about.getByRole('button', { name: "How it's built" });
-  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-  await toggle.click();
-  await expect(about.getByRole('link', { name: 'Read the record on GitHub' })).toHaveAttribute(
-    'href',
-    'https://github.com/rgonzal92/vehicle-catalog/blob/main/README.md',
-  );
-
-  await about.getByRole('button', { name: 'Next' }).click();
-  await step(page, 'Your dashboard').getByRole('button', { name: 'Next' }).click();
   const published = step(page, 'A published catalog');
   await expect(published.getByRole('button', { name: "How it's built" })).toHaveAttribute(
     'aria-expanded',
     'false',
   );
-  await published.getByRole('button', { name: 'Skip tour' }).click();
+  await published.getByRole('button', { name: "How it's built" }).click();
+  await expect(published.getByRole('link', { name: 'Read the record on GitHub' })).toHaveAttribute(
+    'href',
+    'https://github.com/rgonzal92/vehicle-catalog/blob/main/docs/adr/0006-the-matrix-is-one-primeng-table-with-its-own-subheaders-and-cell-editing.md',
+  );
+
+  // The review's step and the analyst's both have a note, one straight after the other.
+  for (const title of [
+    'A published catalog',
+    'Make a working copy',
+    'Break a rule',
+    'Put it right',
+  ]) {
+    await step(page, title).getByRole('button', { name: 'Next' }).click();
+  }
+  const review = step(page, "A manager's review");
+  await review.getByRole('button', { name: "How it's built" }).click();
+  await expect(review.getByRole('button', { name: "How it's built" })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  );
+  await review.getByRole('button', { name: 'Next' }).click();
+  const analyst = step(page, 'Ask the analyst');
+  await expect(analyst.getByRole('button', { name: "How it's built" })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
+  await analyst.getByRole('button', { name: 'Skip tour' }).click();
 });
 
 test("the analyst's step is accessible with its note open", async ({ page }) => {

@@ -407,7 +407,7 @@ export class Shell {
         this.title.set(this.titleOfPage());
         this.onCatalogPages.set(this.amongCatalogPages());
         // Someone who follows a link hears and sees where it led. While a step of the tour is open,
-        // the tour led there, and the focus stays on it.
+        // the focus stays on the tour's dialog, which moves from page to page with the visitor.
         if (!arriving && this.tour.step() === null) {
           afterNextRender(() => this.heading().nativeElement.focus(), { injector: this.injector });
         }

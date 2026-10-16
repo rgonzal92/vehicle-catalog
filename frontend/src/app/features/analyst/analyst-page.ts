@@ -135,7 +135,7 @@ interface ShownTurn extends AnalystTurn {
           }
         </p>
         @if (failure(); as why) {
-          <p-message severity="warn">{{ why }}</p-message>
+          <p-message severity="warn" data-analyst-failure>{{ why }}</p-message>
         }
       </form>
     </section>
