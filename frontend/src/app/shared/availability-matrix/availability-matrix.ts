@@ -179,6 +179,9 @@ const keyOf = (feature: FeatureRow, offering: ShownOffering) =>
                 changedRow ? changed!.before.get(row.feature.id + ':' + offering.key) : null;
               <td
                 #cell
+                [attr.data-cell]="
+                  row.feature.code + ' ' + offering.trim.name + ' ' + offering.region.code
+                "
                 [class]="
                   offering.classes +
                   (failure ? notSavedCell : valueCell[value]) +

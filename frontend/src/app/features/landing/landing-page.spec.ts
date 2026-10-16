@@ -1,6 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { MessageService } from 'primeng/api';
 import { LandingPage } from './landing-page';
 
 describe('LandingPage', () => {
@@ -8,7 +9,7 @@ describe('LandingPage', () => {
 
   beforeEach(() => {
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(), provideHttpClientTesting(), MessageService],
     });
     backend = TestBed.inject(HttpTestingController);
   });

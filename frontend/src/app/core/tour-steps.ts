@@ -1,12 +1,50 @@
 /** What a step is called in the tab's memory of the tour. */
-export type StepId = 'about' | 'sign-in' | 'dashboard' | 'card';
+export type StepId =
+  | 'about'
+  | 'sign-in'
+  | 'dashboard'
+  | 'approved'
+  | 'copy'
+  | 'break'
+  | 'fix'
+  | 'card';
+
+/** A cell of the matrix, by its feature's code, its trim's name, and its region's code. */
+export interface CellAt {
+  readonly feature: string;
+  readonly trim: string;
+  readonly region: string;
+}
+
+/** The lineage the tour opens and copies, by its vehicle line's name and its model year. */
+export const SEDAN = { vehicleLine: 'Sedan', modelYear: 2027 };
+
+/**
+ * The cell the tour breaks a rule with: heated front seats on the Luxury trim in North America.
+ * A seeded global rule says heated rear seats need heated front seats, and Luxury offers heated
+ * rear seats there, so not offering the front ones is an Error. It holds both in the seeded
+ * Approved Sedan 2027 and in the version after it, once the seeded submission is approved.
+ */
+export const BROKEN: CellAt = { feature: 'SEAT_HEATED_FRONT', trim: 'Luxury', region: 'NA' };
+
+/** Where a cell of the matrix is on the page. */
+export const cellOnPage = (cell: CellAt) =>
+  `td[data-cell="${cell.feature} ${cell.trim} ${cell.region}"]`;
 
 /** One step of the tour: where it shows, the element it is about, and what it says. */
 export interface TourStep {
   readonly id: StepId;
-  /** The page the step is shown on; without one, it shows on whatever page the visitor is. */
+  /**
+   * The page the step is shown on; without one, it shows on whatever page the visitor is. In it,
+   * `{sedan}` stands for the lineage of Sedan 2027 and `{copy}` for the working copy the tour made.
+   */
   readonly path?: string;
-  /** The element the step is about, which gets a ring; without one, it is about no one element. */
+  /** The cell of the matrix the step is about, which the catalog's editor brings into view. */
+  readonly cell?: CellAt;
+  /**
+   * The elements the step is about, which get a ring, the first of them the one it points to;
+   * without any, it is about no one element.
+   */
   readonly target?: string;
   readonly title: string;
   readonly words: string;
@@ -37,6 +75,40 @@ export const STEPS: readonly TourStep[] = [
     title: 'Your dashboard',
     words:
       "My catalogs holds the copies being edited. Approved catalogs holds the published versions. The review queue holds the copies waiting for a manager's decision.",
+  },
+  {
+    id: 'approved',
+    path: '/approved/{sedan}',
+    target: '[data-tour="approved-matrix"]',
+    title: 'A published catalog',
+    words:
+      'This is the published catalog for the 2027 Sedan. Each row is a feature and each column is a trim level sold in a market. S means standard, A means available as an option, and - means not offered.',
+  },
+  {
+    id: 'copy',
+    path: '/approved/{sedan}',
+    target: '[data-tour="create-copy"]',
+    title: 'Make a working copy',
+    words:
+      'A published catalog never changes. To change it, you make a working copy, edit that, and send it for review. Press Create working copy, then Create.',
+  },
+  {
+    id: 'break',
+    path: '/catalogs/{copy}',
+    cell: BROKEN,
+    target: cellOnPage(BROKEN),
+    title: 'Break a rule',
+    words:
+      'Rules keep a catalog consistent: some features need others to be offered. Set this cell to - and watch: the app checks every rule on each save and marks what breaks as an Error.',
+  },
+  {
+    id: 'fix',
+    path: '/catalogs/{copy}',
+    cell: BROKEN,
+    target: `${cellOnPage(BROKEN)}, [data-issue-counts]`,
+    title: 'Put it right',
+    words:
+      "Set the cell back to what it was and the Error goes away. A copy with an Error can't be sent for review, so a mistake never reaches the approver.",
   },
   {
     id: 'card',

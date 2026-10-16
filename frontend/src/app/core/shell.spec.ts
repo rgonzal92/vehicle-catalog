@@ -4,6 +4,7 @@ import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
+import { MessageService } from 'primeng/api';
 import { NAVIGATE, Role, Session } from './session';
 import { Shell } from './shell';
 
@@ -32,6 +33,7 @@ describe('Shell', () => {
         ]),
         provideHttpClient(),
         provideHttpClientTesting(),
+        MessageService,
         { provide: NAVIGATE, useValue: () => undefined },
       ],
     });

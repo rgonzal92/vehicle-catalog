@@ -1,5 +1,5 @@
 import { HttpClient, HttpContext, HttpErrorResponse } from '@angular/common/http';
-import { inject, Injectable } from '@angular/core';
+import { inject, Injectable, signal } from '@angular/core';
 import { firstValueFrom, timeout } from 'rxjs';
 import {
   Availability,
@@ -398,6 +398,10 @@ export function startPointInWords(start: StartPoint): string {
 @Injectable({ providedIn: 'root' })
 export class Catalogs {
   private readonly http = inject(HttpClient);
+  private readonly made = signal<number | null>(null);
+
+  /** The working copy this page made last, if any, which a tour takes as the copy it asked for. */
+  readonly lastMade = this.made.asReadonly();
 
   /** Every lineage that has an Approved version, with its current one. */
   lineages(): Promise<LineageSummary[]> {
@@ -437,8 +441,10 @@ export class Catalogs {
   }
 
   /** Creates a working copy that belongs to the signed-in person. */
-  create(given: NewWorkingCopy): Promise<WorkingCopy> {
-    return firstValueFrom(this.http.post<WorkingCopy>('/api/catalogs', given));
+  async create(given: NewWorkingCopy): Promise<WorkingCopy> {
+    const made = await firstValueFrom(this.http.post<WorkingCopy>('/api/catalogs', given));
+    this.made.set(made.id);
+    return made;
   }
 
   /** One page of the catalog's change history, newest first. Pages are numbered from 0. */

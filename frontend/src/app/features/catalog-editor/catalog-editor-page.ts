@@ -9,6 +9,7 @@ import {
   Injector,
   linkedSignal,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
@@ -43,6 +44,7 @@ import {
 } from '../../core/catalogs';
 import { FixedLists } from '../../core/fixed-lists';
 import { FeatureKind, KIND_FILTERS } from '../../core/library';
+import { Tour } from '../../core/tour';
 import { AvailabilityMatrix } from '../../shared/availability-matrix/availability-matrix';
 import { Cell, FeatureRow, Issue } from '../../shared/availability-matrix/matrix';
 import { ExportDialog } from '../../shared/export-dialog';
@@ -530,12 +532,16 @@ import { UpdateDialog } from './update-dialog';
 export class CatalogEditorPage {
   private readonly catalogs = inject(Catalogs);
   private readonly editing = inject(Editing);
+  private readonly tour = inject(Tour);
   protected readonly fixedLists = inject(FixedLists);
   private readonly messages = inject(MessageService);
   private readonly injector = inject(Injector);
   protected readonly id = Number(inject(ActivatedRoute).snapshot.paramMap.get('id'));
 
   protected readonly catalog = this.editing.catalog;
+
+  /** Whether the working copy has been read, which changes once and not with every edit. */
+  private readonly read = computed(() => this.editing.catalog() !== null);
 
   /** The catalog's issues as of the highest revision heard, Errors before Warnings. */
   protected readonly issues = this.editing.issues;
@@ -693,6 +699,25 @@ export class CatalogEditorPage {
       if (this.tab() !== 'rules') {
         this.shownRule.set(null);
       }
+    });
+    // The tour's step about a cell has it shown, as an issue about it would, once the copy is read.
+    effect(() => {
+      const wanted = this.tour.cell();
+      const matrix = this.matrix();
+      if (wanted === null || matrix === undefined || !this.read()) {
+        return;
+      }
+      untracked(() => {
+        const { featureRows, trims } = this.editing.catalog()!.snapshot;
+        this.showCell(
+          {
+            featureId: featureRows.find((row) => row.code === wanted.feature)?.id ?? null,
+            trimId: trims.find((trim) => trim.name === wanted.trim)?.id ?? null,
+            regionCode: wanted.region,
+          },
+          matrix,
+        );
+      });
     });
     void this.fixedLists.load();
     void this.editing.open(this.id);
@@ -912,11 +937,15 @@ export class CatalogEditorPage {
   }
 
   /**
-   * Shows the Features tab with the cell an issue is about in view. A filter on the rows, or a
-   * region left out of the matrix, would keep the cell from view, so both give way.
+   * Shows the Features tab with a cell in view: the one an issue is about, or the tour's. A filter
+   * on the rows, or a region left out of the matrix, would keep the cell from view, so both give
+   * way.
    */
-  protected showCell(issue: Issue, matrix: AvailabilityMatrix): void {
-    const { featureId, trimId, regionCode } = issue;
+  protected showCell(
+    cell: Pick<Issue, 'featureId' | 'trimId' | 'regionCode'>,
+    matrix: AvailabilityMatrix,
+  ): void {
+    const { featureId, trimId, regionCode } = cell;
     if (featureId === null || trimId === null || regionCode === null) {
       return;
     }
