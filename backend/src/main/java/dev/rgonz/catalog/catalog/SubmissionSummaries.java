@@ -2,6 +2,7 @@ package dev.rgonz.catalog.catalog;
 
 import dev.rgonz.catalog.ai.Model;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
+import dev.rgonz.catalog.catalog.Catalogs.Reader;
 import dev.rgonz.catalog.core.ApiException;
 import dev.rgonz.catalog.job.JobHandler;
 import dev.rgonz.catalog.job.JobType;
@@ -158,12 +159,7 @@ class SubmissionSummaries implements JobHandler {
     if (!pending) {
       return;
     }
-    var owner =
-        jdbc.sql("SELECT owner_id FROM catalog WHERE id = :id")
-            .param("id", catalogId)
-            .query(Long.class)
-            .single();
-    var catalog = catalogs.find(catalogId, owner).orElseThrow();
+    var catalog = catalogs.contents(catalogId, Reader.SYSTEM).orElseThrow();
     if (catalog.snapshot().status() != Status.SUBMITTED
         || catalog.snapshot().revision() != revision) {
       unavailable(catalogId, revision, "The catalog is no longer as it was submitted.");
@@ -172,7 +168,7 @@ class SubmissionSummaries implements JobHandler {
     var before =
         catalog.base() == null
             ? CatalogSnapshot.empty()
-            : catalogs.contents(catalog.base().catalogId(), owner, true).orElseThrow();
+            : catalogs.contents(catalog.base().catalogId(), Reader.SYSTEM).orElseThrow().snapshot();
     var changes = sendable(json.valueToTree(Diff.between(before, catalog.snapshot())));
 
     String said;

@@ -6,8 +6,9 @@ import dev.rgonz.catalog.catalog.CatalogSnapshot.Offering;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Region;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Trim;
-import dev.rgonz.catalog.catalog.Catalogs.CatalogView;
 import dev.rgonz.catalog.catalog.Catalogs.Current;
+import dev.rgonz.catalog.catalog.Catalogs.Read;
+import dev.rgonz.catalog.catalog.Catalogs.Reader;
 import dev.rgonz.catalog.catalog.Diff.Changes;
 import dev.rgonz.catalog.catalog.Merge.Conflict;
 import dev.rgonz.catalog.catalog.Merge.Side;
@@ -57,8 +58,8 @@ class Updates {
   Preview preview(long catalogId, long ownerId) {
     var catalog =
         catalogs
-            .find(catalogId, ownerId)
-            .filter(CatalogView::owned)
+            .contents(catalogId, new Reader.Person(ownerId, false))
+            .filter(Read::owned)
             .orElseThrow(ApiException::notFound);
     if (catalog.snapshot().status() != Status.DRAFT) {
       throw ApiException.conflict(
@@ -95,12 +96,11 @@ class Updates {
       Long approvedCatalogId,
       Map<String, Side> resolutions) {
     var updated =
-        revisions.move(
+        revisions.updateFromApproved(
             catalogId,
             ownerId,
             ifMatch,
-            () -> {
-              var catalog = catalogs.find(catalogId, ownerId).orElseThrow(ApiException::notFound);
+            catalog -> {
               if (!catalog.stale()) {
                 throw notStale();
               }
@@ -128,8 +128,7 @@ class Updates {
                   .param("id", catalogId)
                   .update();
               return List.of(Change.merged("Approved v" + approved.versionNumber()));
-            },
-            revision -> {});
+            });
     updates.increment();
 
     return updated;
@@ -299,7 +298,7 @@ class Updates {
    * The merge of a stale working copy with its lineage's current Approved. All three catalogs are
    * named by the library's labels of today, so that nothing reads as two things.
    */
-  private Merge.Result merge(CatalogView mine, Map<String, Side> resolutions) {
+  private Merge.Result merge(Read mine, Map<String, Side> resolutions) {
     var theirs = mine.current().catalogId();
     var base =
         jdbc.sql(
@@ -329,9 +328,9 @@ class Updates {
             .optional();
 
     return Merge.of(
-        base.map(catalogs::approvedAsLabelledToday).orElseGet(CatalogSnapshot::empty),
+        base.map(catalogs::asLabelledToday).orElseGet(CatalogSnapshot::empty),
         mine.snapshot(),
-        catalogs.approvedAsLabelledToday(theirs),
+        catalogs.asLabelledToday(theirs),
         resolutions);
   }
 

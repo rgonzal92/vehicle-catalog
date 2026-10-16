@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.rgonz.catalog.ApplicationIT;
+import dev.rgonz.catalog.catalog.Catalogs.Reader;
 import dev.rgonz.catalog.core.Role;
 import java.util.List;
 import java.util.Map;
@@ -304,7 +305,9 @@ class CatalogsIT extends ApplicationIT {
   void aCatalogIsLoadedWithAFixedNumberOfQueriesHoweverMuchItHolds() {
     var catalog = version(2);
     var reader = person("a-reader");
-    var sent = statementsWhile(() -> catalogs.find(catalog, reader).orElseThrow());
+    var sent =
+        statementsWhile(
+            () -> catalogs.shown(catalog, new Reader.Person(reader, false)).orElseThrow());
     // Besides the catalog, its five content tables, and its rules: one query for what the library
     // says today of the catalog's features, trims, and regions, and two for the global rules and
     // their names.

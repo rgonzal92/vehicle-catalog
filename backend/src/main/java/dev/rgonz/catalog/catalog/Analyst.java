@@ -4,7 +4,8 @@ import dev.rgonz.catalog.ai.Model;
 import dev.rgonz.catalog.ai.Tool;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Availability;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
-import dev.rgonz.catalog.catalog.Catalogs.CatalogView;
+import dev.rgonz.catalog.catalog.Catalogs.Read;
+import dev.rgonz.catalog.catalog.Catalogs.Reader;
 import dev.rgonz.catalog.core.ApiException;
 import dev.rgonz.catalog.document.DocumentSearch;
 import java.time.Instant;
@@ -400,9 +401,9 @@ class Analyst {
    * The catalog of that id when it is an Approved version. A working copy is none, whoever asks:
    * its owner may open it, and the model may not.
    */
-  private Optional<CatalogView> approved(long id, long accountId) {
+  private Optional<Read> approved(long id, long accountId) {
     return catalogs
-        .find(id, accountId)
+        .contents(id, new Reader.Person(accountId, false))
         .filter(catalog -> catalog.snapshot().status() == Status.APPROVED);
   }
 
@@ -454,7 +455,11 @@ class Analyst {
           || year != 0 && year != lineage.modelYear()) {
         continue;
       }
-      var catalog = catalogs.contents(lineage.catalogId(), accountId, false).orElseThrow();
+      var catalog =
+          catalogs
+              .contents(lineage.catalogId(), new Reader.Person(accountId, false))
+              .orElseThrow()
+              .snapshot();
       var feature =
           catalog.featureRows().stream().filter(row -> row.code().equalsIgnoreCase(code)).findAny();
       var regions =

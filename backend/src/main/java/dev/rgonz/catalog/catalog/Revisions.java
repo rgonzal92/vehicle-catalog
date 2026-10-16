@@ -2,6 +2,8 @@ package dev.rgonz.catalog.catalog;
 
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
 import dev.rgonz.catalog.catalog.Catalogs.CatalogView;
+import dev.rgonz.catalog.catalog.Catalogs.Read;
+import dev.rgonz.catalog.catalog.Catalogs.Reader;
 import dev.rgonz.catalog.core.ApiException;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -93,14 +95,38 @@ class Revisions {
   }
 
   /**
-   * Runs one of the owner's moves of their Draft that is not an edit of its contents, a submit or
-   * an update from Approved, under the checks and in the order of an edit, and answers with where
-   * it led. A move always changes something. It is a step of the request's trace as an edit is, and
-   * is not timed as one.
+   * Submits the owner's Draft by the submit given, under the checks and in the order of an edit,
+   * and answers with where it led. The submit is given the catalog as its owner sees it, read once
+   * the checks have passed, and the answer takes its issues from that same read, since submitting
+   * changes no contents; whether it is stale is worked out afresh. A submit always changes
+   * something. It is a step of the request's trace as an edit is, and is not timed as one.
    *
-   * @param written told the revision the move led to, in the move's own transaction
+   * @param written told the revision the submit led to, in its own transaction
    */
-  Outcome move(long catalogId, long ownerId, String ifMatch, Edit move, LongConsumer written) {
+  Outcome submit(long catalogId, long ownerId, String ifMatch, Move submit, LongConsumer written) {
+    return transactions.execute(
+        transaction -> {
+          var read = new CatalogView[1];
+          var revision =
+              saved(
+                  catalogId,
+                  ownerId,
+                  () -> lockToEdit(catalogId, ownerId, ifMatch),
+                  () -> submit.make(read[0] = shownTo(catalogId, ownerId)),
+                  written);
+
+          return new Outcome(revision, read[0].issues(), catalogs.stale(catalogId), List.of());
+        });
+  }
+
+  /**
+   * Updates the owner's Draft from Approved by the update given, under the checks and in the order
+   * of an edit, and answers with where it led, read again since its contents are new. The update is
+   * given the catalog's contents as its owner sees them, read once the checks have passed, with no
+   * issues worked out. An update always changes something. It is a step of the request's trace as
+   * an edit is, and is not timed as one.
+   */
+  Outcome updateFromApproved(long catalogId, long ownerId, String ifMatch, Rewrite update) {
     return transactions.execute(
         transaction ->
             answer(
@@ -110,8 +136,12 @@ class Revisions {
                     catalogId,
                     ownerId,
                     () -> lockToEdit(catalogId, ownerId, ifMatch),
-                    move,
-                    written)));
+                    () ->
+                        update.make(
+                            catalogs
+                                .contents(catalogId, new Reader.Person(ownerId, false))
+                                .orElseThrow(ApiException::notFound)),
+                    written -> {})));
   }
 
   /**
@@ -135,44 +165,79 @@ class Revisions {
   }
 
   /**
-   * Runs a reviewer's decision on a Submitted catalog that is not theirs, records it, and answers
-   * with where it led, as the reviewer may see the catalog then: an Approved version with its
-   * issues, and a catalog sent back to its owner as a Draft with none, since a Draft is its owner's
-   * alone. The checks come in this order: that the reviewer may know of the catalog and it is not
-   * their own, that it is Submitted, and that the decision names the revision it is at. A decision
-   * is a step of the request's trace as an edit is.
+   * Approves a Submitted catalog that is not the reviewer's by the approval given, records it, and
+   * answers with where it led: the Approved version as the reviewer then sees it. The lineage is
+   * locked before the catalog, so that two approvals in one lineage happen one after the other. The
+   * checks come in this order: that the reviewer may know of the catalog and it is not their own,
+   * that it is Submitted, and that the approval names the revision it is at. The approval is then
+   * given the catalog as the reviewer sees it, and the answer takes its issues from that same read,
+   * since approving changes no contents; an Approved version is never stale. An approval is a step
+   * of the request's trace as an edit is.
+   */
+  Outcome approve(long catalogId, long reviewerId, String ifMatch, Approval approval) {
+    return transactions.execute(
+        transaction -> {
+          var read = new CatalogView[1];
+          var revision =
+              decided(
+                  catalogId,
+                  reviewerId,
+                  () -> {
+                    lockLineage(catalogId);
+                    var submitted = lockToDecide(catalogId, reviewerId, ifMatch);
+                    read[0] =
+                        catalogs
+                            .shown(catalogId, new Reader.Person(reviewerId, true))
+                            .orElseThrow(ApiException::notFound);
+                    return approval.make(submitted, read[0]);
+                  });
+
+          return new Outcome(revision, read[0].issues(), false, List.of());
+        });
+  }
+
+  /**
+   * Runs a reviewer's decision on a Submitted catalog that is not theirs that sends it back to its
+   * owner, a rejection, records it, and answers with where it led, as the reviewer may see the
+   * catalog then: a Draft is its owner's alone, so with no issues. The checks come in the order of
+   * an approval's. A decision is a step of the request's trace as an edit is.
    *
-   * @param lineageFirst whether the catalog's lineage is locked before the catalog, as an approval
-   *     locks it so that two approvals in one lineage happen one after the other
    * @param decide makes the decision, once the checks have passed, and answers with it
    */
-  Outcome decide(
-      long catalogId, long reviewerId, String ifMatch, boolean lineageFirst, Decide decide) {
+  Outcome decide(long catalogId, long reviewerId, String ifMatch, Decide decide) {
     return transactions.execute(
         transaction ->
             answer(
                 catalogId,
                 reviewerId,
-                Catalogs.step(observations, "catalog.save", catalogId)
-                    .observe(
-                        () -> {
-                          if (lineageFirst) {
-                            lockLineage(catalogId);
-                          }
-                          var decision = decide.make(lockToDecide(catalogId, reviewerId, ifMatch));
-                          jdbc.sql(
-                                  """
-                                  INSERT INTO catalog_review
-                                      (catalog_id, reviewer_id, decision, comment)
-                                  VALUES (:catalog, :reviewer, :decision, :comment)
-                                  """)
-                              .param("catalog", catalogId)
-                              .param("reviewer", reviewerId)
-                              .param("decision", decision.kind().name())
-                              .param("comment", decision.comment())
-                              .update();
-                          return raise(catalogId);
-                        })));
+                decided(
+                    catalogId,
+                    reviewerId,
+                    () -> decide.make(lockToDecide(catalogId, reviewerId, ifMatch)))));
+  }
+
+  /**
+   * Makes a reviewer's decision as one step of the request's trace, records it in the catalog's
+   * history, and answers with the revision it raised the catalog to.
+   */
+  private long decided(long catalogId, long reviewerId, Supplier<Decision> decide) {
+    return Catalogs.step(observations, "catalog.save", catalogId)
+        .observe(
+            () -> {
+              var decision = decide.get();
+              jdbc.sql(
+                      """
+                      INSERT INTO catalog_review
+                          (catalog_id, reviewer_id, decision, comment)
+                      VALUES (:catalog, :reviewer, :decision, :comment)
+                      """)
+                  .param("catalog", catalogId)
+                  .param("reviewer", reviewerId)
+                  .param("decision", decision.kind().name())
+                  .param("comment", decision.comment())
+                  .update();
+              return raise(catalogId);
+            });
   }
 
   /**
@@ -387,19 +452,53 @@ class Revisions {
    * the caller may see the catalog now. A catalog the caller may no longer see has neither.
    */
   private Outcome answer(long catalogId, long callerId, long revision) {
-    var catalog = catalogs.find(catalogId, callerId);
+    var catalog = catalogs.shown(catalogId, new Reader.Person(callerId, false));
 
     return new Outcome(
         revision,
         catalog.map(CatalogView::issues).orElseGet(List::of),
-        catalog.map(CatalogView::stale).orElse(false),
+        catalog.map(shown -> shown.read().stale()).orElse(false),
         List.of());
+  }
+
+  /** The owner's catalog as they see it, which they may always open once its checks have passed. */
+  private CatalogView shownTo(long catalogId, long ownerId) {
+    return catalogs
+        .shown(catalogId, new Reader.Person(ownerId, false))
+        .orElseThrow(ApiException::notFound);
   }
 
   /** A write of a working copy, which makes its changes and answers with them. */
   @FunctionalInterface
   interface Edit {
     List<Change> make();
+  }
+
+  /**
+   * A move of the owner's Draft, which is given the catalog as its owner sees it and answers with
+   * the changes it made.
+   */
+  @FunctionalInterface
+  interface Move {
+    List<Change> make(CatalogView catalog);
+  }
+
+  /**
+   * A write of the owner's Draft that writes its contents anew, which is given the catalog as its
+   * owner reads it, without its issues, and answers with the changes it made.
+   */
+  @FunctionalInterface
+  interface Rewrite {
+    List<Change> make(Read catalog);
+  }
+
+  /**
+   * An approval of a Submitted catalog, which is given the catalog's locked row and the catalog as
+   * the reviewer sees it, and answers with the decision.
+   */
+  @FunctionalInterface
+  interface Approval {
+    Decision make(Locked submitted, CatalogView catalog);
   }
 
   /**

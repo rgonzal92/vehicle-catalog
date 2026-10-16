@@ -3,6 +3,7 @@ package dev.rgonz.catalog.catalog;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.rgonz.catalog.ApplicationIT;
+import dev.rgonz.catalog.catalog.Catalogs.Reader;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -271,11 +272,11 @@ class LargestCatalogIT extends WorkingCopyTests {
 
     for (var run = -10; run < 30; run++) {
       var started = System.nanoTime();
-      var read = catalogs.find(copy, owner).orElseThrow();
+      var read = catalogs.shown(copy, new Reader.Person(owner, false)).orElseThrow();
       var readAndValidated = (System.nanoTime() - started) / 1_000_000.0;
       var library = catalogs.library(copy);
       started = System.nanoTime();
-      var issues = Validation.issues(read.snapshot(), library);
+      var issues = Validation.issues(read.read().snapshot(), library);
       var validated = (System.nanoTime() - started) / 1_000_000.0;
       assertThat(issues).isEqualTo(read.issues()).isEmpty();
       if (run >= 0) {

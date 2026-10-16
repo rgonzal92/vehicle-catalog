@@ -1,5 +1,6 @@
 package dev.rgonz.catalog.catalog;
 
+import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import dev.rgonz.catalog.catalog.ApprovedContents.Contents;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Availability;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Cell;
@@ -8,7 +9,7 @@ import dev.rgonz.catalog.catalog.CatalogSnapshot.Offering;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Region;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Status;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Trim;
-import dev.rgonz.catalog.library.LibraryRevision;
+import dev.rgonz.catalog.core.Role;
 import dev.rgonz.catalog.library.RuleKind;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -23,6 +24,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.security.access.hierarchicalroles.RoleHierarchy;
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,27 +34,33 @@ import org.springframework.transaction.annotation.Transactional;
 @Repository
 class Catalogs {
   /**
-   * The condition on a catalog {@code c} under which the person {@code :viewer} may open it.
-   * Whether that person reviews catalogs, as a manager and an admin do, is {@code :reviews}.
+   * The condition on a catalog {@code c} under which the reader may open it, with the parameters
+   * {@link #readBy} binds.
    */
-  private static final String OPENS_FOR_VIEWER =
-      "(c.status = 'APPROVED' OR c.owner_id = :viewer OR (c.status = 'SUBMITTED' AND :reviews))";
+  /**
+   * The condition under which a catalog {@code c} of the lineage {@code l} is stale: it is a
+   * working copy whose base is no longer its lineage's current Approved.
+   */
+  private static final String STALE =
+      "c.status <> 'APPROVED' AND l.current_catalog_id IS NOT NULL"
+          + " AND l.current_catalog_id IS DISTINCT FROM c.base_catalog_id";
+
+  private static final String OPENS_FOR_READER =
+      "(:everyone OR c.status = 'APPROVED' OR c.owner_id = :viewer"
+          + " OR (c.status = 'SUBMITTED' AND :reviews))";
 
   private final JdbcClient jdbc;
   private final ApprovedContents approvedContents;
-  private final LibraryRevision libraryRevision;
   private final ObservationRegistry observations;
   private final Timer validateTime;
 
   Catalogs(
       JdbcClient jdbc,
       ApprovedContents approvedContents,
-      LibraryRevision libraryRevision,
       ObservationRegistry observations,
       MeterRegistry metrics) {
     this.jdbc = jdbc;
     this.approvedContents = approvedContents;
-    this.libraryRevision = libraryRevision;
     this.observations = observations;
     this.validateTime =
         Timer.builder("catalog.validate")
@@ -105,21 +114,46 @@ class Catalogs {
   }
 
   /**
-   * Whether the viewer may open the catalog. Everyone opens an Approved version. A working copy is
-   * its owner's, and once it is Submitted a reviewer's too; to anyone else it is as if it did not
-   * exist.
-   *
-   * @param reviews whether the viewer reviews catalogs, as a manager and an admin do
+   * Whether the reader may open the catalog. Everyone opens an Approved version. A working copy is
+   * its owner's, and once it is Submitted a reviewer's too; to any other person it is as if it did
+   * not exist. The system opens every catalog.
    */
-  boolean opensFor(long id, long viewerId, boolean reviews) {
-    return jdbc.sql(
-            "SELECT EXISTS (SELECT 1 FROM catalog c WHERE c.id = :id AND %s)"
-                .formatted(OPENS_FOR_VIEWER))
-        .param("id", id)
-        .param("viewer", viewerId)
-        .param("reviews", reviews)
+  boolean opensFor(long id, Reader reader) {
+    return readBy(
+            jdbc.sql(
+                    "SELECT EXISTS (SELECT 1 FROM catalog c WHERE c.id = :id AND %s)"
+                        .formatted(OPENS_FOR_READER))
+                .param("id", id),
+            reader)
         .query(Boolean.class)
         .single();
+  }
+
+  /** Whether the catalog is stale, as its read would say now. */
+  boolean stale(long id) {
+    return jdbc.sql(
+            """
+            SELECT %s
+            FROM catalog c
+            JOIN lineage l ON l.id = c.lineage_id
+            WHERE c.id = :id
+            """
+                .formatted(STALE))
+        .param("id", id)
+        .query(Boolean.class)
+        .single();
+  }
+
+  /** Binds who reads to the parameters of {@link #OPENS_FOR_READER}. */
+  private static JdbcClient.StatementSpec readBy(
+      JdbcClient.StatementSpec statement, Reader reader) {
+    return switch (reader) {
+      case Reader.Person(var id, var reviews) ->
+          statement.param("viewer", id).param("reviews", reviews).param("everyone", false);
+      // No person has the id 0, so the system owns no catalog.
+      case Reader.System system ->
+          statement.param("viewer", 0L).param("reviews", false).param("everyone", true);
+    };
   }
 
   /**
@@ -133,25 +167,26 @@ class Catalogs {
   }
 
   /**
-   * A catalog with its contents, if the viewer may open it: one query for the catalog itself, one
-   * for each content table, and one for its rules. The queries share one view of the database, so
-   * the contents always belong to the revision. Reading the catalog, reading what validation needs
-   * of the library, and working out the issues are three steps of the trace.
+   * A catalog with its contents and its issues, if the reader may open it: one query for the
+   * catalog itself, one for each content table, and one for its rules. The queries share one view
+   * of the database, so the contents always belong to the revision. Reading the catalog, reading
+   * what validation needs of the library, and working out the issues are three steps of the trace.
    *
    * <p>The time is taken from before the catalog is read until its issues are worked out, and only
    * of a catalog that is found.
    */
   @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-  Optional<CatalogView> find(long id, long viewerId, boolean reviews) {
+  Optional<CatalogView> shown(long id, Reader reader) {
     var started = System.nanoTime();
     var found =
-        read(id, viewerId, reviews)
+        read(id, reader)
             .map(
-                catalog -> {
+                read -> {
                   var library = library(id);
-                  return catalog.withIssues(
+                  return new CatalogView(
+                      read,
                       step(observations, "catalog.issues", id)
-                          .observe(() -> Validation.issues(catalog.snapshot(), library)));
+                          .observe(() -> Validation.issues(read.snapshot(), library)));
                 });
     if (found.isPresent()) {
       validateTime.record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
@@ -160,50 +195,30 @@ class Catalogs {
     return found;
   }
 
-  /** A catalog with its contents, for its owner or, when it is an Approved version, for anyone. */
-  @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-  Optional<CatalogView> find(long id, long viewerId) {
-    return find(id, viewerId, false);
-  }
-
   /**
-   * A catalog with its contents, for its owner or, when it is an Approved version, for anyone, and
-   * the revision of the library that its issues were worked out against, read in the same view of
-   * the database.
+   * A catalog with its contents, if the reader may open it, for what has no use for its issues:
+   * they are not worked out.
    */
   @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-  Optional<Validated> findWithLibraryRevision(long id, long viewerId) {
-    return find(id, viewerId, false)
-        .map(catalog -> new Validated(catalog, libraryRevision.current()));
-  }
-
-  /** A catalog with its issues, and the library's revision they were worked out against. */
-  record Validated(CatalogView catalog, long libraryRevision) {}
-
-  /**
-   * A catalog's contents alone, if the viewer may open it, for what compares catalogs and has no
-   * use for their issues.
-   */
-  @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-  Optional<CatalogSnapshot> contents(long id, long viewerId, boolean reviews) {
-    return read(id, viewerId, reviews).map(CatalogView::snapshot);
+  Optional<Read> contents(long id, Reader reader) {
+    return read(id, reader);
   }
 
   /** The catalog's own row and its contents, from the cache or the database: one step. */
-  private Optional<CatalogView> read(long id, long viewerId, boolean reviews) {
-    return step(observations, "catalog.read", id).observe(() -> row(id, viewerId, reviews));
+  private Optional<Read> read(long id, Reader reader) {
+    return step(observations, "catalog.read", id).observe(() -> row(id, reader));
   }
 
-  private Optional<CatalogView> row(long id, long viewerId, boolean reviews) {
-    return jdbc.sql(
-            """
+  private Optional<Read> row(long id, Reader reader) {
+    return readBy(
+            jdbc.sql(
+                    """
             SELECT c.id, c.lineage_id, c.status, c.revision, c.name, c.version_number,
                    v.id AS vehicle_line_id, v.name AS vehicle_line, l.model_year,
                    a.display_name AS approved_by, c.approved_at, c.owner_id = :viewer AS owned,
                    o.display_name AS owner,
                    v.active AS vehicle_line_active, c.submit_note, c.submitted_at,
-                   c.status <> 'APPROVED' AND l.current_catalog_id IS NOT NULL
-                       AND l.current_catalog_id IS DISTINCT FROM c.base_catalog_id AS stale,
+                   %s AS stale,
                    cur.id AS current_catalog_id, cur.version_number AS current_version_number,
                    d.decision, d.reviewer AS decided_by, d.comment AS decision_comment,
                    d.created_at AS decided_at,
@@ -229,15 +244,14 @@ class Catalogs {
             ) AS d ON true
             WHERE c.id = :id AND %s
             """
-                .formatted(OPENS_FOR_VIEWER))
-        .param("id", id)
-        .param("viewer", viewerId)
-        .param("reviews", reviews)
+                        .formatted(STALE, OPENS_FOR_READER))
+                .param("id", id),
+            reader)
         .query(Header.class)
         .optional()
         .map(
             header ->
-                new CatalogView(
+                new Read(
                     header.name(),
                     header.versionNumber(),
                     header.vehicleLineId(),
@@ -268,15 +282,18 @@ class Catalogs {
                             header.baseModelYear(),
                             header.baseVersionNumber()),
                     snapshot(
-                        header.id(), header.lineageId(), header.status(), header.revision(), true),
-                    List.of()));
+                        header.id(),
+                        header.lineageId(),
+                        header.status(),
+                        header.revision(),
+                        true)));
   }
 
   /**
    * An Approved version's contents by the labels the library has today, whatever labels it was
    * approved with, for what sets it beside a working copy: a working copy always shows today's.
    */
-  CatalogSnapshot approvedAsLabelledToday(long id) {
+  CatalogSnapshot asLabelledToday(long id) {
     var approved =
         jdbc.sql("SELECT lineage_id, revision FROM catalog WHERE id = :id AND status = 'APPROVED'")
             .param("id", id)
@@ -299,7 +316,7 @@ class Catalogs {
             .query(Boolean.class)
             .single();
     if (approved) {
-      approvedContents.keep(id, contents(id, true, true));
+      approvedContents.keep(id, contentsOf(id, true, true));
     }
   }
 
@@ -410,8 +427,8 @@ class Catalogs {
     boolean approved = status == Status.APPROVED;
     var held =
         frozen && approved
-            ? approvedContents.of(id, () -> contents(id, true, true))
-            : contents(id, frozen, approved);
+            ? approvedContents.of(id, () -> contentsOf(id, true, true))
+            : contentsOf(id, frozen, approved);
 
     return new CatalogSnapshot(
         id,
@@ -439,7 +456,7 @@ class Catalogs {
    *
    * @param approved whether the catalog is an Approved version
    */
-  private Contents contents(long id, boolean frozen, boolean approved) {
+  private Contents contentsOf(long id, boolean frozen, boolean approved) {
     var trims =
         content(
             """
@@ -602,9 +619,41 @@ class Catalogs {
       long catalogId, int versionNumber, String name, String approvedBy, Instant approvedAt) {}
 
   /**
-   * A catalog as the API shows it: what describes it, its contents, and its issues.
+   * Who reads a catalog: a person, or the system, as a job does. A person opens an Approved
+   * version, their own catalogs, and a Submitted one when they review catalogs; the system opens
+   * every catalog.
+   */
+  sealed interface Reader {
+    /** The system, which opens every catalog. */
+    Reader SYSTEM = new System();
+
+    /**
+     * The signed-in person as a reader, who reviews catalogs when they are a manager or an admin.
+     */
+    static Person of(long id, Authentication signedIn, RoleHierarchy roles) {
+      return new Person(id, reviews(signedIn, roles));
+    }
+
+    /** Whether the signed-in person reviews catalogs, as a manager and an admin do. */
+    static boolean reviews(Authentication signedIn, RoleHierarchy roles) {
+      return Role.heldBy(signedIn.getAuthorities(), roles).contains(Role.MANAGER);
+    }
+
+    /**
+     * A person on record.
+     *
+     * @param reviews whether they review catalogs, as a manager and an admin do
+     */
+    record Person(long id, boolean reviews) implements Reader {}
+
+    /** The system: {@link #SYSTEM} names it. */
+    record System() implements Reader {}
+  }
+
+  /**
+   * A catalog as it is read, without its issues: what describes it, and its contents.
    *
-   * @param owned whether the viewer owns it, which lets them edit it while it is in status Draft
+   * @param owned whether the reader owns it, which lets them edit it while it is in status Draft
    * @param owner the name of the person who owns it
    * @param vehicleLineActive whether its vehicle line is active; a catalog of an inactive line
    *     cannot be submitted or approved
@@ -616,10 +665,8 @@ class Catalogs {
    * @param decision the rejection or the return that sent it back to its owner, while it stands:
    *     until it is submitted again
    * @param base the Approved version it was copied from, or null when it started empty
-   * @param issues what validation finds in the contents against the library as it is today, Errors
-   *     before Warnings
    */
-  record CatalogView(
+  record Read(
       String name,
       Integer versionNumber,
       long vehicleLineId,
@@ -636,31 +683,16 @@ class Catalogs {
       Current current,
       Decision decision,
       Base base,
-      CatalogSnapshot snapshot,
-      List<Issue> issues) {
+      CatalogSnapshot snapshot) {}
 
-    CatalogView withIssues(List<Issue> found) {
-      return new CatalogView(
-          name,
-          versionNumber,
-          vehicleLineId,
-          vehicleLine,
-          modelYear,
-          approvedBy,
-          approvedAt,
-          owned,
-          owner,
-          vehicleLineActive,
-          submitNote,
-          submittedAt,
-          stale,
-          current,
-          decision,
-          base,
-          snapshot,
-          found);
-    }
-  }
+  /**
+   * A catalog as the API shows it: what describes it and its contents, read, and its issues, all
+   * side by side in its JSON.
+   *
+   * @param issues what validation finds in the contents against the library as it is today, Errors
+   *     before Warnings
+   */
+  record CatalogView(@JsonUnwrapped Read read, List<Issue> issues) {}
 
   /** The current Approved of a catalog's lineage: the catalog that is it, and its number. */
   record Current(long catalogId, int versionNumber) {}

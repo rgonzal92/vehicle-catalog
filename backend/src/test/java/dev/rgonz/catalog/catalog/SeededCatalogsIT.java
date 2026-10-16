@@ -8,6 +8,7 @@ import dev.rgonz.catalog.catalog.CatalogSnapshot.Cell;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.FeatureRow;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Offering;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Trim;
+import dev.rgonz.catalog.catalog.Catalogs.Reader;
 import dev.rgonz.catalog.core.Role;
 import java.util.List;
 import java.util.Map;
@@ -54,7 +55,7 @@ class SeededCatalogsIT extends ApplicationIT {
     seedLibraryAndCatalogs();
     seeded =
         jdbc.sql("SELECT id FROM catalog ORDER BY id").query(Long.class).list().stream()
-            .map(id -> catalogs.find(id, person("a-reader")).orElseThrow())
+            .map(id -> catalogs.contents(id, Reader.SYSTEM).orElseThrow())
             .map(
                 catalog ->
                     new Seeded(

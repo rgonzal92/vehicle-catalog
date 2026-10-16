@@ -24,22 +24,16 @@ class Submissions {
 
   private final JdbcClient jdbc;
   private final Revisions revisions;
-  private final Catalogs catalogs;
   private final SubmissionSummaries summaries;
 
   /** How many submits were refused for the state the catalog was in, by the refusal's code. */
   private final Map<String, Counter> refusals;
 
   Submissions(
-      JdbcClient jdbc,
-      Revisions revisions,
-      Catalogs catalogs,
-      SubmissionSummaries summaries,
-      MeterRegistry metrics) {
+      JdbcClient jdbc, Revisions revisions, SubmissionSummaries summaries, MeterRegistry metrics) {
     this.summaries = summaries;
     this.jdbc = jdbc;
     this.revisions = revisions;
-    this.catalogs = catalogs;
     // Each reason is a metric of its own from the start, so the list of them never grows unseen.
     this.refusals =
         Stream.of("STALE", "VEHICLE_LINE_INACTIVE", "HAS_ERRORS")
@@ -72,33 +66,32 @@ class Submissions {
    * @param note what the owner says to the reviewer, if anything
    */
   Outcome submit(long catalogId, long ownerId, String ifMatch, String note) {
-    return revisions.move(
+    return revisions.submit(
         catalogId,
         ownerId,
         ifMatch,
-        () -> {
+        catalog -> {
           var said = note == null ? "" : note.strip();
           if (said.length() > LONGEST_NOTE) {
             throw ApiException.limitExceeded(
                 "A note has at most %,d characters.".formatted(LONGEST_NOTE));
           }
-          var catalog = catalogs.find(catalogId, ownerId).orElseThrow(ApiException::notFound);
-          if (catalog.stale()) {
+          if (catalog.read().stale()) {
             throw refused(
                 "STALE",
                 ApiException.conflict(
                     "STALE",
                     "Approved v%d is now the current version of this catalog's lineage. Update the"
-                            .formatted(catalog.current().versionNumber())
+                            .formatted(catalog.read().current().versionNumber())
                         + " catalog from it, then submit it."));
           }
-          if (!catalog.vehicleLineActive()) {
+          if (!catalog.read().vehicleLineActive()) {
             throw refused(
                 "VEHICLE_LINE_INACTIVE",
                 ApiException.conflict(
                     "VEHICLE_LINE_INACTIVE",
                     "The vehicle line %s is deactivated, so its catalogs cannot be submitted."
-                        .formatted(catalog.vehicleLine())));
+                        .formatted(catalog.read().vehicleLine())));
           }
           if (Counts.of(catalog.issues()).errors() > 0) {
             throw refused(

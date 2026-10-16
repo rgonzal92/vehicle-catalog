@@ -5,6 +5,7 @@ import static org.awaitility.Awaitility.await;
 
 import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.catalog.ApprovedContents.Counts;
+import dev.rgonz.catalog.catalog.Catalogs.Reader;
 import dev.rgonz.catalog.core.Role;
 import dev.rgonz.catalog.job.Worker;
 import io.lettuce.core.resource.ClientResources;
@@ -321,8 +322,8 @@ class ApprovedContentsIT extends WorkingCopyTests {
         });
 
     assertThat(counted())
-        .as("hits, misses, fallbacks: the approval's answer read the version it made")
-        .containsExactly(0L, 1L, 0L);
+        .as("hits, misses, fallbacks: the approval answers from the catalog it read to decide")
+        .containsExactly(0L, 0L, 0L);
     assertThat(count("catalog WHERE id = %d AND status = 'SUBMITTED'", copy))
         .as("the catalog is still Submitted")
         .isOne();
@@ -338,7 +339,7 @@ class ApprovedContentsIT extends WorkingCopyTests {
 
     transactions.executeWithoutResult(
         transaction -> {
-          assertThat(catalogs.find(approved, ana)).isPresent();
+          assertThat(catalogs.shown(approved, new Reader.Person(ana, false))).isPresent();
           assertThat(cache.hasKey(ApprovedContents.KEY + approved))
               .as("an entry before the transaction has committed")
               .isFalse();
