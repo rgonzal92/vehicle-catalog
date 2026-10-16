@@ -107,6 +107,34 @@ class LibraryRevisionIT extends ApplicationIT {
     assertThat(revision.current()).isEqualTo(before + 3);
   }
 
+  @Test
+  void aGlobalRuleChangedToWhatItAlreadySaysLeavesTheLibrarysRevisionWhereItIs() {
+    var mats = id("feature", "code", "FLOOR_CARPET_MATS");
+    var cover = id("feature", "code", "CARGO_COVER");
+    long rule =
+        ApplicationIT.<Integer>read(
+            send(mvc.post().uri("/api/global-rules"), requires(mats, cover)), "$[0].id");
+    long exclusion =
+        ApplicationIT.<Integer>read(
+            send(mvc.post().uri("/api/global-rules"), excludes(mats, cover)), "$[0].id");
+    var before = revision.current();
+
+    assertThat(send(mvc.put().uri("/api/global-rules/{id}", rule), requires(mats, cover)))
+        .hasStatusOk()
+        .bodyJson()
+        .extractingPath("$.id")
+        .isEqualTo((int) rule);
+    assertThat(revision.current())
+        .as("after a PUT of the Requires rule with what it says")
+        .isEqualTo(before);
+    assertThat(send(mvc.put().uri("/api/global-rules/{id}", exclusion), excludes(cover, mats)))
+        .as("an exclusion the other way round, which its pair says")
+        .hasStatusOk();
+    assertThat(revision.current())
+        .as("after a PUT of the exclusion with what its pair says")
+        .isEqualTo(before);
+  }
+
   private static String entry(String name, int sortOrder, boolean active) {
     return "{\"name\": \"%s\", \"sortOrder\": %d, \"active\": %s}"
         .formatted(name, sortOrder, active);
@@ -118,6 +146,10 @@ class LibraryRevisionIT extends ApplicationIT {
          "regionCodes": []}
         """
         .formatted(source, target);
+  }
+
+  private static String excludes(long source, long target) {
+    return requires(source, target).replace("REQUIRES", "EXCLUDES");
   }
 
   private MvcTestResult send(MockMvcRequestBuilder request, String content) {

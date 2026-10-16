@@ -1,14 +1,13 @@
 package dev.rgonz.catalog.library;
 
 import dev.rgonz.catalog.core.ApiException;
-import jakarta.validation.constraints.NotNull;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -25,6 +24,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class GlobalRules {
+  private static final String ALREADY_THERE = "This rule already exists.";
+
   private final JdbcClient jdbc;
   private final LibraryRevision revision;
 
@@ -45,17 +46,17 @@ public class GlobalRules {
    */
   @Transactional
   List<GlobalRule> add(RuleContent given) {
+    Rules.checkWhatARuleNames(given.content(), fromTheLibrary());
     if (given.kind() != RuleKind.EXCLUDES) {
-      check(given, Set.of());
+      checkNotThereAlready(given);
       var made = List.of(find(insert(given, null)));
       revision.increase();
       return made;
     }
     var made = new ArrayList<GlobalRule>();
-    checkWhatARuleNames(given);
     for (var target : given.targetFeatureIds()) {
       var forward = given.naming(given.sourceFeatureId(), target);
-      checkNotThereAlready(forward, Set.of());
+      checkNotThereAlready(forward);
       var pairKey = UUID.randomUUID();
       long id = insert(forward, pairKey);
       insert(given.naming(target, given.sourceFeatureId()), pairKey);
@@ -65,7 +66,10 @@ public class GlobalRules {
     return made;
   }
 
-  /** Changes a rule. A paired rule takes the mirrored change to its pair with it. */
+  /**
+   * Changes a rule. A paired rule takes the mirrored change to its pair with it. A change to what
+   * the rule says already changes nothing, and leaves the library's revision as it is.
+   */
   @Transactional
   GlobalRule change(long id, RuleContent given) {
     var before = locked(id);
@@ -74,10 +78,20 @@ public class GlobalRules {
           "A rule's kind cannot be changed. Delete the rule and add another.");
     }
     var pair = before.pairKey() == null ? List.of(id) : idsOfPair(before.pairKey());
-    if (given.kind() == RuleKind.EXCLUDES && given.targetFeatureIds().size() != 1) {
+    if (given.kind() == RuleKind.EXCLUDES
+        && given.targetFeatureIds() != null
+        && given.targetFeatureIds().size() != 1) {
       throw ApiException.invalid("An Excludes rule has exactly one target.");
     }
-    check(given, Set.copyOf(pair));
+    Rules.checkWhatARuleNames(given.content(), fromTheLibrary());
+    var same = sayingTheSame(given);
+    // A pair says the same whichever of its two rules says it.
+    if (same.stream().anyMatch(pair::contains)) {
+      return find(id);
+    }
+    if (!same.isEmpty()) {
+      throw ApiException.invalid(ALREADY_THERE);
+    }
     rewrite(id, given);
     for (var other : pair) {
       if (other != id) {
@@ -163,7 +177,7 @@ public class GlobalRules {
         .stream()
         // Of a pair, the one that starts from the feature says it for both.
         .filter(rule -> rule.pairKey() == null || rule.source().id() == featureId)
-        .map(GlobalRule::inWords)
+        .map(rule -> rule.named().inWords())
         .toList();
   }
 
@@ -309,97 +323,56 @@ public class GlobalRules {
     }
   }
 
-  /**
-   * Refuses content that breaks what holds of every rule.
-   *
-   * @param own the rule being changed, with its pair when it has one; empty for a new rule
-   */
-  private void check(RuleContent given, Set<Long> own) {
-    checkWhatARuleNames(given);
-    checkNotThereAlready(given, own);
+  /** What a global rule may name: the library's features, and its active regions. */
+  private Rules.Nameable fromTheLibrary() {
+    return new Rules.Nameable(
+        ids ->
+            jdbc.sql("SELECT id, name, kind, status FROM feature WHERE id IN (:ids)")
+                .param("ids", ids)
+                .query(Rules.NamedFeature.class)
+                .list(),
+        "Choose features from the library.",
+        null,
+        null,
+        codes ->
+            jdbc.sql("SELECT count(*) FROM region WHERE code IN (:codes) AND active")
+                .param("codes", codes)
+                .query(Long.class)
+                .single(),
+        "Choose active regions from the library.");
   }
 
-  /** Refuses content whose targets, features, or regions are not what a rule may name. */
-  private void checkWhatARuleNames(RuleContent given) {
-    var kind = given.kind();
-    var targets = given.targetFeatureIds();
-    if (targets.size() > RuleKind.MOST_TARGETS) {
-      throw ApiException.limitExceeded(
-          "A rule has at most %d targets.".formatted(RuleKind.MOST_TARGETS));
-    }
-    var refusal = kind.refusalOf(given.sourceFeatureId(), targets);
-    if (refusal != null) {
-      throw ApiException.invalid(refusal);
-    }
-
-    var named = new ArrayList<>(targets);
-    named.add(given.sourceFeatureId());
-    Map<Long, Named> features =
-        jdbc
-            .sql("SELECT id, name, kind, status FROM feature WHERE id IN (:ids)")
-            .param("ids", named)
-            .query(Named.class)
-            .list()
-            .stream()
-            .collect(Collectors.toMap(Named::id, Function.identity()));
-    if (features.size() < named.size()) {
-      throw ApiException.invalid("Choose features from the library.");
-    }
-    for (var feature : features.values()) {
-      if (feature.status().equals("RETIRED")) {
-        throw ApiException.invalid(
-            "%s is retired, and a rule cannot name it.".formatted(feature.name()));
-      }
-    }
-    if (kind == RuleKind.INCLUDES
-        && !features.get(given.sourceFeatureId()).kind().equals("PACKAGE")) {
-      throw ApiException.invalid("Only a package includes other features.");
-    }
-
-    var scope = given.scope();
-    if (!given.allRegions()) {
-      if (scope.isEmpty()) {
-        throw ApiException.invalid("Choose the regions the rule applies in, or every region.");
-      }
-      var active =
-          jdbc.sql("SELECT code FROM region WHERE code IN (:codes) AND active")
-              .param("codes", scope)
-              .query(String.class)
-              .list();
-      if (active.size() < scope.size()) {
-        throw ApiException.invalid("Choose active regions from the library.");
-      }
+  /** Refuses content that says what another rule already says. */
+  private void checkNotThereAlready(RuleContent given) {
+    if (!sayingTheSame(given).isEmpty()) {
+      throw ApiException.invalid(ALREADY_THERE);
     }
   }
 
   /**
-   * Refuses content that says what another rule already says. Both rules of a pair are there to be
-   * found, so an exclusion is found whichever way round it is given.
+   * The rules that say what the content says. Both rules of a pair are there to be found, so an
+   * exclusion is found whichever way round it is given.
    */
-  private void checkNotThereAlready(RuleContent given, Set<Long> own) {
-    var kind = given.kind();
-    var targets = given.targetFeatureIds();
+  private List<Long> sayingTheSame(RuleContent given) {
+    var targets = Set.copyOf(given.targetFeatureIds());
     var scope = given.scope();
-    var sameAsAnother =
-        rules(
-                "WHERE r.kind = :kind AND r.source_feature_id = :source",
-                Map.of("kind", kind.name(), "source", given.sourceFeatureId()))
-            .stream()
-            .filter(rule -> !own.contains(rule.id()))
-            .anyMatch(
-                rule ->
-                    rule.targets().stream()
-                            .map(FeatureName::id)
-                            .collect(Collectors.toSet())
-                            .equals(Set.copyOf(targets))
-                        && rule.allRegions() == given.allRegions()
-                        && rule.regions().stream()
-                            .map(RegionName::code)
-                            .collect(Collectors.toSet())
-                            .equals(scope));
-    if (sameAsAnother) {
-      throw ApiException.invalid("This rule already exists.");
-    }
+    return rules(
+            "WHERE r.kind = :kind AND r.source_feature_id = :source",
+            Map.of("kind", given.kind().name(), "source", given.sourceFeatureId()))
+        .stream()
+        .filter(
+            rule ->
+                rule.targets().stream()
+                        .map(FeatureName::id)
+                        .collect(Collectors.toSet())
+                        .equals(targets)
+                    && rule.allRegions() == given.allRegions()
+                    && rule.regions().stream()
+                        .map(RegionName::code)
+                        .collect(Collectors.toSet())
+                        .equals(scope))
+        .map(GlobalRule::id)
+        .toList();
   }
 
   /**
@@ -409,13 +382,26 @@ public class GlobalRules {
    *     every region
    */
   record RuleContent(
-      @NotNull(message = "Choose a kind.") RuleKind kind,
-      @NotNull(message = "Choose a source.") Long sourceFeatureId,
-      @NotNull(message = "Choose at least one target.") List<@NotNull Long> targetFeatureIds,
+      RuleKind kind,
+      Long sourceFeatureId,
+      List<Long> targetFeatureIds,
       boolean allRegions,
       List<String> regionCodes) {
 
-    /** The regions the rule lists: none when it applies in every region. */
+    /** What the rule names, as the check of what a rule may name takes it. */
+    Rules.Content content() {
+      return new Rules.Content(
+          kind,
+          sourceFeatureId,
+          targetFeatureIds,
+          null,
+          allRegions ? null : Objects.requireNonNullElse(regionCodes, List.of()));
+    }
+
+    /**
+     * The regions the rule lists: none when it applies in every region. It is asked for once the
+     * content is checked, so none of them is null.
+     */
     Set<String> scope() {
       return allRegions || regionCodes == null ? Set.of() : new TreeSet<>(regionCodes);
     }
@@ -441,19 +427,14 @@ public class GlobalRules {
       List<RegionName> regions,
       UUID pairKey) {
 
-    /** The rule as a sentence without its full stop: "Tow Package requires Heavy-Duty Cooling". */
-    String inWords() {
-      var said =
-          "%s %s %s"
-              .formatted(
-                  source.name(),
-                  kind.words(),
-                  targets.stream().map(FeatureName::name).collect(Collectors.joining(", ")));
-      return allRegions
-          ? said
-          : "%s (in %s)"
-              .formatted(
-                  said, regions.stream().map(RegionName::name).collect(Collectors.joining(", ")));
+    /** The rule by the names of what it names. A global rule covers every trim. */
+    Rules.Named named() {
+      return new Rules.Named(
+          source.name(),
+          kind,
+          targets.stream().map(FeatureName::name).toList(),
+          null,
+          allRegions ? null : regions.stream().map(RegionName::name).toList());
     }
   }
 
@@ -477,6 +458,4 @@ public class GlobalRules {
   private record Target(long ruleId, long id, String code, String name) {}
 
   private record Scope(long ruleId, String code, String name) {}
-
-  private record Named(long id, String name, String kind, String status) {}
 }

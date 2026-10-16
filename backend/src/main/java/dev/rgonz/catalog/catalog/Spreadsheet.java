@@ -123,7 +123,7 @@ final class Spreadsheet {
           rule.allRegions()
               ? "Every region"
               : rule.regionCodes().stream().map(regions::get).collect(Collectors.joining(", ")));
-      sheet.value(row, 5, rule.inWords(features::get, trims::get, regions::get) + ".");
+      sheet.value(row, 5, rule.named(features::get, trims::get, regions::get).inWords() + ".");
       row++;
     }
   }

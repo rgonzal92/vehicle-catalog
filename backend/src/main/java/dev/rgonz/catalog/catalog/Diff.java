@@ -6,6 +6,7 @@ import dev.rgonz.catalog.catalog.CatalogSnapshot.FeatureRow;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Offering;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Region;
 import dev.rgonz.catalog.catalog.CatalogSnapshot.Trim;
+import dev.rgonz.catalog.library.Rules;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -51,11 +52,11 @@ final class Diff {
         cellsChanged(was, is, offeringsBefore),
         is.rules.entrySet().stream()
             .filter(rule -> !was.rules.containsKey(rule.getKey()))
-            .map(rule -> new RuleSaid(rule.getValue().key(), is.inWords(rule.getValue())))
+            .map(rule -> new RuleSaid(rule.getValue().key(), is.named(rule.getValue()).inWords()))
             .toList(),
         was.rules.entrySet().stream()
             .filter(rule -> !is.rules.containsKey(rule.getKey()))
-            .map(rule -> new RuleSaid(rule.getValue().key(), was.inWords(rule.getValue())))
+            .map(rule -> new RuleSaid(rule.getValue().key(), was.named(rule.getValue()).inWords()))
             .toList(),
         is.rules.entrySet().stream()
             .filter(rule -> was.rules.containsKey(rule.getKey()))
@@ -64,8 +65,8 @@ final class Diff {
                 rule ->
                     new RuleChanged(
                         rule.getValue().key(),
-                        was.inWords(was.rules.get(rule.getKey())),
-                        is.inWords(rule.getValue())))
+                        was.named(was.rules.get(rule.getKey())).inWords(),
+                        is.named(rule.getValue()).inWords()))
             .toList());
   }
 
@@ -206,9 +207,9 @@ final class Diff {
           .toList();
     }
 
-    /** A rule as a sentence without its full stop, by this catalog's labels. */
-    String inWords(Rule rule) {
-      return rule.inWords(
+    /** A rule by this catalog's labels. */
+    Rules.Named named(Rule rule) {
+      return rule.named(
           this::feature,
           id -> trims.containsKey(id) ? trims.get(id).name() : "a trim it has not",
           code -> regions.containsKey(code) ? regions.get(code).name() : code);
