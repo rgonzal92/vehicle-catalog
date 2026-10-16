@@ -2,6 +2,10 @@ package dev.rgonz.catalog;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.jayway.jsonpath.JsonPath;
 import dev.rgonz.catalog.ai.ModelStandIn;
 import dev.rgonz.catalog.core.Role;
@@ -10,6 +14,7 @@ import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.DefaultApplicationArguments;
@@ -18,6 +23,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.OidcLoginRequestPostProcessor;
@@ -335,6 +341,29 @@ public abstract class ApplicationIT {
         .param("subject", subject)
         .query(Long.class)
         .single();
+  }
+
+  /** The statements sent on this thread while it does what it is given. */
+  protected static List<String> statementsWhile(Runnable asked) {
+    var statements = new ListAppender<ILoggingEvent>();
+    var logger = (Logger) LoggerFactory.getLogger(JdbcTemplate.class);
+    var level = logger.getLevel();
+    statements.start();
+    logger.addAppender(statements);
+    logger.setLevel(Level.DEBUG);
+    try {
+      asked.run();
+    } finally {
+      logger.setLevel(level);
+      logger.detachAppender(statements);
+    }
+
+    return statements.list.stream()
+        // Other threads, such as the one that clears out expired sessions, log here too.
+        .filter(event -> event.getThreadName().equals(Thread.currentThread().getName()))
+        .map(ILoggingEvent::getFormattedMessage)
+        .filter(message -> message.startsWith("Executing prepared SQL statement"))
+        .toList();
   }
 
   /** Reads one value out of a JSON response. */

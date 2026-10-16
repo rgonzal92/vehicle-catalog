@@ -1,6 +1,6 @@
 package dev.rgonz.catalog.catalog;
 
-import dev.rgonz.catalog.catalog.Issue.Severity;
+import dev.rgonz.catalog.catalog.Issue.Counts;
 import dev.rgonz.catalog.job.JobHandler;
 import dev.rgonz.catalog.job.JobType;
 import dev.rgonz.catalog.job.Jobs;
@@ -85,14 +85,7 @@ class ApprovedChecks implements JobHandler {
     }
     catalogs
         .find(catalog, NO_ONE)
-        .ifPresent(
-            approved ->
-                keep(
-                    catalog,
-                    revision,
-                    approved.issues().stream()
-                        .filter(issue -> issue.severity() == Severity.ERROR)
-                        .count()));
+        .ifPresent(approved -> keep(catalog, revision, Counts.of(approved.issues()).errors()));
   }
 
   /** Keeps that an approval has just found the catalog without an Error. */

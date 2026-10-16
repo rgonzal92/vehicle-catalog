@@ -3,10 +3,6 @@ package dev.rgonz.catalog.catalog;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.read.ListAppender;
 import dev.rgonz.catalog.ApplicationIT;
 import dev.rgonz.catalog.core.Role;
 import java.util.List;
@@ -15,11 +11,9 @@ import java.util.regex.Pattern;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
 /**
@@ -310,27 +304,7 @@ class CatalogsIT extends ApplicationIT {
   void aCatalogIsLoadedWithAFixedNumberOfQueriesHoweverMuchItHolds() {
     var catalog = version(2);
     var reader = person("a-reader");
-    var statements = new ListAppender<ILoggingEvent>();
-    var logger = (Logger) LoggerFactory.getLogger(JdbcTemplate.class);
-    var level = logger.getLevel();
-    statements.start();
-    logger.addAppender(statements);
-    logger.setLevel(Level.DEBUG);
-
-    try {
-      catalogs.find(catalog, reader).orElseThrow();
-    } finally {
-      logger.setLevel(level);
-      logger.detachAppender(statements);
-    }
-
-    var sent =
-        statements.list.stream()
-            // Other threads, such as the one that clears out expired sessions, log here too.
-            .filter(event -> event.getThreadName().equals(Thread.currentThread().getName()))
-            .map(ILoggingEvent::getFormattedMessage)
-            .filter(message -> message.startsWith("Executing prepared SQL statement"))
-            .toList();
+    var sent = statementsWhile(() -> catalogs.find(catalog, reader).orElseThrow());
     // Besides the catalog, its five content tables, and its rules: one query for what the library
     // says today of the catalog's features, trims, and regions, and two for the global rules and
     // their names.

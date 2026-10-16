@@ -8,10 +8,8 @@ import dev.rgonz.catalog.catalog.Catalogs.LineageSummary;
 import dev.rgonz.catalog.catalog.Catalogs.VersionSummary;
 import dev.rgonz.catalog.catalog.ChangeHistory.ChangePage;
 import dev.rgonz.catalog.catalog.Diff.Changes;
-import dev.rgonz.catalog.catalog.Issue.Severity;
 import dev.rgonz.catalog.catalog.Revisions.Outcome;
 import dev.rgonz.catalog.catalog.Updates.Preview;
-import dev.rgonz.catalog.catalog.WorkingCopies.Counts;
 import dev.rgonz.catalog.catalog.WorkingCopies.NewWorkingCopy;
 import dev.rgonz.catalog.catalog.WorkingCopies.StartPoint;
 import dev.rgonz.catalog.catalog.WorkingCopies.Submitted;
@@ -105,17 +103,10 @@ class CatalogController {
   /** The caller's working copies, each with how many Errors and Warnings it has today. */
   @GetMapping(value = "/api/catalogs", params = "scope=mine")
   List<ListedWorkingCopy> mine(Authentication caller) {
-    var owner = people.idOf(caller);
-
-    // Each working copy's counts are kept with the revisions of the copy and of the library they
-    // were worked out at. A copy is read whole and validated, twelve queries with the keeping, only
-    // when it or the library has changed since it was last listed: twenty listed from their kept
-    // counts take two queries in all, the caller's lookup and the list's own.
-    return workingCopies.ownedBy(owner).stream()
+    return workingCopies.ownedBy(people.idOf(caller)).stream()
         .map(
             listed -> {
               var copy = listed.copy();
-              var counts = listed.counts() != null ? listed.counts() : counted(copy.id(), owner);
 
               return new ListedWorkingCopy(
                   copy.id(),
@@ -125,31 +116,11 @@ class CatalogController {
                   copy.status(),
                   copy.revision(),
                   copy.updatedAt(),
-                  counts.errors(),
-                  counts.warnings(),
+                  listed.counts().errors(),
+                  listed.counts().warnings(),
                   listed.stale());
             })
         .toList();
-  }
-
-  /**
-   * Reads the owner's working copy whole and validates it, and keeps what that finds for the next
-   * time it is listed. A working copy that is gone counts nothing.
-   */
-  private Counts counted(long id, long owner) {
-    return catalogs
-        .findWithLibraryRevision(id, owner)
-        .map(
-            read -> {
-              var issues = read.catalog().issues();
-              var errors =
-                  issues.stream().filter(issue -> issue.severity() == Severity.ERROR).count();
-              var counts = new Counts(errors, issues.size() - errors);
-              workingCopies.keepCounts(
-                  id, read.catalog().snapshot().revision(), read.libraryRevision(), counts);
-              return counts;
-            })
-        .orElse(new Counts(0, 0));
   }
 
   /**
