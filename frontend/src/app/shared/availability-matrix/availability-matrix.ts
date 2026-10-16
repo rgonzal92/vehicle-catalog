@@ -565,10 +565,14 @@ export class AvailabilityMatrix {
   }
 
   /**
-   * Brings a cell into view, and puts the focus on it when the matrix is editable. A cell of a row
-   * or of a region that the matrix does not show stays where it is.
+   * Brings a cell into view, and puts the focus on it when the matrix is editable, unless asked to
+   * leave the focus where it is. A cell of a row or of a region that the matrix does not show stays
+   * where it is.
    */
-  show({ featureId, trimId, regionCode }: Pick<Cell, 'featureId' | 'trimId' | 'regionCode'>): void {
+  show(
+    { featureId, trimId, regionCode }: Pick<Cell, 'featureId' | 'trimId' | 'regionCode'>,
+    focus = true,
+  ): void {
     const row = this.rows().findIndex((candidate) => candidate.feature?.id === featureId);
     const offering = this.offerings().findIndex(
       (candidate) => candidate.trim.id === trimId && candidate.region.code === regionCode,
@@ -585,7 +589,7 @@ export class AvailabilityMatrix {
       ] as HTMLElement | undefined;
       if (cell) {
         cell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-        if (this.editable()) {
+        if (this.editable() && focus) {
           cell.focus();
         }
       } else if (framesLeft > 0) {

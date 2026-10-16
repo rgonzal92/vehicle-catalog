@@ -667,6 +667,19 @@ describe('AvailabilityMatrix', () => {
     expect(scrolled).toHaveBeenCalled();
   });
 
+  it('brings a cell of an editable matrix into view and leaves the focus when asked to', async () => {
+    // The test page cannot scroll, so it is given the two ways of scrolling the matrix uses.
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    Element.prototype.scrollTo = vi.fn();
+    const { fixture, element } = await matrix(true);
+
+    theMatrix(fixture).show({ featureId: 10, trimId: 2, regionCode: 'EU' }, false);
+
+    await vi.waitFor(() => expect(scrolled).toHaveBeenCalled());
+    expect(document.activeElement).not.toBe(cell(element, 3, 2));
+  });
+
   it('shows a cell of a read-only matrix without putting the focus on it', async () => {
     // The test page cannot scroll, so it is given the two ways of scrolling the matrix uses.
     const scrolled = vi.fn();

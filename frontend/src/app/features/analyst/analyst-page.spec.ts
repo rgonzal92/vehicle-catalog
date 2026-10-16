@@ -1,6 +1,9 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { MessageService } from 'primeng/api';
+import { Tour } from '../../core/tour';
 import { AnalystPage } from './analyst-page';
 
 describe('AnalystPage', () => {
@@ -52,7 +55,7 @@ describe('AnalystPage', () => {
 
   beforeEach(() => {
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(), provideHttpClientTesting(), MessageService],
     });
     backend = TestBed.inject(HttpTestingController);
   });
@@ -89,6 +92,32 @@ describe('AnalystPage', () => {
     ]);
     expect(element.querySelector('[data-conversation] b')).toBeNull();
     expect(box().value).toBe('');
+  });
+
+  it("fills in the tour's question, and keeps a question that is being written", async () => {
+    const question = signal<string | null>(null);
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: Tour, useValue: { question } },
+      ],
+    });
+    backend = TestBed.inject(HttpTestingController);
+    await open();
+
+    box().value = 'Mine';
+    box().dispatchEvent(new Event('input'));
+    question.set('Which trims are there?');
+    await settle();
+    expect(box().value).toBe('Mine');
+
+    box().value = '';
+    box().dispatchEvent(new Event('input'));
+    question.set('What changed between the two versions?');
+    await settle();
+    expect(box().value).toBe('What changed between the two versions?');
   });
 
   it('sends the conversation so far with the next question', async () => {

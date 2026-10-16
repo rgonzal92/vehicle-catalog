@@ -13,6 +13,7 @@ import { Linkedin } from '@primeicons/angular/linkedin';
 import { MessageService } from 'primeng/api';
 import { Button, ButtonDirective, ButtonIcon, ButtonLabel } from 'primeng/button';
 import { Dialog } from 'primeng/dialog';
+import { Fieldset } from 'primeng/fieldset';
 import { Toast } from 'primeng/toast';
 import { Tour } from './tour';
 
@@ -34,6 +35,7 @@ const AUTHOR = 'https://www.linkedin.com/in/rgonzal92';
     ButtonIcon,
     ButtonLabel,
     Dialog,
+    Fieldset,
     Toast,
   ],
   selector: 'app-tour-dialog',
@@ -75,7 +77,25 @@ const AUTHOR = 'https://www.linkedin.com/in/rgonzal92';
           @if (tour.missing()) {
             <p>This step can't be shown right now.</p>
           } @else {
-            <p>{{ step.words }}</p>
+            <p>{{ tour.words() }}</p>
+          }
+
+          @if (step.note; as note) {
+            <!-- A note starts collapsed on every step: each step has a fieldset of its own. -->
+            @for (opened of [step]; track opened.id) {
+              <p-fieldset legend="How it's built" [toggleable]="true" [collapsed]="true">
+                <p class="grid gap-2">
+                  <span>{{ note.words }}</span>
+                  <a
+                    class="text-primary underline"
+                    [href]="note.link"
+                    target="_blank"
+                    rel="noopener"
+                    >Read the record on GitHub</a
+                  >
+                </p>
+              </p-fieldset>
+            }
           }
 
           @if (step.id === 'sign-in' && tour.login(); as login) {

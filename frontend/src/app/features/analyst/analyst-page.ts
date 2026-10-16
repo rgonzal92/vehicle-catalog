@@ -1,10 +1,11 @@
-import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, effect, inject, OnInit, signal } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { Button } from 'primeng/button';
 import { InputText } from 'primeng/inputtext';
 import { Message } from 'primeng/message';
 import { Select } from 'primeng/select';
 import { Ai, AiAvailability } from '../../core/ai';
+import { Tour } from '../../core/tour';
 import { reasonOf } from '../../shared/reason-of';
 import { Analyst, AnalystTurn, Citation, DocumentSubject, ToolCall } from './analyst';
 
@@ -91,6 +92,7 @@ interface ShownTurn extends AnalystTurn {
       </ol>
       <form
         class="grid gap-1 border-t border-surface px-4 py-3"
+        [attr.data-tour]="ai().available ? 'ask' : null"
         (submit)="$event.preventDefault(); ask()"
       >
         @if (subjects().length) {
@@ -133,7 +135,7 @@ interface ShownTurn extends AnalystTurn {
           }
         </p>
         @if (failure(); as why) {
-          <p-message severity="warn">{{ why }}</p-message>
+          <p-message severity="warn" data-analyst-failure>{{ why }}</p-message>
         }
       </form>
     </section>
@@ -142,6 +144,7 @@ interface ShownTurn extends AnalystTurn {
 export class AnalystPage implements OnInit {
   private readonly analyst = inject(Analyst);
   private readonly aiService = inject(Ai);
+  private readonly tour = inject(Tour);
 
   protected readonly question = new FormControl('', { nonNullable: true });
 
@@ -171,6 +174,16 @@ export class AnalystPage implements OnInit {
       name: `${subject.vehicleLine} ${subject.modelYear}`,
     })),
   ]);
+
+  constructor() {
+    // The tour's step fills in the question it asks, unless one is being written.
+    effect(() => {
+      const asked = this.tour.question();
+      if (asked !== null && !this.question.value) {
+        this.question.setValue(asked);
+      }
+    });
+  }
 
   ngOnInit(): void {
     void this.aiService.availability().then((found) => this.ai.set(found));

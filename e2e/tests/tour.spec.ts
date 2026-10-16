@@ -1,5 +1,5 @@
 import { expect, type Page } from '@playwright/test';
-import { expectAccessible, signIn, test } from './support';
+import { createWorkingCopy, expectAccessible, signIn, signOut, test } from './support';
 
 test.use({ offersTour: true });
 
@@ -33,35 +33,54 @@ const listed = (page: Page, name: string) =>
 const myCatalogsRead = (page: Page) =>
   page.waitForResponse((response) => response.url().includes('/api/catalogs?scope=mine'));
 
-/**
- * Takes the tour from the header, signed in, to the step that breaks a rule. Answers with the name
- * of the working copy it made.
- */
-async function toBreakingARule(page: Page): Promise<string> {
+/** The titles of the steps someone signed in goes through, in order, up to the analyst's. */
+const STEPS = [
+  'What this app is for',
+  'Your dashboard',
+  'A published catalog',
+  'Make a working copy',
+  'Break a rule',
+  'Put it right',
+  "A manager's review",
+  'Ask the analyst',
+];
+
+/** Takes the tour from the header, signed in, going on with Enter until the step given is open. */
+async function walkTo(page: Page, title: string): Promise<void> {
   await page.getByRole('button', { name: 'Take the tour' }).click();
-  for (const title of [
-    'What this app is for',
-    'Your dashboard',
-    'A published catalog',
-    'Make a working copy',
-  ]) {
-    await expect(step(page, title).getByRole('button', { name: 'Next' })).toBeFocused();
+  for (const before of STEPS.slice(0, STEPS.indexOf(title))) {
+    await expect(step(page, before).getByRole('button', { name: 'Next' })).toBeFocused();
     await page.keyboard.press('Enter');
   }
-  await expect(step(page, 'Break a rule')).toBeVisible();
-  await expect(cell(page, 'SEAT_HEATED_FRONT')).toHaveClass(/tour-target/, { timeout: 10_000 });
-  return tourCopy(page);
+  await expect(step(page, title)).toBeVisible();
 }
+
+/** Submits the working copy that the editor shows. */
+async function submit(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Submit for review' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Submit for review' });
+  await dialog.getByRole('button', { name: 'Submit', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Withdraw' })).toBeVisible();
+}
+
+/** The analyst's question that the tour asks. */
+const QUESTION = 'What changed between the two Approved versions of the 2026 Compact SUV?';
 
 test('a visitor takes the tour from its offer to its last card, going on with Enter', async ({
   page,
 }) => {
-  await page.goto('/');
+  // A catalog waits for review, as one does on the live site, where the demo starts with one. The
+  // admin submits it: the other tests leave the author nearly all twenty working copies.
+  await signIn(page, 'admin');
+  const waiting = await createWorkingCopy(page, 'SUV', 'Compact SUV', '2027');
+  await submit(page);
+  await signOut(page);
+
   await offer(page).getByRole('button', { name: 'Take the tour' }).click();
 
   const about = step(page, 'What this app is for');
   await expect(about).toContainText('a major US carmaker');
-  await expect(about).toContainText('1 of 7');
+  await expect(about).toContainText('1 of 9');
   await expect(page.getByRole('heading', { name: 'Vehicle Catalog' })).toHaveClass(/tour-target/);
   await expect(about.getByRole('button', { name: 'Next' })).toBeFocused();
   await page.keyboard.press('Enter');
@@ -75,7 +94,7 @@ test('a visitor takes the tour from its offer to its last card, going on with En
   await page.locator('input[type="submit"]').click();
 
   const dashboard = step(page, 'Your dashboard');
-  await expect(dashboard).toContainText('3 of 7');
+  await expect(dashboard).toContainText('3 of 9');
   await expect(page).toHaveURL('/dashboard');
   await expect(dashboard.getByRole('button', { name: 'Next' })).toBeFocused();
   await page.keyboard.press('Enter');
@@ -103,11 +122,31 @@ test('a visitor takes the tour from its offer to its last card, going on with En
   await expect(cell(page, 'SEAT_HEATED_REAR')).toHaveClass(/matrix-error/);
   await expect(page.locator('[data-issue-counts]')).toContainText('1 Error');
   await expect(page.locator('[data-issue-counts]')).toHaveClass(/tour-target/);
+  // Next sets the cell back and goes on to the next page, so what the save answers is looked at.
+  const restored = page.waitForResponse(
+    (response) => response.request().method() === 'PUT' && response.url().endsWith('/cells'),
+  );
+  await page.keyboard.press('Enter');
+  const { issues } = (await (await restored).json()) as { issues: { severity: string }[] };
+  expect(issues.filter(({ severity }) => severity === 'ERROR')).toEqual([]);
+
+  const review = step(page, "A manager's review");
+  await expect(review).toContainText('The tour leaves this decision for you or the next visitor.');
+  await expect(page).toHaveURL(/\/catalogs\/\d+\/review$/);
+  await expect(page.locator('[data-tour="decide"]')).toHaveClass(/tour-target/);
+  await expect(review.getByRole('button', { name: 'Next' })).toBeFocused();
   await page.keyboard.press('Enter');
 
-  await expect(cell(page, 'SEAT_HEATED_FRONT')).toContainText('S');
-  await expect(cell(page, 'SEAT_HEATED_REAR')).not.toHaveClass(/matrix-error/);
-  await expect(page.locator('[data-issue-counts]')).not.toContainText('Error');
+  const analyst = step(page, 'Ask the analyst');
+  await expect(page).toHaveURL('/analyst');
+  await expect(page.getByLabel('Your question')).toHaveValue(QUESTION);
+  await expect(analyst.getByRole('button', { name: 'Next' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  const answer = page.locator('[data-by="ANALYST"]');
+  await expect(answer).toContainText('An answer from the stand-in');
+  await expect(answer).toHaveClass(/tour-target/);
+  await expect(analyst.getByRole('button', { name: 'Next' })).toBeFocused();
+  await page.keyboard.press('Enter');
 
   const card = step(page, "That's the tour");
   await expect(card.getByRole('link', { name: 'View the code' })).toHaveAttribute(
@@ -119,20 +158,41 @@ test('a visitor takes the tour from its offer to its last card, going on with En
     'https://www.linkedin.com/in/rgonzal92',
   );
   await expect(card.getByRole('button', { name: 'Keep exploring' })).toBeFocused();
-  const read = myCatalogsRead(page);
+  const deleted = page.waitForResponse((response) => response.request().method() === 'DELETE');
   await page.keyboard.press('Enter');
 
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page).toHaveURL('/dashboard');
+  expect((await deleted).status()).toBe(204);
+  const read = myCatalogsRead(page);
+  await page.goto('/dashboard');
   await read;
   await expect(listed(page, name)).toHaveCount(0);
+  await expect(
+    page
+      .getByRole('region', { name: 'Review queue' })
+      .getByRole('cell', { name: waiting, exact: true }),
+  ).toBeVisible();
+
+  // The catalog that waited goes too, so that the tests leave the admin no more copies than before.
+  await signOut(page);
+  await signIn(page, 'admin');
+  const mine = page.getByRole('region', { name: 'My catalogs' });
+  await mine.getByRole('button', { name: `Withdraw ${waiting}` }).click();
+  await mine.getByRole('button', { name: `Delete ${waiting}` }).click();
+  await page
+    .getByRole('dialog', { name: 'Delete working copy' })
+    .getByRole('button', { name: 'Delete', exact: true })
+    .click();
+  await expect(mine.getByRole('cell', { name: waiting, exact: true })).toHaveCount(0);
 });
 
 test('a visitor who skips the tour on the step that breaks a rule leaves no working copy behind', async ({
   page,
 }) => {
   await signIn(page, 'manager');
-  const name = await toBreakingARule(page);
+  await walkTo(page, 'Break a rule');
+  await expect(cell(page, 'SEAT_HEATED_FRONT')).toHaveClass(/tour-target/, { timeout: 10_000 });
+  const name = await tourCopy(page);
   await expectAccessible(page);
 
   const read = myCatalogsRead(page);
@@ -201,4 +261,90 @@ test('on a narrow screen the landing page says to open it on a laptop, and offer
   await expect(laptop).toBeVisible();
   await expect(page.getByRole('main').getByRole('button', { name: 'Take the tour' })).toBeHidden();
   await expect(offer(page)).toHaveCount(0);
+});
+
+test('the review step points at the empty review queue when nothing waits for a review', async ({
+  page,
+}) => {
+  await page.route(
+    (url) => url.pathname === '/api/catalogs' && url.searchParams.get('scope') === 'review',
+    (route) => route.fulfill({ json: [] }),
+  );
+  await signIn(page, 'admin');
+  await walkTo(page, "A manager's review");
+
+  const review = step(page, "A manager's review");
+  await expect(review).toContainText(
+    'Nothing is waiting for review right now. Reviews happen here.',
+  );
+  await expect(page).toHaveURL('/dashboard');
+  await expect(page.locator('[data-tour="review-queue"]')).toHaveClass(/tour-target/);
+  await review.getByRole('button', { name: 'Skip tour' }).click();
+});
+
+test('an author is told on the review step that managers review there', async ({ page }) => {
+  await signIn(page, 'author');
+  // The steps before would make the author a working copy, and the other tests leave the author
+  // nearly all twenty; the tour is opened on its step as a reload would find it.
+  await page.evaluate(() => sessionStorage.setItem('tour', JSON.stringify({ step: 'review' })));
+  await page.reload();
+
+  const review = step(page, "A manager's review");
+  await expect(review).toContainText(
+    'Managers review submissions here. Sign in as manager to see it.',
+  );
+  await expect(page.locator('.tour-target')).toHaveCount(0);
+  await review.getByRole('button', { name: 'Skip tour' }).click();
+});
+
+test('a note on how a step is built opens to its record, and starts closed on every step', async ({
+  page,
+}) => {
+  await signIn(page, 'manager');
+  await walkTo(page, 'A published catalog');
+
+  const published = step(page, 'A published catalog');
+  await expect(published.getByRole('button', { name: "How it's built" })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
+  await published.getByRole('button', { name: "How it's built" }).click();
+  await expect(published.getByRole('link', { name: 'Read the record on GitHub' })).toHaveAttribute(
+    'href',
+    'https://github.com/rgonzal92/vehicle-catalog/blob/main/docs/adr/0006-the-matrix-is-one-primeng-table-with-its-own-subheaders-and-cell-editing.md',
+  );
+
+  // The review's step and the analyst's both have a note, one straight after the other.
+  for (const title of [
+    'A published catalog',
+    'Make a working copy',
+    'Break a rule',
+    'Put it right',
+  ]) {
+    await step(page, title).getByRole('button', { name: 'Next' }).click();
+  }
+  const review = step(page, "A manager's review");
+  await review.getByRole('button', { name: "How it's built" }).click();
+  await expect(review.getByRole('button', { name: "How it's built" })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  );
+  await review.getByRole('button', { name: 'Next' }).click();
+  const analyst = step(page, 'Ask the analyst');
+  await expect(analyst.getByRole('button', { name: "How it's built" })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
+  await analyst.getByRole('button', { name: 'Skip tour' }).click();
+});
+
+test("the analyst's step is accessible with its note open", async ({ page }) => {
+  await signIn(page, 'admin');
+  await walkTo(page, 'Ask the analyst');
+
+  const analyst = step(page, 'Ask the analyst');
+  await analyst.getByRole('button', { name: "How it's built" }).click();
+  await expect(analyst.getByRole('link', { name: 'Read the record on GitHub' })).toBeVisible();
+  await expectAccessible(page);
+  await analyst.getByRole('button', { name: 'Skip tour' }).click();
 });

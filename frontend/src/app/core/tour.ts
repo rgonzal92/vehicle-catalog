@@ -6,7 +6,7 @@ import { filter, firstValueFrom } from 'rxjs';
 import { reasonOf } from '../shared/reason-of';
 import { Catalogs, LineageSummary } from './catalogs';
 import { NAVIGATE, Session } from './session';
-import { CellAt, cellOnPage, SEDAN, StepId, STEPS } from './tour-steps';
+import { CellAt, cellOnPage, SEDAN, StepId, STEPS, TourStep } from './tour-steps';
 
 /** The login the tour signs in with, as the landing page publishes it; some have no password. */
 interface Login {
@@ -33,6 +33,19 @@ const WAIT_MS = 10_000;
 
 /** How often a step asks again for its cell to be shown while the matrix has not drawn it. */
 const ASK_FOR_THE_CELL_EVERY_MS = 1_000;
+
+/** How long the analyst's step waits for its answer, which the model can take a while over. */
+const ANSWER_WAIT_MS = 60_000;
+
+/** The analyst's answer, or the page's word on why there is none. */
+const ANSWERED = '[data-by="ANALYST"], [data-analyst-failure]';
+
+/** Where a step shows, the elements it points at, and what it says. */
+interface Placement {
+  path: string | null;
+  target?: string;
+  words: string;
+}
 
 /** Where the tab keeps the step a visitor is on, and the browser that the tour was declined. */
 const KEPT = 'tour';
@@ -66,8 +79,10 @@ export class Tour {
   private focusedBefore: Element | null = null;
   private ringed: Element[] = [];
   private opening: Promise<void> = Promise.resolve();
+  private lookedFor: Promise<void> = Promise.resolve();
   private copy: number | null = null;
   private held: Shown | null = null;
+  private asked = false;
 
   /** The step open, or null while there is no tour. */
   readonly step = computed(() => {
@@ -85,6 +100,12 @@ export class Tour {
    * the page it is asked for again, as a new value.
    */
   readonly cell = signal<CellAt | null>(null);
+
+  /** The question the open step fills in for the analyst. */
+  readonly question = computed(() => this.step()?.question ?? null);
+
+  /** What the open step says, which for the review's step depends on what there is to review. */
+  readonly words = signal('');
 
   /** The element the open step is about, once it is on the page. */
   readonly target = signal<Element | null>(null);
@@ -185,6 +206,10 @@ export class Tour {
       return;
     }
     const step = STEPS[at];
+    // A step that does something to its element waits until the element is there or given up on.
+    if (step.id === 'break' || step.id === 'fix' || (step.id === 'analyst' && !this.asked)) {
+      await this.lookedFor;
+    }
     if (step.id === 'sign-in') {
       const login = this.login();
       const hint = login === null ? '' : `?login_hint=${encodeURIComponent(login.username)}`;
@@ -202,6 +227,12 @@ export class Tour {
         this.press('-');
       } else if (step.id === 'fix') {
         this.press(this.held ?? 'S');
+      } else if (step.id === 'analyst' && !this.asked && this.target() instanceof HTMLFormElement) {
+        // The step stays open, now pointing at the answer once it arrives.
+        this.asked = true;
+        (this.target() as HTMLFormElement).requestSubmit();
+        this.look(ANSWERED, ANSWER_WAIT_MS);
+        return;
       }
     }
     await this.open(at + 1, 1);
@@ -244,11 +275,44 @@ export class Tour {
     if (index === SIGN_IN) {
       this.login.set(await this.manager());
     }
-    const path = step.path === undefined ? null : await this.pathOf(step.path);
-    if (path !== null && this.router.url !== path) {
-      await this.router.navigateByUrl(path);
+    const placed = await this.shownAs(step);
+    this.words.set(placed.words);
+    if (placed.path !== null && this.router.url !== placed.path) {
+      await this.router.navigateByUrl(placed.path);
     }
-    this.look(step.target);
+    // Come back to the analyst's step, the answer is already there and is not asked for again.
+    this.asked = step.id === 'analyst' && document.querySelector(ANSWERED) !== null;
+    this.look(this.asked ? ANSWERED : placed.target);
+  }
+
+  /**
+   * Where a step shows, what it points at, and what it says. The review's step shows the first
+   * catalog waiting for a review that is not the manager's own; with none, the empty queue on the
+   * dashboard; and to an author, who reviews nothing, only its words.
+   */
+  private async shownAs(step: TourStep): Promise<Placement> {
+    if (step.id !== 'review') {
+      const path = step.path === undefined ? null : await this.pathOf(step.path);
+      return { path, target: step.target, words: step.words };
+    }
+    if (!this.session.holds('manager')) {
+      return { path: null, words: step.forAuthors ?? step.words };
+    }
+    // A queue that cannot be read is shown on the dashboard, which says so, and not as empty.
+    const queue = await this.catalogs.toReview().catch(() => null);
+    const waiting = queue?.find((catalog) => !catalog.own);
+    if (waiting === undefined) {
+      return {
+        path: '/dashboard',
+        target: '[data-tour="review-queue"]',
+        words: queue === null ? step.words : (step.noneWaiting ?? step.words),
+      };
+    }
+    return {
+      path: step.path?.replace('{review}', String(waiting.id)) ?? null,
+      target: step.target,
+      words: step.words,
+    };
   }
 
   /** The address of a step's page, or null when what it names is not known. */
@@ -311,11 +375,10 @@ export class Tour {
 
   /** Sets the cell the step is about as a visitor does, with the key for what it is to show. */
   private press(shown: Shown): void {
-    const cell = this.cellOnPage();
-    if (cell !== null) {
-      cell.focus();
-      cell.dispatchEvent(new KeyboardEvent('keydown', { key: KEY_OF[shown], bubbles: true }));
-    }
+    // The key goes to the cell without the focus, which stays on the tour.
+    this.cellOnPage()?.dispatchEvent(
+      new KeyboardEvent('keydown', { key: KEY_OF[shown], bubbles: true }),
+    );
   }
 
   /** The cell of the matrix the open step is about, if it is drawn. */
@@ -348,16 +411,19 @@ export class Tour {
    * again until they appear or the step gives up on them. The first time the cell the tour breaks
    * is found, what it shows is kept, to be set back.
    */
-  private look(selector: string | undefined): void {
+  private look(selector: string | undefined, waitMs = WAIT_MS): void {
     clearInterval(this.looking);
     this.ringed.forEach((element) => element.classList.remove(RING));
     this.ringed = [];
     this.target.set(null);
     this.missing.set(false);
     if (selector === undefined) {
+      this.lookedFor = Promise.resolve();
       return;
     }
 
+    let looked = () => {};
+    this.lookedFor = new Promise((resolve) => (looked = resolve));
     let waited = -LOOK_EVERY_MS;
     const find = (): boolean => {
       waited += LOOK_EVERY_MS;
@@ -375,7 +441,7 @@ export class Tour {
           this.held = shown;
           this.keep();
         }
-      } else if (waited >= WAIT_MS) {
+      } else if (waited >= waitMs) {
         this.missing.set(true);
       } else {
         const cell = this.cell();
@@ -385,6 +451,7 @@ export class Tour {
         return false;
       }
       clearInterval(this.looking);
+      looked();
       return true;
     };
     if (!find()) {

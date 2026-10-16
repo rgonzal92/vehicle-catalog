@@ -83,7 +83,7 @@ import { reasonOf } from '../../shared/reason-of';
           </dl>
           @if (catalog.snapshot.status === 'SUBMITTED') {
             @let blocked = approvalBlocked(catalog);
-            <div class="flex flex-wrap items-center gap-3">
+            <div class="flex flex-wrap items-center gap-3" data-tour="decide">
               <button
                 pButton
                 type="button"

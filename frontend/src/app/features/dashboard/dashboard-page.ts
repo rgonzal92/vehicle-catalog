@@ -235,7 +235,7 @@ import { reasonOf } from '../../shared/reason-of';
       </section>
 
       @if (session.holds('manager')) {
-        <section class="surface" aria-labelledby="review-queue">
+        <section class="surface" aria-labelledby="review-queue" data-tour="review-queue">
           <div class="surface-header">
             <h2 id="review-queue" class="font-semibold">Review queue</h2>
           </div>
