@@ -27,7 +27,7 @@ import { Select } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { Tag } from 'primeng/tag';
 import { Ai, AiAvailability } from '../../core/ai';
-import { Catalog, CatalogEdit, CatalogRule, Catalogs } from '../../core/catalogs';
+import { Catalog, CatalogRule, Catalogs } from '../../core/catalogs';
 import {
   FEWEST_TARGETS,
   GlobalRule,
@@ -38,6 +38,7 @@ import {
 } from '../../core/global-rules';
 import { ReadFailed } from '../../shared/read-state';
 import { reasonOf } from '../../shared/reason-of';
+import { Editing } from './editing';
 import { ruleSentence } from './rule-words';
 
 /**
@@ -216,7 +217,7 @@ function rowOf(
 
     <p-dialog
       closeAriaLabel="Close"
-      [header]="editing() ? 'Edit rule' : 'Add rule'"
+      [header]="editingRule() ? 'Edit rule' : 'Add rule'"
       [modal]="true"
       [style]="{ width: '36rem' }"
       [(visible)]="dialogOpen"
@@ -225,7 +226,7 @@ function rowOf(
         @if (refusal()) {
           <p-message severity="error">{{ refusal() }}</p-message>
         }
-        @if (!editing()) {
+        @if (!editingRule()) {
           <div class="grid gap-1">
             <label for="catalog-rule-sentence">Describe the rule</label>
             <div class="flex gap-2">
@@ -271,7 +272,7 @@ function rowOf(
             appendTo="body"
             [options]="kinds"
           />
-          @if (editing()) {
+          @if (editingRule()) {
             <p class="text-sm text-muted-color">
               A rule's kind cannot be changed. Delete the rule and add another.
             </p>
@@ -399,20 +400,15 @@ function rowOf(
 })
 export class RulesTab {
   private readonly catalogs = inject(Catalogs);
+  private readonly editing = inject(Editing);
   private readonly aiService = inject(Ai);
   private readonly globalRules = inject(GlobalRules);
 
   /** The catalog whose rules are shown. */
   readonly catalog = input.required<Catalog>();
 
-  /**
-   * Sends an edit behind the saves on their way and reads the catalog again once it is saved. It
-   * fails with the backend's refusal when the edit is not saved.
-   */
-  readonly run = input.required<(edit: CatalogEdit) => Promise<void>>();
-
   /** Whether the catalog can be edited. The tab is read-only, and its dialogs close, when not. */
-  readonly editable = input.required<boolean>();
+  protected readonly editable = this.editing.editable;
 
   /**
    * The key of a rule of the catalog to bring into view, as an issue names it, or null. Its row is
@@ -478,7 +474,7 @@ export class RulesTab {
   protected readonly dialogOpen = signal(false);
 
   /** The rule the dialog is changing, or null while it adds one. */
-  protected readonly editing = signal<CatalogRule | null>(null);
+  protected readonly editingRule = signal<CatalogRule | null>(null);
 
   /** Why the backend refused the last save, shown in the dialog. */
   protected readonly refusal = signal('');
@@ -535,7 +531,7 @@ export class RulesTab {
    * rules of a pair mirror each other.
    */
   protected readonly mostTargets = computed(() =>
-    this.editing() && this.chosen().kind === 'EXCLUDES' ? 1 : MOST_TARGETS,
+    this.editingRule() && this.chosen().kind === 'EXCLUDES' ? 1 : MOST_TARGETS,
   );
 
   protected readonly targetsNeeded = computed(() => {
@@ -676,7 +672,7 @@ export class RulesTab {
     this.form.controls.kind.disable();
   }
 
-  /** Saves the rule and closes, or stays open with the refusal. */
+  /** Saves the rule and closes, or stays open with the refusal when the backend refuses it. */
   protected async save(): Promise<void> {
     const { sourceFeatureId, allTrims, trimIds, allRegions, regionCodes, ...rest } =
       this.form.getRawValue();
@@ -692,19 +688,21 @@ export class RulesTab {
       regionCodes: allRegions ? [] : regionCodes,
     };
     const id = this.catalog().snapshot.catalogId;
-    const rule = this.editing();
+    const rule = this.editingRule();
 
     this.refusal.set('');
     this.saving.set(true);
     try {
-      await this.run()((revision) =>
+      const outcome = await this.editing.restructure((revision) =>
         rule
           ? this.catalogs.changeRule(id, revision, rule.key, content)
           : this.catalogs.addRule(id, revision, content),
       );
-      this.dialogOpen.set(false);
-    } catch (error) {
-      this.refusal.set(reasonOf(error));
+      if (outcome.kind === 'refused') {
+        this.refusal.set(outcome.reason);
+      } else {
+        this.dialogOpen.set(false);
+      }
     } finally {
       this.saving.set(false);
     }
@@ -722,19 +720,21 @@ export class RulesTab {
     }
     this.deletingNow.set(true);
     try {
-      await this.run()((revision) =>
+      const outcome = await this.editing.restructure((revision) =>
         this.catalogs.deleteRule(this.catalog().snapshot.catalogId, revision, row.id),
       );
-      this.deleting.set(null);
-    } catch (error) {
-      this.deletionRefusal.set(reasonOf(error));
+      if (outcome.kind === 'refused') {
+        this.deletionRefusal.set(outcome.reason);
+      } else {
+        this.deleting.set(null);
+      }
     } finally {
       this.deletingNow.set(false);
     }
   }
 
   private open(rule: CatalogRule | null): void {
-    this.editing.set(rule);
+    this.editingRule.set(rule);
     this.refusal.set('');
     this.dialogOpen.set(true);
   }

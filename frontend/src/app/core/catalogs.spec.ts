@@ -17,80 +17,19 @@ describe('Catalogs', () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it('saves cells as an edit of a revision and answers with the revision that led to', async () => {
+  it('saves cells as an edit of a revision and answers with what the backend answered', async () => {
     const saved = catalogs.setCells(41, 4, [manualAvailable]);
 
     const request = backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/cells' });
     expect(request.request.headers.get('If-Match')).toBe('"4"');
     expect(request.request.body).toEqual([manualAvailable]);
-    request.flush({ revision: 5 });
+    request.flush({ revision: 5, issues: [], stale: true });
 
-    await expect(saved).resolves.toBe(5);
-  });
-
-  const noTrims = {
-    code: 'NO_TRIMS',
-    severity: 'ERROR',
-    trimId: null,
-    regionCode: null,
-    featureId: null,
-    relatedFeatureIds: [],
-    rule: null,
-    message: 'The catalog has no trims.',
-  } as const;
-
-  it('keeps the issues a catalog is read with, and then the ones each edit answers with', async () => {
-    expect(catalogs.issuesOf(41)).toEqual([]);
-
-    const read = catalogs.find(41);
-    backend.expectOne('/api/catalogs/41').flush({ snapshot: { revision: 4 }, issues: [noTrims] });
-    await read;
-    expect(catalogs.issuesOf(41)).toEqual([noTrims]);
-
-    const saved = catalogs.addTrims(41, 4, [1]);
-    backend
-      .expectOne({ method: 'POST', url: '/api/catalogs/41/trims' })
-      .flush({ revision: 5, issues: [] });
-    await saved;
-    expect(catalogs.issuesOf(41)).toEqual([]);
-    expect(catalogs.issuesOf(42)).toEqual([]);
-  });
-
-  it('does not let an answer that arrives late put older issues back', async () => {
-    const earlier = catalogs.setCells(41, 4, [manualAvailable]);
-    const later = catalogs.setCells(41, 5, [manualAvailable]);
-    const [slow, quick] = backend.match({ method: 'PUT', url: '/api/catalogs/41/cells' });
-
-    quick.flush({ revision: 6, issues: [] });
-    await later;
-    slow.flush({ revision: 5, issues: [noTrims] });
-    await earlier;
-
-    expect(catalogs.issuesOf(41)).toEqual([]);
-  });
-
-  it('knows whether a catalog is stale from the latest answer about it', async () => {
-    expect(catalogs.staleOf(41)).toBe(false);
-
-    const saved = catalogs.setCells(41, 4, [manualAvailable]);
-    backend
-      .expectOne({ method: 'PUT', url: '/api/catalogs/41/cells' })
-      .flush({ revision: 5, issues: [], stale: true });
-    await saved;
-
-    expect(catalogs.staleOf(41)).toBe(true);
-  });
-
-  it('takes a catalog to have no issues when the backend names none', async () => {
-    const saved = catalogs.setCells(41, 4, [manualAvailable]);
-    backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/cells' }).flush({ revision: 5 });
-    await saved;
-
-    expect(catalogs.issuesOf(41)).toEqual([]);
+    await expect(saved).resolves.toEqual({ revision: 5, issues: [], stale: true });
   });
 
   it('sends each edit of trims, regions, and offerings as one made from a revision', async () => {
-    const edits: [Promise<number>, string, string, unknown][] = [
+    const edits: [Promise<unknown>, string, string, unknown][] = [
       [catalogs.addTrims(41, 4, [1, 2]), 'POST', '/api/catalogs/41/trims', { trimIds: [1, 2] }],
       [
         catalogs.addRegions(41, 4, ['EU']),
@@ -110,8 +49,8 @@ describe('Catalogs', () => {
       const request = backend.expectOne({ method, url });
       expect(request.request.headers.get('If-Match')).toBe('"4"');
       expect(request.request.body).toEqual(body);
-      request.flush({ revision: 5 });
-      await expect(saved).resolves.toBe(5);
+      request.flush({ revision: 5, issues: [] });
+      await expect(saved).resolves.toEqual({ revision: 5, issues: [] });
     }
   });
 
@@ -129,6 +68,7 @@ describe('Catalogs', () => {
       request.flush({ revision: 5, issues: [], rulesDeleted: ['Tow Package requires Cooling'] });
       await expect(removed).resolves.toEqual({
         revision: 5,
+        issues: [],
         rulesDeleted: ['Tow Package requires Cooling'],
       });
     }
@@ -138,7 +78,7 @@ describe('Catalogs', () => {
     backend
       .expectOne({ method: 'DELETE', url: '/api/catalogs/41/trims/2' })
       .flush({ revision: 5, issues: [] });
-    await expect(removed).resolves.toEqual({ revision: 5, rulesDeleted: [] });
+    await expect(removed).resolves.toEqual({ revision: 5, issues: [], rulesDeleted: [] });
   });
 
   it('gives up a save that has gone unanswered for too long, and takes it back', async () => {

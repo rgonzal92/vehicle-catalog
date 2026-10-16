@@ -215,17 +215,6 @@ describe('CatalogEditorPage', () => {
     );
   });
 
-  it("shows the matrix read-only unless the catalog is the person's and in status Draft", async () => {
-    const matrix = async (catalog: object) =>
-      (await page(catalog)).querySelector('app-availability-matrix')?.textContent;
-
-    expect(await matrix({ ...workingCopy, owned: false })).toContain('editable: false');
-    TestBed.resetTestingModule();
-    expect(
-      await matrix({ ...workingCopy, snapshot: { ...workingCopy.snapshot, status: 'APPROVED' } }),
-    ).toContain('editable: false');
-  });
-
   it('saves a cell as soon as it is set, as an edit of the revision it has read', async () => {
     const element = await page(workingCopy);
 
@@ -250,25 +239,18 @@ describe('CatalogEditorPage', () => {
     expect(shown).not.toHaveBeenCalled();
   });
 
-  it('says there are no new changes when a save changed nothing', async () => {
+  it('tells the matrix a cell is saved when the save changed nothing', async () => {
     const element = await page(workingCopy);
-    const shown = vi.spyOn(TestBed.inject(MessageService), 'add');
 
     matrixOf(element).click();
     // The backend answers with the revision the save was made from: the cell was already so.
     (await saveRequest()).flush({ revision: 4 });
 
-    await vi.waitFor(() =>
-      expect(shown).toHaveBeenCalledWith(
-        expect.objectContaining({ severity: 'info', summary: 'No new changes' }),
-      ),
-    );
-    expect(told).toEqual([['saved', manualAvailable]]);
+    await vi.waitFor(() => expect(told).toEqual([['saved', manualAvailable]]));
     expect(element.querySelector('[role="alert"]')).toBeNull();
-    expect(matrixOf(element).textContent).toContain('editable: true');
   });
 
-  it('gives the reason a save was turned down, puts the cell back, and goes on editing', async () => {
+  it('gives the reason a save was turned down, and puts the cell back', async () => {
     const element = await page(workingCopy);
     const shown = vi.spyOn(TestBed.inject(MessageService), 'add');
 
@@ -282,15 +264,9 @@ describe('CatalogEditorPage', () => {
       expect.objectContaining({ summary: 'Not saved', detail: NOT_THE_CATALOGS }),
     );
     expect(element.querySelector('[role="alert"]')).toBeNull();
-    expect(matrixOf(element).textContent).toContain('editable: true');
-
-    matrixOf(element).click();
-    const next = await saveRequest();
-    expect(next.request.headers.get('If-Match')).toBe('"4"');
-    next.flush({ revision: 5 });
   });
 
-  it('stops after a revision conflict until the catalog is reloaded', async () => {
+  it('marks the changes a revision conflict stopped, and asks for a reload', async () => {
     const element = await page(workingCopy);
     const matrix = matrixOf(element);
 
@@ -305,29 +281,22 @@ describe('CatalogEditorPage', () => {
         ['not saved', manualAvailable, 'Not sent, because an earlier change was not saved.'],
       ]),
     );
-    backend.expectNone({ method: 'PUT', url: '/api/catalogs/41/cells' });
     await vi.waitFor(() =>
       expect(element.querySelector('[role="alert"]')?.textContent).toContain(
         'This catalog was changed somewhere else after you opened it',
       ),
     );
-    expect(matrix.textContent).toContain('editable: false');
 
-    // Reloading reads the catalog again, and editing goes on from the revision read.
+    // Reloading reads the catalog again, and the banner goes.
     button(element, 'Reload')?.click();
     backend.expectOne('/api/catalogs/41').flush({
       ...workingCopy,
       snapshot: { ...workingCopy.snapshot, revision: 9 },
     });
     await vi.waitFor(() => expect(element.querySelector('[role="alert"]')).toBeNull());
-    expect(matrixOf(element).textContent).toContain('editable: true');
-    matrixOf(element).click();
-    const next = await saveRequest();
-    expect(next.request.headers.get('If-Match')).toBe('"9"');
-    next.flush({ revision: 10 });
   });
 
-  it('stops without trying again when no answer says whether a change was saved', async () => {
+  it('says when no answer says whether a change was saved, and asks for a reload', async () => {
     const element = await page(workingCopy);
 
     matrixOf(element).click();
@@ -341,8 +310,6 @@ describe('CatalogEditorPage', () => {
     expect(told).toEqual([
       ['not saved', manualAvailable, 'No answer says whether this change was saved.'],
     ]);
-    expect(matrixOf(element).textContent).toContain('editable: false');
-    backend.expectNone({ method: 'PUT', url: '/api/catalogs/41/cells' });
     expect(button(element, 'Reload')).toBeDefined();
   });
 
@@ -360,8 +327,7 @@ describe('CatalogEditorPage', () => {
 
     const reread = () => vi.waitFor(() => backend.expectOne('/api/catalogs/41'));
 
-    it('reloads it at once, read-only, and gives the reason', async () => {
-      const shown = vi.spyOn(MessageService.prototype, 'add');
+    it('shows it as it is now, with no banner', async () => {
       const element = await editClosed();
 
       (await reread()).flush({
@@ -370,8 +336,6 @@ describe('CatalogEditorPage', () => {
       });
 
       await vi.waitFor(() => expect(described(element).Status).toBe('Submitted'));
-      expect(matrixOf(element).textContent).toContain('editable: false');
-      expect(shown).toHaveBeenCalledWith(expect.objectContaining({ detail: NOT_DRAFT }));
       expect(element.querySelector('[role="alert"]')).toBeNull();
     });
 
@@ -385,7 +349,6 @@ describe('CatalogEditorPage', () => {
           'This catalog can no longer be edited.',
         ),
       );
-      expect(matrixOf(element).textContent).toContain('editable: false');
       button(element, 'Reload')?.click();
       (await reread()).flush({
         ...workingCopy,
@@ -487,27 +450,22 @@ describe('CatalogEditorPage', () => {
       expect(button(element, 'Rename')).toBeUndefined();
     });
 
-    it('saves the new name as an edit of the revision read, and shows it', async () => {
+    it('saves the new name without the spaces around it, and shows it', async () => {
       const element = await page(workingCopy);
 
       await renameTo(element, '  Spring update ');
 
       const request = await renameRequest();
-      expect(request.request.headers.get('If-Match')).toBe('"4"');
       expect(request.request.body).toEqual({ name: 'Spring update' });
       request.flush({ revision: 5 });
       await vi.waitFor(() =>
         expect(element.querySelector('h2')?.textContent).toBe('Spring update'),
       );
-      // The matrix is left as it is, and the next edit is one of the new revision.
-      expect(matrixOf(element).textContent).toContain('editable: true');
-      matrixOf(element).click();
-      const next = await saveRequest();
-      expect(next.request.headers.get('If-Match')).toBe('"5"');
-      next.flush({ revision: 6 });
+      // The catalog is not read again.
+      backend.expectNone('/api/catalogs/41');
     });
 
-    it('keeps the box open with the reason when the name is taken, and editing goes on', async () => {
+    it('keeps the box open with the reason when the name is taken', async () => {
       const element = await page(workingCopy);
 
       await renameTo(element, 'Coupe');
@@ -522,7 +480,6 @@ describe('CatalogEditorPage', () => {
       );
       expect(element.querySelector('#catalog-name')).not.toBeNull();
       expect(element.querySelector('[role="alert"] button')).toBeNull();
-      expect(matrixOf(element).textContent).toContain('editable: true');
 
       button(element, 'Cancel')!.click();
       await vi.waitFor(() =>
@@ -532,18 +489,14 @@ describe('CatalogEditorPage', () => {
       await vi.waitFor(() => expect(document.activeElement).toBe(button(element, 'Rename')));
     });
 
-    it('saves once, however often Enter is pressed, and says so when the name is the one it has', async () => {
+    it('saves once, however often Enter is pressed', async () => {
       const element = await page(workingCopy);
-      const shown = vi.spyOn(TestBed.inject(MessageService), 'add');
 
       await renameTo(element, 'Winter update');
       button(element, 'Save')!.click();
 
       // The backend answers with the revision the rename was made from: nothing changed.
       (await renameRequest()).flush({ revision: 4 });
-      await vi.waitFor(() =>
-        expect(shown).toHaveBeenCalledWith(expect.objectContaining({ summary: 'No new changes' })),
-      );
       backend.expectNone({ method: 'PATCH', url: '/api/catalogs/41' });
       await vi.waitFor(() =>
         expect(element.querySelector('h2')?.textContent).toBe('Winter update'),
@@ -770,7 +723,6 @@ describe('CatalogEditorPage', () => {
       await vi.waitFor(() => expect(dialog()).toBeNull());
       await vi.waitFor(() => expect(described(element)['Status']).toBe('Submitted'));
       expect(described(element)['Note for the reviewer']).toBe('Ready for review.');
-      expect(matrixOf(element).textContent).toContain('editable: false');
       expect(button(element, 'Submit for review')).toBeUndefined();
       expect(button(element, 'Withdraw')).toBeDefined();
     });
@@ -811,12 +763,10 @@ describe('CatalogEditorPage', () => {
       );
 
       await vi.waitFor(() => expect(dialog()?.textContent).toContain('This catalog has Errors.'));
-      expect(matrixOf(element).textContent).toContain('editable: true');
     });
 
     it('withdraws a Submitted catalog and reads it again as the Draft it then is', async () => {
       const element = await page({ ...submitted, issues: [] });
-      expect(matrixOf(element).textContent).toContain('editable: false');
 
       button(element, 'Withdraw')!.click();
 
@@ -831,7 +781,7 @@ describe('CatalogEditorPage', () => {
         snapshot: { ...workingCopy.snapshot, revision: 6 },
       });
       await vi.waitFor(() => expect(described(element)['Status']).toBe('Draft'));
-      expect(matrixOf(element).textContent).toContain('editable: true');
+      expect(button(element, 'Submit for review')).toBeDefined();
     });
 
     it('offers neither to someone who does not own the catalog', async () => {
@@ -1035,7 +985,9 @@ describe('CatalogEditorPage', () => {
       });
 
       await vi.waitFor(() => expect(dialog()).toBeNull());
-      expect(matrixOf(element).textContent).toContain('PACKAGE_TOW of 1 feature rows');
+      await vi.waitFor(() =>
+        expect(matrixOf(element).textContent).toContain('PACKAGE_TOW of 1 feature rows'),
+      );
     });
   });
 
@@ -1076,23 +1028,7 @@ describe('CatalogEditorPage', () => {
       expect(button(element, 'Manage trims and regions')).toBeUndefined();
     });
 
-    it('waits for the changes on their way before it opens', async () => {
-      const element = await page(workingCopy);
-      matrixOf(element).click();
-      const save = await saveRequest();
-
-      button(element, 'Manage trims and regions')!.click();
-      await new Promise((resolve) => setTimeout(resolve));
-      backend.expectNone('/api/catalogs/41');
-      expect(dialog()).toBeNull();
-
-      save.flush({ revision: 5 });
-      (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush(workingCopy);
-      (await vi.waitFor(() => backend.expectOne('/api/trims'))).flush([]);
-      backend.expectOne('/api/regions').flush([]);
-    });
-
-    it('sends a change as an edit of the revision read and reads the catalog again', async () => {
+    it('sends a change and reads the catalog again, keeping hidden what the person hid', async () => {
       const element = await manage();
       const europe = Array.from(element.querySelectorAll('fieldset label'))
         .find((label) => label.textContent?.trim() === 'Europe')!
@@ -1106,7 +1042,6 @@ describe('CatalogEditorPage', () => {
       const change = await vi.waitFor(() =>
         backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/trims/1/regions' }),
       );
-      expect(change.request.headers.get('If-Match')).toBe('"6"');
       expect(change.request.body).toEqual({ regionCodes: ['NA', 'EU'] });
       change.flush({ revision: 7 });
       (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush({
@@ -1130,18 +1065,22 @@ describe('CatalogEditorPage', () => {
       expect(matrixOf(element).textContent).toContain('hidden: EU');
     });
 
-    it('takes no cell change while it reads the catalog again before opening', async () => {
+    it('offers neither button while it reads the catalog again before opening', async () => {
       const element = await page(workingCopy);
 
       button(element, 'Manage trims and regions')!.click();
       const reread = await vi.waitFor(() => backend.expectOne('/api/catalogs/41'));
-      await vi.waitFor(() => expect(matrixOf(element).textContent).toContain('editable: false'));
-      expect(button(element, 'Manage trims and regions')!.disabled).toBe(true);
+      await vi.waitFor(() =>
+        expect(button(element, 'Manage trims and regions')!.disabled).toBe(true),
+      );
+      expect(button(element, 'Add features')!.disabled).toBe(true);
 
       reread.flush(workingCopy);
       (await vi.waitFor(() => backend.expectOne('/api/trims'))).flush([]);
       backend.expectOne('/api/regions').flush([]);
-      await vi.waitFor(() => expect(matrixOf(element).textContent).toContain('editable: true'));
+      await vi.waitFor(() =>
+        expect(button(element, 'Manage trims and regions')!.disabled).toBe(false),
+      );
     });
 
     it('stays shut when the catalog cannot be read again', async () => {
@@ -1153,7 +1092,9 @@ describe('CatalogEditorPage', () => {
         statusText: 'Unavailable',
       });
 
-      await vi.waitFor(() => expect(matrixOf(element).textContent).toContain('editable: true'));
+      await vi.waitFor(() =>
+        expect(button(element, 'Manage trims and regions')!.disabled).toBe(false),
+      );
       backend.expectNone('/api/trims');
       expect(dialog()).toBeNull();
     });
@@ -1178,12 +1119,10 @@ describe('CatalogEditorPage', () => {
       expect(element.querySelector('[role="alert"]')?.textContent).toContain(
         'Your change was saved, but the catalog could not be read again.',
       );
-      expect(matrixOf(element).textContent).toContain('editable: false');
 
       button(element, 'Reload')!.click();
       (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush(workingCopy);
       await vi.waitFor(() => expect(element.querySelector('[role="alert"]')).toBeNull());
-      expect(matrixOf(element).textContent).toContain('editable: true');
     });
 
     it('closes and reloads the catalog when it is no longer in status Draft', async () => {

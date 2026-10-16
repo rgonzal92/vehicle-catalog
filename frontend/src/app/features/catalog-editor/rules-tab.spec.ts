@@ -3,7 +3,8 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { MessageService } from 'primeng/api';
-import { Catalog, CatalogEdit, CatalogRule } from '../../core/catalogs';
+import { Catalog, CatalogRule } from '../../core/catalogs';
+import { Editing } from './editing';
 import { RulesTab } from './rules-tab';
 
 const tow = { id: 5, code: 'PACKAGE_TOW', name: 'Tow Package', kind: 'PACKAGE' };
@@ -40,11 +41,18 @@ const mirrored: CatalogRule = {
   targetFeatureIds: [8],
 };
 
-/** A working copy with four feature rows, two trims, two regions, and the rules given. */
+/**
+ * A working copy, read at revision 4, with four feature rows, two trims, two regions, and the
+ * rules given.
+ */
 const catalogWith = (...rules: CatalogRule[]) =>
   ({
+    owned: true,
+    issues: [],
     snapshot: {
       catalogId: 41,
+      status: 'DRAFT',
+      revision: 4,
       trims: [
         { id: 1, name: 'Base', sortOrder: 1 },
         { id: 2, name: 'Sport', sortOrder: 2 },
@@ -82,31 +90,17 @@ const globalRules = [
 
 @Component({
   imports: [RulesTab],
-  template: `<app-rules-tab
-    [catalog]="catalog()"
-    [run]="run"
-    [editable]="editable()"
-    [shown]="shown()"
-  />`,
+  template: `<app-rules-tab [catalog]="catalog()" [shown]="shown()" />`,
 })
 class Host {
   readonly catalog = signal(catalogWith(requires, excludes, mirrored));
-  readonly editable = signal(true);
   readonly shown = signal<string | null>(null);
-
-  /** The edits the tab asked to be sent. Each is sent as an edit of revision 4. */
-  readonly sent: Promise<number>[] = [];
-
-  readonly run = async (edit: CatalogEdit): Promise<void> => {
-    const sending = edit(4);
-    this.sent.push(sending);
-    await sending;
-  };
 }
 
 describe('RulesTab', () => {
   let backend: HttpTestingController;
   let host: Host;
+  let editing: Editing;
 
   const rows = (element: HTMLElement) =>
     Array.from(element.querySelectorAll('tbody tr')).map((row) =>
@@ -121,12 +115,28 @@ describe('RulesTab', () => {
         candidate.textContent?.trim() === label || candidate.getAttribute('aria-label') === label,
     )!;
 
-  /** Shows the tab and answers its reading of the global rules. */
-  async function tab(listed: object[] | number = globalRules): Promise<HTMLElement> {
+  /** Waits for the catalog to be read again after a change of its rules, and answers with it. */
+  const readAgain = async () =>
+    (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush(
+      catalogWith(requires, excludes, mirrored),
+    );
+
+  /**
+   * Opens the working copy for editing as it is read, shows the tab, and answers its reading of
+   * the global rules.
+   */
+  async function tab(
+    listed: object[] | number = globalRules,
+    asRead: object = catalogWith(requires, excludes, mirrored),
+  ): Promise<HTMLElement> {
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting(), MessageService],
+      providers: [provideHttpClient(), provideHttpClientTesting(), MessageService, Editing],
     });
     backend = TestBed.inject(HttpTestingController);
+    editing = TestBed.inject(Editing);
+    const opened = editing.open(41);
+    backend.expectOne('/api/catalogs/41').flush(asRead);
+    await opened;
     const fixture = TestBed.createComponent(Host);
     host = fixture.componentInstance;
     fixture.detectChanges();
@@ -210,11 +220,12 @@ describe('RulesTab', () => {
   });
 
   it('is read-only when the catalog cannot be edited', async () => {
-    const element = await tab();
+    const element = await tab(globalRules, {
+      ...catalogWith(requires, excludes, mirrored),
+      owned: false,
+    });
 
-    host.editable.set(false);
-
-    await vi.waitFor(() => expect(button(element, 'Add rule')).toBe(undefined));
+    expect(button(element, 'Add rule')).toBe(undefined);
     expect(rows(element).map((row) => row.at(-1))).toEqual(['', '', '', '']);
   });
 
@@ -274,7 +285,7 @@ describe('RulesTab', () => {
         'The form holds the suggested rule. Check it, then save it.',
       ),
     );
-    expect(host.sent).toHaveLength(0);
+    backend.expectNone({ method: 'POST', url: '/api/catalogs/41/rules' });
     await vi.waitFor(() => expect(button(open, 'Save').disabled).toBe(false));
 
     button(open, 'Save').click();
@@ -291,7 +302,8 @@ describe('RulesTab', () => {
       regionCodes: [],
     });
     saved.flush({ revision: 5, issues: [] }, { headers: { ETag: '"5"' } });
-    await vi.waitFor(() => expect(host.sent).toHaveLength(1));
+    await readAgain();
+    await vi.waitFor(() => expect(dialog()).toBeNull());
   });
 
   it('leaves the form as it was and says why when no rule is suggested', async () => {
@@ -394,8 +406,8 @@ describe('RulesTab', () => {
       regionCodes: ['NA', 'EU'],
     });
     saved.flush({ revision: 5, issues: [] });
+    await readAgain();
     await vi.waitFor(() => expect(dialog()).toBeNull());
-    expect(await host.sent[0]).toBe(5);
   });
 
   it('keeps the dialog open with the reason when the backend refuses a rule', async () => {
@@ -419,6 +431,28 @@ describe('RulesTab', () => {
     );
 
     await vi.waitFor(() => expect(dialog()?.textContent).toContain('This rule already exists.'));
+  });
+
+  it('closes the dialog after a revision conflict, which stops the editor, and shows no refusal', async () => {
+    const element = await tab();
+    button(element, 'Edit the rule: Panoramic Roof excludes Leather Seats').click();
+    await vi.waitFor(() => expect(button(dialog()!, 'Save').disabled).toBe(false));
+
+    button(dialog()!, 'Save').click();
+    (
+      await vi.waitFor(() =>
+        backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/rules/excludes' }),
+      )
+    ).flush(
+      { code: 'REVISION_CONFLICT', detail: 'Changed somewhere else.' },
+      { status: 412, statusText: 'Precondition Failed' },
+    );
+
+    await vi.waitFor(() => expect(dialog()).toBeNull());
+    expect(editing.stopped()).toBe('conflict');
+    expect(document.body.textContent).not.toContain('Changed somewhere else.');
+    // The tab is read-only until the catalog is read again.
+    expect(button(element, 'Add rule')).toBe(undefined);
   });
 
   it('marks a paired rule, and highlights both rules of its pair when it is chosen', async () => {
@@ -477,6 +511,7 @@ describe('RulesTab', () => {
     );
     expect(deleted.request.headers.get('If-Match')).toBe('"4"');
     deleted.flush({ revision: 5, issues: [] });
+    await readAgain();
     await vi.waitFor(() => expect(dialog()).toBeNull());
   });
 });

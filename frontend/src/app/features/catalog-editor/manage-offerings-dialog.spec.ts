@@ -1,9 +1,10 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { Component, signal, viewChild } from '@angular/core';
+import { Component, viewChild } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MessageService } from 'primeng/api';
-import { Catalog, CatalogEdit } from '../../core/catalogs';
+import { Catalog } from '../../core/catalogs';
+import { Editing } from './editing';
 import { ManageOfferingsDialog } from './manage-offerings-dialog';
 
 const rule = {
@@ -18,12 +19,17 @@ const rule = {
 };
 
 /**
- * Base and Sport in North America and Europe; Sport is not sold in Europe. Three cells in all. Of
- * its rules, one covers Sport alone, one covers both trims, and a pair covers Europe alone.
+ * A working copy read at revision 4: Base and Sport in North America and Europe; Sport is not sold
+ * in Europe. Three cells in all. Of its rules, one covers Sport alone, one covers both trims, and a
+ * pair covers Europe alone.
  */
 const catalog = {
+  owned: true,
+  issues: [],
   snapshot: {
     catalogId: 41,
+    status: 'DRAFT',
+    revision: 4,
     featureRows: [
       { id: 7, name: 'Panoramic Roof' },
       { id: 8, name: 'Leather Seats' },
@@ -73,32 +79,17 @@ const catalog = {
 
 @Component({
   imports: [ManageOfferingsDialog],
-  template: `<app-manage-offerings-dialog
-    [catalog]="catalog"
-    [run]="run"
-    [editable]="editable()"
-  />`,
+  template: `<app-manage-offerings-dialog [catalog]="catalog" />`,
 })
 class Host {
   readonly dialog = viewChild.required(ManageOfferingsDialog);
   readonly catalog = catalog;
-  readonly editable = signal(true);
-
-  /** The edits the dialog asked to be sent. Each is sent as an edit of revision 4. */
-  readonly sent: Promise<number>[] = [];
-  refusal: unknown = null;
-
-  readonly run = async (edit: CatalogEdit): Promise<void> => {
-    this.sent.push(edit(4));
-    if (this.refusal) {
-      throw this.refusal;
-    }
-  };
 }
 
 describe('ManageOfferingsDialog', () => {
   let backend: HttpTestingController;
   let fixture: ComponentFixture<Host>;
+  let editing: Editing;
 
   const libraryTrims = [
     { id: 1, name: 'Base', sortOrder: 1, active: true },
@@ -126,6 +117,10 @@ describe('ManageOfferingsDialog', () => {
 
   const question = () => dialog().querySelector('[data-question]')?.textContent?.trim();
 
+  /** Waits for the catalog to be read again after a change, and answers with it. */
+  const readAgain = async () =>
+    (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush(catalog);
+
   /**
    * The options in the list that a dropdown has open. A list that has been chosen from stays on the
    * page for a moment, so the options are read from the dropdown's own list and nowhere else.
@@ -141,9 +136,13 @@ describe('ManageOfferingsDialog', () => {
     // A dropdown asks how wide the screen is before it opens, which the test page cannot say.
     vi.stubGlobal('matchMedia', () => ({ matches: false }));
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting(), MessageService],
+      providers: [provideHttpClient(), provideHttpClientTesting(), MessageService, Editing],
     });
     backend = TestBed.inject(HttpTestingController);
+    editing = TestBed.inject(Editing);
+    const opened = editing.open(41);
+    backend.expectOne('/api/catalogs/41').flush(catalog);
+    await opened;
     fixture = TestBed.createComponent(Host);
     fixture.detectChanges();
 
@@ -181,7 +180,8 @@ describe('ManageOfferingsDialog', () => {
     );
     expect(request.request.headers.get('If-Match')).toBe('"4"');
     expect(request.request.body).toEqual({ regionCodes: ['NA', 'EU'] });
-    request.flush({ revision: 5 });
+    request.flush({ revision: 5, issues: [] });
+    await readAgain();
     expect(question()).toBeUndefined();
   });
 
@@ -202,7 +202,7 @@ describe('ManageOfferingsDialog', () => {
     await vi.waitFor(() => expect(question()).toBeUndefined());
     expect(box('Base is sold in Europe').checked).toBe(true);
     await vi.waitFor(() => expect(document.activeElement).toBe(box('Base is sold in Europe')));
-    expect(fixture.componentInstance.sent).toEqual([]);
+    backend.expectNone((request) => request.method !== 'GET');
 
     box('Base is sold in Europe').click();
     await vi.waitFor(() => expect(question()).toBeDefined());
@@ -211,7 +211,8 @@ describe('ManageOfferingsDialog', () => {
       backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/trims/1/regions' }),
     );
     expect(request.request.body).toEqual({ regionCodes: ['NA'] });
-    request.flush({ revision: 5 });
+    request.flush({ revision: 5, issues: [] });
+    await readAgain();
   });
 
   it('says what goes with a trim or a region before it removes it', async () => {
@@ -233,7 +234,8 @@ describe('ManageOfferingsDialog', () => {
       await vi.waitFor(() =>
         backend.expectOne({ method: 'DELETE', url: '/api/catalogs/41/trims/2' }),
       )
-    ).flush({ revision: 5 });
+    ).flush({ revision: 5, issues: [] });
+    await readAgain();
 
     await vi.waitFor(() => expect(button('Remove Europe').disabled).toBe(false));
     button('Remove Europe').click();
@@ -247,7 +249,8 @@ describe('ManageOfferingsDialog', () => {
       await vi.waitFor(() =>
         backend.expectOne({ method: 'DELETE', url: '/api/catalogs/41/regions/EU' }),
       )
-    ).flush({ revision: 6 });
+    ).flush({ revision: 6, issues: [] });
+    await readAgain();
   });
 
   it('names the rules that go with a trim or a region, and says which were deleted', async () => {
@@ -296,7 +299,7 @@ describe('ManageOfferingsDialog', () => {
         detail: 'Panoramic Roof requires Leather Seats (on Sport).',
       }),
     );
-    expect(await fixture.componentInstance.sent[0]).toBe(5);
+    await readAgain();
   });
 
   it('offers only active library entries the catalog does not have, and adds the one chosen', async () => {
@@ -313,7 +316,10 @@ describe('ManageOfferingsDialog', () => {
       backend.expectOne({ method: 'POST', url: '/api/catalogs/41/trims' }),
     );
     expect(request.request.body).toEqual({ trimIds: [3] });
-    request.flush({ revision: 5 });
+    request.flush({ revision: 5, issues: [] });
+    await readAgain();
+    // The dialog takes the next change once the catalog has been read again.
+    await vi.waitFor(() => expect(button('Remove Base').disabled).toBe(false));
 
     dialog().querySelector<HTMLElement>('p-select[inputid="add-region"]')!.click();
     const regions = await vi.waitFor(() => {
@@ -326,24 +332,39 @@ describe('ManageOfferingsDialog', () => {
       backend.expectOne({ method: 'POST', url: '/api/catalogs/41/regions' }),
     );
     expect(second.request.body).toEqual({ regionCodes: ['ASIA'] });
-    second.flush({ revision: 6 });
+    second.flush({ revision: 6, issues: [] });
+    await readAgain();
   });
 
-  it('gives the reason when the backend refuses a change', async () => {
-    fixture.componentInstance.refusal = Object.assign(new Error(), {});
+  it('gives the reason when the backend refuses a change, and stays open', async () => {
     box('Sport is sold in Europe').click();
     (
       await vi.waitFor(() =>
         backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/trims/2/regions' }),
       )
-    ).flush({ revision: 5 });
+    ).flush(
+      { code: 'VALIDATION', detail: 'Sport cannot be sold in Europe.' },
+      { status: 422, statusText: 'Unprocessable' },
+    );
 
-    await vi.waitFor(() => expect(dialog().textContent).toContain('The request was refused.'));
+    await vi.waitFor(() =>
+      expect(dialog().textContent).toContain('Sport cannot be sold in Europe.'),
+    );
   });
 
-  it('closes when the catalog can no longer be edited', async () => {
-    fixture.componentInstance.editable.set(false);
+  it('closes after a revision conflict, which stops the editor, and shows no refusal', async () => {
+    box('Sport is sold in Europe').click();
+    (
+      await vi.waitFor(() =>
+        backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/trims/2/regions' }),
+      )
+    ).flush(
+      { code: 'REVISION_CONFLICT', detail: 'Changed somewhere else.' },
+      { status: 412, statusText: 'Precondition Failed' },
+    );
 
     await vi.waitFor(() => expect(document.querySelector('.p-dialog')).toBeNull());
+    expect(editing.stopped()).toBe('conflict');
+    expect(document.body.textContent).not.toContain('Changed somewhere else.');
   });
 });

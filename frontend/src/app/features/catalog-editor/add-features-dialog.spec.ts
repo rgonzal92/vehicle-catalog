@@ -4,14 +4,23 @@ import {
   provideHttpClientTesting,
   TestRequest,
 } from '@angular/common/http/testing';
-import { Component, signal, viewChild } from '@angular/core';
+import { Component, viewChild } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { Catalog, CatalogEdit } from '../../core/catalogs';
+import { MessageService } from 'primeng/api';
+import { Catalog, Catalogs } from '../../core/catalogs';
 import { AddFeaturesDialog } from './add-features-dialog';
+import { Editing } from './editing';
 
-/** A catalog whose only feature row is the panoramic roof. */
+/** A working copy, read at revision 4, whose only feature row is the panoramic roof. */
 const catalog = {
-  snapshot: { catalogId: 41, featureRows: [{ id: 1, code: 'ROOF_PANORAMIC' }] },
+  owned: true,
+  issues: [],
+  snapshot: {
+    catalogId: 41,
+    status: 'DRAFT',
+    revision: 4,
+    featureRows: [{ id: 1, code: 'ROOF_PANORAMIC' }],
+  },
 } as unknown as Catalog;
 
 const roof = {
@@ -32,28 +41,17 @@ const tow = {
 
 @Component({
   imports: [AddFeaturesDialog],
-  template: `<app-add-features-dialog [catalog]="catalog" [run]="run" [editable]="editable()" />`,
+  template: `<app-add-features-dialog [catalog]="catalog" />`,
 })
 class Host {
   readonly dialog = viewChild.required(AddFeaturesDialog);
   readonly catalog = catalog;
-  readonly editable = signal(true);
-
-  /** The edits the dialog asked to be sent. Each is sent as an edit of revision 4. */
-  readonly sent: Promise<number>[] = [];
-  refusal: unknown = null;
-
-  readonly run = async (edit: CatalogEdit): Promise<void> => {
-    this.sent.push(edit(4));
-    if (this.refusal) {
-      throw this.refusal;
-    }
-  };
 }
 
 describe('AddFeaturesDialog', () => {
   let backend: HttpTestingController;
   let fixture: ComponentFixture<Host>;
+  let editing: Editing;
 
   const dialog = () => document.querySelector<HTMLElement>('.p-dialog')!;
 
@@ -68,12 +66,22 @@ describe('AddFeaturesDialog', () => {
       (candidate) => candidate.textContent?.trim() === label,
     )!;
 
-  /** Opens the dialog and answers its first search with these features, of this many in all. */
+  const addRequest = () =>
+    vi.waitFor(() => backend.expectOne({ method: 'POST', url: '/api/catalogs/41/features' }));
+
+  /**
+   * Opens the working copy for editing, then the dialog, and answers its first search with these
+   * features, of this many in all.
+   */
   async function open(items: object[], total = items.length): Promise<void> {
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(), provideHttpClientTesting(), MessageService, Editing],
     });
     backend = TestBed.inject(HttpTestingController);
+    editing = TestBed.inject(Editing);
+    const opened = editing.open(41);
+    backend.expectOne('/api/catalogs/41').flush(catalog);
+    await opened;
     fixture = TestBed.createComponent(Host);
     fixture.detectChanges();
 
@@ -203,29 +211,26 @@ describe('AddFeaturesDialog', () => {
 
     button('Add').click();
 
-    const added = await vi.waitFor(() =>
-      backend.expectOne({ method: 'POST', url: '/api/catalogs/41/features' }),
-    );
+    const added = await addRequest();
     expect(added.request.headers.get('If-Match')).toBe('"4"');
     expect(added.request.body).toEqual({ featureIds: [2, 3] });
-    added.flush({ revision: 5 });
+    added.flush({ revision: 5, issues: [] });
+    (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush(catalog);
     await vi.waitFor(() => expect(document.querySelector('.p-dialog')).toBeNull());
   });
 
   it('stays open and gives the reason when the backend refuses', async () => {
     await open([removableRoof]);
-    fixture.componentInstance.refusal = new Error();
 
     box('Add Removable Roof').click();
     await vi.waitFor(() => expect(button('Add').disabled).toBe(false));
     button('Add').click();
-    (
-      await vi.waitFor(() =>
-        backend.expectOne({ method: 'POST', url: '/api/catalogs/41/features' }),
-      )
-    ).flush({ revision: 5 });
+    (await addRequest()).flush(
+      { code: 'VALIDATION', detail: 'Removable Roof is retired.' },
+      { status: 422, statusText: 'Unprocessable' },
+    );
 
-    await vi.waitFor(() => expect(dialog().textContent).toContain('The request was refused.'));
+    await vi.waitFor(() => expect(dialog().textContent).toContain('Removable Roof is retired.'));
     expect(box('Add Removable Roof').checked).toBe(true);
   });
 
@@ -246,11 +251,39 @@ describe('AddFeaturesDialog', () => {
     expect(button('Add').disabled).toBe(true);
   });
 
-  it('closes when the catalog can no longer be edited', async () => {
+  it('closes when another edit stops the editor, such as a save of a cell still on its way', async () => {
     await open([removableRoof]);
+    const catalogs = TestBed.inject(Catalogs);
 
-    fixture.componentInstance.editable.set(false);
+    void editing.edit((revision) =>
+      catalogs.setCells(41, revision, [
+        { featureId: 1, trimId: 1, regionCode: 'NA', availability: 'S' },
+      ]),
+    );
+    (
+      await vi.waitFor(() => backend.expectOne({ method: 'PUT', url: '/api/catalogs/41/cells' }))
+    ).flush(
+      { code: 'REVISION_CONFLICT', detail: 'Changed somewhere else.' },
+      { status: 412, statusText: 'Precondition Failed' },
+    );
 
     await vi.waitFor(() => expect(document.querySelector('.p-dialog')).toBeNull());
+    expect(editing.stopped()).toBe('conflict');
+  });
+
+  it('closes after a revision conflict, which stops the editor, and shows no refusal', async () => {
+    await open([removableRoof]);
+    box('Add Removable Roof').click();
+    await vi.waitFor(() => expect(button('Add').disabled).toBe(false));
+
+    button('Add').click();
+    (await addRequest()).flush(
+      { code: 'REVISION_CONFLICT', detail: 'Changed somewhere else.' },
+      { status: 412, statusText: 'Precondition Failed' },
+    );
+
+    await vi.waitFor(() => expect(document.querySelector('.p-dialog')).toBeNull());
+    expect(editing.stopped()).toBe('conflict');
+    expect(document.body.textContent).not.toContain('Changed somewhere else.');
   });
 });
