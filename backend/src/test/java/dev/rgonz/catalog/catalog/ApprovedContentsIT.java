@@ -26,6 +26,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Checks that the contents of an Approved version are read from the cache once it holds them, that
@@ -43,6 +44,9 @@ class ApprovedContentsIT extends WorkingCopyTests {
   @Autowired StringRedisTemplate cache;
   @Autowired ClientResources client;
   @Autowired ApplicationContext application;
+  @Autowired TransactionTemplate transactions;
+  @Autowired Catalogs catalogs;
+  @Autowired Reviews reviews;
 
   /** The current Approved version of the seeded Compact SUV 2026. */
   private long approved;
@@ -299,5 +303,50 @@ class ApprovedContentsIT extends WorkingCopyTests {
               snapshot(open(ana(), approved));
               assertThat(counted().getFirst()).as("hits").isPositive();
             });
+  }
+
+  @Test
+  void anApprovalThatIsRolledBackLeavesNothingInTheCache() {
+    long copy = workingCopy(ana(), "COMPACT_SUV", 2026);
+    assertThat(edit(ana(), mvc.post().uri("/api/catalogs/{id}/submit", copy), rev(copy), "{}"))
+        .hasStatusOk();
+    var ifMatch = rev(copy);
+    var mia = person("mia");
+    assertThat(cache.hasKey(ApprovedContents.KEY + copy)).isFalse();
+
+    transactions.executeWithoutResult(
+        approval -> {
+          reviews.approve(copy, mia, ifMatch, null);
+          approval.setRollbackOnly();
+        });
+
+    assertThat(counted())
+        .as("hits, misses, fallbacks: the approval's answer read the version it made")
+        .containsExactly(0L, 1L, 0L);
+    assertThat(count("catalog WHERE id = %d AND status = 'SUBMITTED'", copy))
+        .as("the catalog is still Submitted")
+        .isOne();
+    assertThat(cache.hasKey(ApprovedContents.KEY + copy))
+        .as("an entry for the version the approval would have made")
+        .isFalse();
+  }
+
+  @Test
+  void
+      anApprovedVersionReadInsideATransactionThatIsNotReadOnlyReachesTheCacheOnlyOnceItHasCommitted() {
+    var ana = person("ana");
+
+    transactions.executeWithoutResult(
+        transaction -> {
+          assertThat(catalogs.find(approved, ana)).isPresent();
+          assertThat(cache.hasKey(ApprovedContents.KEY + approved))
+              .as("an entry before the transaction has committed")
+              .isFalse();
+        });
+
+    assertThat(cache.hasKey(ApprovedContents.KEY + approved))
+        .as("an entry once the transaction has committed")
+        .isTrue();
+    assertThat(counted()).as("hits, misses, fallbacks").containsExactly(0L, 1L, 0L);
   }
 }
