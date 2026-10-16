@@ -16,11 +16,11 @@ import { Message } from 'primeng/message';
 import { Select } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { Tag } from 'primeng/tag';
-import { Catalog, CatalogEdit, Catalogs, Removed } from '../../core/catalogs';
+import { Catalog, CatalogEdit, Catalogs, Edited, Removed } from '../../core/catalogs';
 import { Library, LibraryRegion, LibraryTrim } from '../../core/library';
 import { Cell, MatrixRegion, MatrixTrim } from '../../shared/availability-matrix/matrix';
-import { reasonOf } from '../../shared/reason-of';
 import { counted, sentence } from './counted';
+import { Editing } from './editing';
 import { rulesInWords } from './rule-words';
 
 /** A removal waiting for the owner to confirm it, with what it would take along. */
@@ -195,21 +195,13 @@ interface Question {
 })
 export class ManageOfferingsDialog {
   private readonly catalogs = inject(Catalogs);
+  private readonly editing = inject(Editing);
   private readonly library = inject(Library);
   private readonly messages = inject(MessageService);
   private readonly injector = inject(Injector);
 
   /** The working copy as it was last saved, which is what the cell counts are taken from. */
   readonly catalog = input.required<Catalog>();
-
-  /**
-   * Sends an edit behind the saves on their way and reads the catalog again once it is saved. It
-   * fails with the backend's refusal when the edit is not saved.
-   */
-  readonly run = input.required<(edit: CatalogEdit) => Promise<void>>();
-
-  /** Whether the catalog can still be edited. The dialog closes when it no longer can. */
-  readonly editable = input.required<boolean>();
 
   /** Whether the dialog is open. */
   protected readonly visible = signal(false);
@@ -279,7 +271,7 @@ export class ManageOfferingsDialog {
 
   constructor() {
     effect(() => {
-      if (!this.editable()) {
+      if (!this.editing.editable()) {
         this.visible.set(false);
       }
     });
@@ -407,20 +399,22 @@ export class ManageOfferingsDialog {
     this.question.set(null);
     this.busy.set(true);
     try {
-      await this.run()(edit);
-    } catch (error) {
-      this.refusal.set(reasonOf(error));
+      const outcome = await this.editing.restructure(edit);
+      if (outcome.kind === 'refused') {
+        this.refusal.set(outcome.reason);
+      }
     } finally {
       this.busy.set(false);
     }
   }
 
   /**
-   * Says which rules were deleted with a trim or a region once it is removed, and answers with the
-   * revision the removal led to.
+   * Says which rules were deleted with a trim or a region once it is removed, and answers with what
+   * the removal was answered with.
    */
-  private async removed(name: string, removal: Promise<Removed>): Promise<number> {
-    const { revision, rulesDeleted } = await removal;
+  private async removed(name: string, removal: Promise<Removed>): Promise<Edited> {
+    const answer = await removal;
+    const { rulesDeleted } = answer;
     if (rulesDeleted.length > 0) {
       this.messages.add({
         severity: 'info',
@@ -429,7 +423,7 @@ export class ManageOfferingsDialog {
       });
     }
 
-    return revision;
+    return answer;
   }
 
   private id(): number {

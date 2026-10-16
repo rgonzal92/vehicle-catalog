@@ -3,7 +3,8 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { Component, viewChild } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { MessageService } from 'primeng/api';
-import { CatalogChanges, CatalogEdit, UpdatePreview } from '../../core/catalogs';
+import { CatalogChanges, UpdatePreview } from '../../core/catalogs';
+import { Editing } from './editing';
 import { UpdateDialog } from './update-dialog';
 
 const nothing: CatalogChanges = {
@@ -45,26 +46,26 @@ const preview: UpdatePreview = {
   ],
 };
 
+/** The stale working copy as read at a revision. */
+const workingCopyAt = (revision: number) => ({
+  owned: true,
+  issues: [],
+  stale: true,
+  snapshot: { catalogId: 41, status: 'DRAFT', revision },
+});
+
 @Component({
   imports: [UpdateDialog],
-  template: `<app-update-dialog [catalogId]="41" [run]="run" />`,
+  template: `<app-update-dialog [catalogId]="41" />`,
 })
 class Host {
   readonly dialog = viewChild.required(UpdateDialog);
-
-  /** How many updates the dialog asked to be sent. Each is sent as it is. */
-  sent = 0;
-
-  readonly run = async (edit: CatalogEdit): Promise<void> => {
-    this.sent++;
-    await edit(7);
-  };
 }
 
 describe('UpdateDialog', () => {
   let backend: HttpTestingController;
   let messages: MessageService;
-  let host: Host;
+  let editing: Editing;
 
   const dialog = () => document.querySelector<HTMLElement>('.p-dialog');
 
@@ -84,16 +85,22 @@ describe('UpdateDialog', () => {
       .find((candidate) => candidate.textContent?.trim() === label)!
       .querySelector('input')!;
 
-  /** Asks for the dialog, and answers the update it works out with this. */
-  async function open(answer: UpdatePreview | number): Promise<void> {
+  /**
+   * Opens the working copy for editing as read at the revision, asks for the dialog, and answers
+   * the update it works out with this.
+   */
+  async function open(answer: UpdatePreview | number, revision = 7): Promise<void> {
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting(), MessageService],
+      providers: [provideHttpClient(), provideHttpClientTesting(), MessageService, Editing],
     });
     backend = TestBed.inject(HttpTestingController);
     messages = TestBed.inject(MessageService);
     vi.spyOn(messages, 'add');
+    editing = TestBed.inject(Editing);
+    const read = editing.open(41);
+    backend.expectOne('/api/catalogs/41').flush(workingCopyAt(revision));
+    await read;
     const fixture = TestBed.createComponent(Host);
-    host = fixture.componentInstance;
     fixture.detectChanges();
 
     const opened = fixture.componentInstance.dialog().open();
@@ -178,6 +185,10 @@ describe('UpdateDialog', () => {
       resolutions: { 'cell:8:2:NA': 'THEIRS', 'region:EU': 'MINE' },
     });
     update.flush({ revision: 8, issues: [], stale: false });
+    (await vi.waitFor(() => backend.expectOne('/api/catalogs/41'))).flush({
+      ...workingCopyAt(8),
+      stale: false,
+    });
     await vi.waitFor(() =>
       expect(messages.add).toHaveBeenCalledWith({
         severity: 'success',
@@ -185,7 +196,19 @@ describe('UpdateDialog', () => {
         detail: 'It now has Approved v4 as its base.',
       }),
     );
-    expect(host.sent).toBe(1);
+    expect(editing.stale()).toBe(false);
+  });
+
+  it('sends nothing, and stops the editor, when the catalog has changed since the update was worked out', async () => {
+    await open({ ...preview, conflicts: [] }, 8);
+    await vi.waitFor(() => expect(button('Update catalog').disabled).toBe(false));
+
+    button('Update catalog').click();
+
+    await vi.waitFor(() => expect(dialog()).toBeNull());
+    backend.expectNone({ method: 'POST', url: '/api/catalogs/41/merge' });
+    expect(editing.stopped()).toBe('conflict');
+    expect(messages.add).not.toHaveBeenCalled();
   });
 
   it('says why an update was refused, and works it out again when asked', async () => {

@@ -205,10 +205,7 @@ export class ApprovedPage {
    * What validation finds in the version being shown against the library as it is today, which may
    * be more than when it was approved. The version itself does not change.
    */
-  protected readonly issues = computed(() => {
-    const shown = this.catalog();
-    return shown ? this.catalogs.issuesOf(shown.snapshot.catalogId) : [];
-  });
+  protected readonly issues = computed(() => this.catalog()?.issues ?? []);
   protected readonly errors = computed(
     () => this.issues().filter(({ severity }) => severity === 'ERROR').length,
   );

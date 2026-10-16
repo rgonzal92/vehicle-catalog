@@ -1,5 +1,4 @@
 import { DatePipe } from '@angular/common';
-import { HttpErrorResponse } from '@angular/common/http';
 import {
   afterNextRender,
   Component,
@@ -8,6 +7,7 @@ import {
   ElementRef,
   inject,
   Injector,
+  linkedSignal,
   signal,
   viewChild,
 } from '@angular/core';
@@ -35,7 +35,6 @@ import { Tag } from 'primeng/tag';
 import {
   baseInWords,
   Catalog,
-  CatalogEdit,
   Catalogs,
   LONGEST_CATALOG_NAME,
   LONGEST_NOTE,
@@ -52,11 +51,11 @@ import { Loading, ReadFailed } from '../../shared/read-state';
 import { reasonOf } from '../../shared/reason-of';
 import { AddFeaturesDialog } from './add-features-dialog';
 import { counted, sentence } from './counted';
+import { Editing, Outcome, Stop } from './editing';
 import { HistoryTab } from './history-tab';
 import { ManageOfferingsDialog } from './manage-offerings-dialog';
 import { rulesInWords } from './rule-words';
 import { RulesTab } from './rules-tab';
-import { failureOf, NotSent, SaveQueue, SaveStop } from './save-queue';
 import { UpdateDialog } from './update-dialog';
 
 /**
@@ -110,6 +109,7 @@ import { UpdateDialog } from './update-dialog';
     RulesTab,
     UpdateDialog,
   ],
+  providers: [Editing],
   selector: 'app-catalog-editor-page',
   template: `
     <div class="grid gap-6">
@@ -281,7 +281,7 @@ import { UpdateDialog } from './update-dialog';
         }
         @if (catalog.owned && catalog.snapshot.status === 'DRAFT') {
           <!-- It outlives the notice, which goes as soon as the update is saved. -->
-          <app-update-dialog [catalogId]="catalog.snapshot.catalogId" [run]="restructure" />
+          <app-update-dialog [catalogId]="catalog.snapshot.catalogId" />
         }
         @if (catalog.vehicleLineActive === false && catalog.snapshot.status !== 'APPROVED') {
           <p class="notice" role="status" data-notice="vehicle-line">
@@ -384,13 +384,13 @@ import { UpdateDialog } from './update-dialog';
                     />
                   </div>
                 </form>
-                @if (editable() || managing()) {
+                @if (editable() || reading()) {
                   <div class="flex flex-wrap gap-2">
                     <button
                       pButton
                       type="button"
                       severity="secondary"
-                      [disabled]="managing()"
+                      [disabled]="reading()"
                       (click)="adding.open()"
                     >
                       <svg data-p-icon="plus" pButtonIcon />
@@ -400,7 +400,7 @@ import { UpdateDialog } from './update-dialog';
                       pButton
                       type="button"
                       severity="secondary"
-                      [disabled]="managing()"
+                      [disabled]="reading()"
                       (click)="manage(offerings)"
                     >
                       <svg data-p-icon="cog" pButtonIcon />
@@ -446,12 +446,7 @@ import { UpdateDialog } from './update-dialog';
                 (cellChange)="save($event)"
                 (featureRemove)="askToRemove($event)"
               />
-              <app-add-features-dialog
-                #adding
-                [catalog]="catalog"
-                [run]="restructure"
-                [editable]="editable()"
-              />
+              <app-add-features-dialog #adding [catalog]="catalog" />
               <p-dialog
                 header="Remove feature row"
                 closeAriaLabel="Close"
@@ -499,21 +494,11 @@ import { UpdateDialog } from './update-dialog';
                   </div>
                 }
               </p-dialog>
-              <app-manage-offerings-dialog
-                #offerings
-                [catalog]="catalog"
-                [run]="restructure"
-                [editable]="editable()"
-              />
+              <app-manage-offerings-dialog #offerings [catalog]="catalog" />
             </p-tabpanel>
             <p-tabpanel value="rules">
               @if (tab() === 'rules') {
-                <app-rules-tab
-                  [catalog]="catalog"
-                  [run]="restructure"
-                  [editable]="editable()"
-                  [shown]="shownRule()"
-                />
+                <app-rules-tab [catalog]="catalog" [shown]="shownRule()" />
               }
             </p-tabpanel>
             <p-tabpanel value="issues">
@@ -544,31 +529,31 @@ import { UpdateDialog } from './update-dialog';
 })
 export class CatalogEditorPage {
   private readonly catalogs = inject(Catalogs);
+  private readonly editing = inject(Editing);
   protected readonly fixedLists = inject(FixedLists);
   private readonly messages = inject(MessageService);
   private readonly injector = inject(Injector);
   protected readonly id = Number(inject(ActivatedRoute).snapshot.paramMap.get('id'));
 
-  protected readonly catalog = signal<Catalog | null>(null);
+  protected readonly catalog = this.editing.catalog;
 
-  /** The catalog's issues as the latest answer about it gave them, Errors before Warnings. */
-  protected readonly issues = computed(() => this.catalogs.issuesOf(this.id));
+  /** The catalog's issues as of the highest revision heard, Errors before Warnings. */
+  protected readonly issues = this.editing.issues;
   protected readonly errors = computed(
     () => this.issues().filter(({ severity }) => severity === 'ERROR').length,
   );
   protected readonly warnings = computed(() => this.issues().length - this.errors());
 
   /**
-   * Whether the catalog is stale, as the latest answer about it said: its lineage's current
-   * Approved is no longer the version it was made from.
+   * Whether the catalog is stale as of the highest revision heard: its lineage's current Approved
+   * is no longer the version it was made from.
    */
-  protected readonly stale = computed(() => this.catalogs.staleOf(this.id));
+  protected readonly stale = this.editing.stale;
 
-  /** Whether the address names no catalog, or one this person may not open. */
-  protected readonly missing = signal(false);
-
-  /** Whether the catalog could not be read at all, which the page then says. */
-  protected readonly failed = signal(false);
+  protected readonly missing = this.editing.missing;
+  protected readonly failed = this.editing.failed;
+  protected readonly editable = this.editing.editable;
+  protected readonly reading = this.editing.reading;
 
   protected readonly statusNames = STATUS_NAMES;
   protected readonly statusSeverities = STATUS_SEVERITIES;
@@ -584,12 +569,6 @@ export class CatalogEditorPage {
 
   /** The matrix, which is told how the save of each change it reported went. */
   private readonly matrix = viewChild<AvailabilityMatrix>('matrix');
-
-  /**
-   * Sends this page's edits in the order they were made, one at a time. Each time the catalog is
-   * read, it gets a new one that starts from the revision read.
-   */
-  private readonly saves = signal<SaveQueue<CatalogEdit> | null>(null);
 
   /**
    * What narrows the matrix to the feature rows the person is working on: part of a code or a
@@ -688,49 +667,25 @@ export class CatalogEditorPage {
 
   /**
    * The codes of the regions the person has hidden from the matrix. It is a way of looking at the
-   * catalog and changes nothing in it.
+   * catalog and changes nothing in it. A region the catalog no longer has is no longer hidden,
+   * should it be added again.
    */
-  protected readonly hiddenRegions = signal<ReadonlySet<string>>(new Set());
-
-  /**
-   * Whether the catalog is being read again before the dialog for its trims and regions opens.
-   * Nothing is edited meanwhile, so that no change is made from the revision being left behind.
-   */
-  protected readonly managing = signal(false);
-
-  /**
-   * Whether the catalog could not be read again after a change of what its matrix is made of (its
-   * feature rows, trims, regions, or offerings) was saved. What the page shows is then behind what is saved.
-   */
-  private readonly behind = signal(false);
-
-  /**
-   * Whether the person may edit the catalog: it is theirs and in status Draft, and the page shows
-   * it as saved, with no failed save or read in the way.
-   */
-  protected readonly editable = computed(() => {
-    const catalog = this.catalog();
-    return (
-      !!catalog?.owned &&
-      catalog.snapshot.status === 'DRAFT' &&
-      !this.saves()?.stopped() &&
-      !this.managing() &&
-      !this.behind()
-    );
+  protected readonly hiddenRegions = linkedSignal<string[], ReadonlySet<string>>({
+    source: () => this.catalog()?.snapshot.regions.map(({ code }) => code) ?? [],
+    computation: (regions, previous) =>
+      new Set([...(previous?.value ?? [])].filter((code) => regions.includes(code))),
   });
 
   /**
    * Whether the history is drawn: only while its tab is chosen, so that it is read afresh each
    * time, and only once every change made so far has had its outcome, so that none is missing.
    */
-  protected readonly historyShown = computed(
-    () => this.tab() === 'history' && (this.saves()?.idle() ?? true),
-  );
+  protected readonly historyShown = computed(() => this.tab() === 'history' && this.editing.idle());
 
   /** What to tell the person while nothing more is saved until they reload, or null otherwise. */
   protected readonly reloadNeeded = computed(() => {
-    const stopped = this.saves()?.stopped();
-    return stopped ? STOPPED[stopped] : this.behind() ? BEHIND : null;
+    const stopped = this.editing.stopped();
+    return stopped ? STOPPED[stopped] : null;
   });
 
   constructor() {
@@ -740,74 +695,28 @@ export class CatalogEditorPage {
       }
     });
     void this.fixedLists.load();
-    void this.open();
+    void this.editing.open(this.id);
   }
 
   protected readonly baseInWords = baseInWords;
 
   /**
-   * Saves a cell the person just set, behind the saves still on their way, and tells the matrix how
-   * it went. The editor never sends a change a second time.
+   * Saves a cell the person just set, behind the saves still on their way, and hands the matrix
+   * the outcome. The reason of a refusal is told as a message too.
    */
   protected async save(cell: Cell): Promise<void> {
-    const saves = this.saves();
-    if (!saves) {
+    const outcome = await this.editing.edit((revision) =>
+      this.catalogs.setCells(this.id, revision, [cell]),
+    );
+    if (outcome.kind === 'saved' || outcome.kind === 'unchanged') {
+      this.matrix()?.saved(cell);
       return;
     }
-
-    try {
-      const changed = await saves.add((revision) =>
-        this.catalogs.setCells(this.id, revision, [cell]),
-      );
-      this.matrix()?.saved(cell);
-      if (!changed) {
-        this.noNewChanges();
-      }
-    } catch (error) {
-      if (error instanceof NotSent) {
-        this.matrix()?.notSaved(cell, NOT_SENT);
-        return;
-      }
-
-      const stopped = saves.stopped();
-      const reason = reasonOf(error);
-      this.matrix()?.notSaved(
-        cell,
-        stopped === 'uncertain' ? OUTCOME_UNKNOWN : `Not saved: ${reason}`,
-      );
-      if (!stopped) {
-        this.messages.add({ severity: 'error', summary: 'Not saved', detail: reason });
-      } else if (stopped === 'closed') {
-        await this.closed(reason);
-      }
+    this.matrix()?.notSaved(cell, whyNotSaved(outcome));
+    if (outcome.kind === 'refused') {
+      this.messages.add({ severity: 'error', summary: 'Not saved', detail: outcome.reason });
     }
   }
-
-  /**
-   * Sends a change of the catalog's feature rows, trims, regions, offerings, or rules behind the
-   * saves on their way, and reads the catalog again once it is saved, since such a change alters
-   * what the page is made of. It fails with the backend's refusal when the change is not saved.
-   */
-  protected readonly restructure = async (edit: CatalogEdit): Promise<void> => {
-    const saves = this.saves();
-    if (!saves) {
-      return;
-    }
-
-    try {
-      if (!(await saves.add(edit))) {
-        this.noNewChanges();
-      }
-    } catch (error) {
-      if (saves.stopped() === 'closed') {
-        await this.closed(reasonOf(error));
-      }
-      throw error;
-    }
-    if (!(await this.open())) {
-      this.behind.set(true);
-    }
-  };
 
   /**
    * Opens the dialog for the catalog's trims, regions, and offerings. It says how many cells go
@@ -815,17 +724,9 @@ export class CatalogEditorPage {
    * dialog stays shut when that fails.
    */
   protected async manage(dialog: ManageOfferingsDialog): Promise<void> {
-    const saves = this.saves();
-    this.managing.set(true);
-    try {
-      await saves?.whenIdle();
-      if (saves?.stopped() || !(await this.open())) {
-        return;
-      }
-    } finally {
-      this.managing.set(false);
+    if (await this.editing.readAgain()) {
+      await dialog.open();
     }
-    await dialog.open();
   }
 
   /** Turns the name in the header into a box to type the new name in. */
@@ -857,30 +758,18 @@ export class CatalogEditorPage {
 
   /** Saves the new name behind the saves on their way, or keeps the box open with the refusal. */
   protected async rename(): Promise<void> {
-    const saves = this.saves();
     const name = this.newName.getRawValue().name.trim();
-    if (!saves || this.newName.invalid || this.renamingNow()) {
+    if (this.newName.invalid || this.renamingNow()) {
       return;
     }
 
     this.renamingNow.set(true);
     try {
-      const changed = await saves.add((revision) => this.catalogs.rename(this.id, revision, name));
-      if (changed) {
-        this.catalog.update((catalog) => catalog && { ...catalog, name });
+      const outcome = await this.editing.rename(name);
+      if (outcome.kind === 'refused') {
+        this.renameRefusal.set(outcome.reason);
       } else {
-        this.noNewChanges();
-      }
-      this.stopRenaming();
-    } catch (error) {
-      if (failureOf(error) === 'rejected') {
-        this.renameRefusal.set(reasonOf(error));
-        return;
-      }
-      // The editor has stopped, which the banner says.
-      this.stopRenaming();
-      if (saves.stopped() === 'closed') {
-        await this.closed(reasonOf(error));
+        this.stopRenaming();
       }
     } finally {
       this.renamingNow.set(false);
@@ -923,13 +812,12 @@ export class CatalogEditorPage {
     this.submitRefusal.set('');
     this.submittingNow.set(true);
     try {
-      await this.restructure((revision) => this.catalogs.submit(this.id, revision, note));
-      this.submitting.set(false);
-    } catch (error) {
-      if (failureOf(error) === 'rejected') {
-        this.submitRefusal.set(reasonOf(error));
+      const outcome = await this.editing.restructure((revision) =>
+        this.catalogs.submit(this.id, revision, note),
+      );
+      if (outcome.kind === 'refused') {
+        this.submitRefusal.set(outcome.reason);
       } else {
-        // The editor has stopped or read the catalog again, and says so itself.
         this.submitting.set(false);
       }
     } finally {
@@ -942,11 +830,10 @@ export class CatalogEditorPage {
    * catalog as it is saved, so the saves on their way go first.
    */
   protected async previewUpdate(): Promise<void> {
-    const saves = this.saves();
     this.previewing.set(true);
     try {
-      await saves?.whenIdle();
-      if (!saves?.stopped()) {
+      await this.editing.whenIdle();
+      if (!this.editing.stopped()) {
         await this.updateDialog()?.open();
       }
     } finally {
@@ -966,7 +853,7 @@ export class CatalogEditorPage {
     } catch (error) {
       this.messages.add({ severity: 'error', summary: 'Not withdrawn', detail: reasonOf(error) });
     }
-    await this.open();
+    await this.editing.reload();
     this.withdrawing.set(false);
   }
 
@@ -1011,16 +898,12 @@ export class CatalogEditorPage {
 
     this.removingNow.set(true);
     try {
-      await this.restructure(
-        async (revision) =>
-          (await this.catalogs.removeFeature(this.id, revision, feature.id, withItsRules)).revision,
+      const outcome = await this.editing.restructure((revision) =>
+        this.catalogs.removeFeature(this.id, revision, feature.id, withItsRules),
       );
-      this.removing.set(null);
-    } catch (error) {
-      if (failureOf(error) === 'rejected') {
-        this.removalRefusal.set(reasonOf(error));
+      if (outcome.kind === 'refused') {
+        this.removalRefusal.set(outcome.reason);
       } else {
-        // The editor has stopped or read the catalog again, and says so itself.
         this.removing.set(null);
       }
     } finally {
@@ -1066,74 +949,35 @@ export class CatalogEditorPage {
     });
   }
 
-  /** Tells the person that what they asked for was already so, and that nothing was changed. */
-  private noNewChanges(): void {
-    this.messages.add({
-      severity: 'info',
-      summary: 'No new changes',
-      detail: 'The catalog was already as you set it, so nothing was saved.',
-    });
-  }
-
-  /** Says why the catalog can no longer be edited, and reads it again as it is now. */
-  private async closed(reason: string): Promise<void> {
-    this.messages.add({ severity: 'warn', summary: 'Not saved', detail: reason });
-    await this.open();
-  }
-
   /** Reads the catalog again, which shows what was saved and lets editing go on. */
   protected reload(): void {
-    void this.open();
-  }
-
-  /**
-   * Reads the catalog and starts the queue of its edits over from the revision read. It says
-   * whether the catalog was read.
-   */
-  private async open(): Promise<boolean> {
-    this.failed.set(false);
-    try {
-      const catalog = await this.catalogs.find(this.id);
-      const regions = new Set(catalog.snapshot.regions.map(({ code }) => code));
-      this.saves.set(
-        new SaveQueue<CatalogEdit>((edit, revision) => edit(revision), catalog.snapshot.revision),
-      );
-      this.catalog.set(catalog);
-      this.behind.set(false);
-      // A region the catalog no longer has is no longer hidden, should it be added again.
-      this.hiddenRegions.update(
-        (hidden) => new Set([...hidden].filter((code) => regions.has(code))),
-      );
-      return true;
-    } catch (error) {
-      // The backend refuses an address that names no catalog the person may open. Any other failure
-      // has been shown as a message.
-      if (error instanceof HttpErrorResponse && [400, 404].includes(error.status)) {
-        this.catalog.set(null);
-        this.missing.set(true);
-      }
-      // A catalog that was never read leaves nothing to show. One that was read stays in view.
-      this.failed.set(!this.missing() && !this.catalog());
-      return false;
-    }
+    void this.editing.reload();
   }
 }
 
-/** What the banner says for each way a failed save stops the editor. */
-const STOPPED: Record<SaveStop, string> = {
+/** What the banner says for each way the editor stops. */
+const STOPPED: Record<Stop, string> = {
   conflict:
     'This catalog was changed somewhere else after you opened it, so your changes since were not saved. Reload the catalog to go on.',
   uncertain:
     'No answer says whether a change of yours was saved. Reload the catalog to see, and to go on.',
   closed: 'This catalog can no longer be edited. Reload it to see it as it is now.',
+  behind: 'Your change was saved, but the catalog could not be read again. Reload it to go on.',
 };
-
-/** What the banner says when the page could not catch up with a change it saved. */
-const BEHIND =
-  'Your change was saved, but the catalog could not be read again. Reload it to go on.';
 
 /** What the mark says on a cell whose change was never sent. */
 const NOT_SENT = 'Not sent, because an earlier change was not saved.';
 
 /** What the mark says on a cell whose change may or may not have been saved. */
 const OUTCOME_UNKNOWN = 'No answer says whether this change was saved.';
+
+/** What the mark says on a cell whose change was not saved, by what became of the change. */
+function whyNotSaved(outcome: Exclude<Outcome, { kind: 'saved' | 'unchanged' }>): string {
+  if (outcome.kind === 'stopped' && outcome.why === 'not sent') {
+    return NOT_SENT;
+  }
+  if (outcome.kind === 'stopped' && outcome.why === 'uncertain') {
+    return OUTCOME_UNKNOWN;
+  }
+  return `Not saved: ${outcome.reason}`;
+}

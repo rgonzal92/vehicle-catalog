@@ -1,5 +1,5 @@
 import { HttpClient, HttpContext, HttpErrorResponse } from '@angular/common/http';
-import { inject, Injectable, signal } from '@angular/core';
+import { inject, Injectable } from '@angular/core';
 import { firstValueFrom, timeout } from 'rxjs';
 import {
   Availability,
@@ -255,9 +255,10 @@ export interface CatalogExport {
 }
 
 /** What a saved edit of a working copy answers with: where it led, and the issues there. */
-interface Edited {
+export interface Edited {
   revision: number;
-  issues: Issue[];
+  /** Every issue the catalog then has. A backend that is one release behind answers without. */
+  issues?: Issue[];
   /** The rules that went with a feature row, a trim, or a region the edit removed, in words. */
   rulesDeleted?: string[];
   /** Whether the catalog is stale by now. */
@@ -265,15 +266,12 @@ interface Edited {
 }
 
 /**
- * What removing a feature row, a trim, or a region of a working copy led to: the revision, and the
- * rules that were deleted with it, each in words and a pair once.
+ * What removing a feature row, a trim, or a region of a working copy led to: the answer to the
+ * edit, with the rules that were deleted with it, each in words and a pair once.
  */
-export interface Removed {
-  revision: number;
+export interface Removed extends Edited {
   rulesDeleted: string[];
 }
-
-const NO_ISSUES: Issue[] = [];
 
 /** A working copy as its owner's list shows it. */
 export interface WorkingCopy {
@@ -358,9 +356,9 @@ export type StartPoint =
 
 /**
  * An edit of a working copy that is ready to be sent: given the revision it is made from, it sends
- * itself and answers with the revision it led to.
+ * itself and answers with what the backend answered, which names the revision it led to.
  */
-export type CatalogEdit = (revision: number) => Promise<number>;
+export type CatalogEdit = (revision: number) => Promise<Edited>;
 
 /** The most characters a note to a reviewer, or a reviewer's comment, has. */
 export const LONGEST_NOTE = 1000;
@@ -401,28 +399,6 @@ export function startPointInWords(start: StartPoint): string {
 export class Catalogs {
   private readonly http = inject(HttpClient);
 
-  /**
-   * The issues of each catalog, and whether it is stale, as of the highest revision an answer
-   * about it has carried.
-   */
-  private readonly issues = signal<ReadonlyMap<number, Edited>>(new Map());
-
-  /**
-   * The catalog's issues as the latest answer about it gave them, Errors before Warnings. Reading
-   * the catalog and every edit of it bring them up to date.
-   */
-  issuesOf(catalogId: number): Issue[] {
-    return this.issues().get(catalogId)?.issues ?? NO_ISSUES;
-  }
-
-  /**
-   * Whether the catalog is stale, as the latest answer about it said. Another catalog of its
-   * lineage can be approved while its owner is editing, and the answer to their next edit says so.
-   */
-  staleOf(catalogId: number): boolean {
-    return this.issues().get(catalogId)?.stale ?? false;
-  }
-
   /** Every lineage that has an Approved version, with its current one. */
   lineages(): Promise<LineageSummary[]> {
     return firstValueFrom(this.http.get<LineageSummary[]>('/api/lineages'));
@@ -433,11 +409,8 @@ export class Catalogs {
     return firstValueFrom(this.http.get<VersionSummary[]>(`/api/lineages/${lineageId}/versions`));
   }
 
-  async find(catalogId: number): Promise<Catalog> {
-    const catalog = await firstValueFrom(this.http.get<Catalog>(`/api/catalogs/${catalogId}`));
-    this.keep(catalogId, catalog.snapshot.revision, catalog.issues, catalog.stale);
-
-    return catalog;
+  find(catalogId: number): Promise<Catalog> {
+    return firstValueFrom(this.http.get<Catalog>(`/api/catalogs/${catalogId}`));
   }
 
   /** The signed-in person's working copies, the one changed last first. */
@@ -524,7 +497,7 @@ export class Catalogs {
     revision: number,
     approvedCatalogId: number,
     resolutions: Record<string, ConflictSide>,
-  ): Promise<number> {
+  ): Promise<Edited> {
     return this.edit(catalogId, 'POST', '/merge', revision, { approvedCatalogId, resolutions });
   }
 
@@ -548,7 +521,7 @@ export class Catalogs {
   }
 
   /** Renames a working copy. */
-  rename(catalogId: number, revision: number, name: string): Promise<number> {
+  rename(catalogId: number, revision: number, name: string): Promise<Edited> {
     return this.edit(catalogId, 'PATCH', '', revision, { name });
   }
 
@@ -564,7 +537,7 @@ export class Catalogs {
    * Submits a working copy for review, with a note for the reviewer if there is one. The backend
    * refuses while the catalog has an Error or its vehicle line is inactive.
    */
-  submit(catalogId: number, revision: number, note: string): Promise<number> {
+  submit(catalogId: number, revision: number, note: string): Promise<Edited> {
     return this.edit(catalogId, 'POST', '/submit', revision, { note });
   }
 
@@ -573,12 +546,12 @@ export class Catalogs {
    * of its lineage. The backend refuses a catalog that has an Error, is stale, or whose vehicle
    * line is inactive, and one that has changed since that revision.
    */
-  approve(catalogId: number, revision: number, comment: string): Promise<number> {
+  approve(catalogId: number, revision: number, comment: string): Promise<Edited> {
     return this.edit(catalogId, 'POST', '/approve', revision, { comment });
   }
 
   /** Rejects a Submitted catalog as the reviewer saw it, with the reason, back to its owner. */
-  reject(catalogId: number, revision: number, comment: string): Promise<number> {
+  reject(catalogId: number, revision: number, comment: string): Promise<Edited> {
     return this.edit(catalogId, 'POST', '/reject', revision, { comment });
   }
 
@@ -592,12 +565,12 @@ export class Catalogs {
   }
 
   /** Sets cells of a working copy. Setting a cell to Not offered removes it. */
-  setCells(catalogId: number, revision: number, cells: Cell[]): Promise<number> {
+  setCells(catalogId: number, revision: number, cells: Cell[]): Promise<Edited> {
     return this.edit(catalogId, 'PUT', '/cells', revision, cells);
   }
 
   /** Adds library trims to a working copy. A new trim is sold nowhere until its regions are set. */
-  addTrims(catalogId: number, revision: number, trimIds: number[]): Promise<number> {
+  addTrims(catalogId: number, revision: number, trimIds: number[]): Promise<Edited> {
     return this.edit(catalogId, 'POST', '/trims', revision, { trimIds });
   }
 
@@ -610,7 +583,7 @@ export class Catalogs {
   }
 
   /** Adds library regions to a working copy. */
-  addRegions(catalogId: number, revision: number, regionCodes: string[]): Promise<number> {
+  addRegions(catalogId: number, revision: number, regionCodes: string[]): Promise<Edited> {
     return this.edit(catalogId, 'POST', '/regions', revision, { regionCodes });
   }
 
@@ -623,7 +596,7 @@ export class Catalogs {
   }
 
   /** Adds library features to a working copy as feature rows, each with every cell Not offered. */
-  addFeatures(catalogId: number, revision: number, featureIds: number[]): Promise<number> {
+  addFeatures(catalogId: number, revision: number, featureIds: number[]): Promise<Edited> {
     return this.edit(catalogId, 'POST', '/features', revision, { featureIds });
   }
 
@@ -650,14 +623,14 @@ export class Catalogs {
     revision: number,
     trimId: number,
     regionCodes: string[],
-  ): Promise<number> {
+  ): Promise<Edited> {
     return this.edit(catalogId, 'PUT', `/trims/${trimId}/regions`, revision, {
       regionCodes,
     });
   }
 
   /** Adds a rule to a working copy. An Excludes rule is added as a pair for each of its targets. */
-  addRule(catalogId: number, revision: number, rule: CatalogRuleContent): Promise<number> {
+  addRule(catalogId: number, revision: number, rule: CatalogRuleContent): Promise<Edited> {
     return this.edit(catalogId, 'POST', '/rules', revision, rule);
   }
 
@@ -681,75 +654,37 @@ export class Catalogs {
     revision: number,
     ruleKey: string,
     rule: CatalogRuleContent,
-  ): Promise<number> {
+  ): Promise<Edited> {
     return this.edit(catalogId, 'PUT', `/rules/${ruleKey}`, revision, rule);
   }
 
   /** Deletes a rule of a working copy, and its pair with it. */
-  deleteRule(catalogId: number, revision: number, ruleKey: string): Promise<number> {
+  deleteRule(catalogId: number, revision: number, ruleKey: string): Promise<Edited> {
     return this.edit(catalogId, 'DELETE', `/rules/${ruleKey}`, revision);
   }
 
   /**
-   * Sends an edit of a working copy as one made from the revision, answers with the revision it led
-   * to, and keeps the issues the catalog then has. The backend refuses the edit when the catalog
-   * has changed since that revision. An edit that has gone unanswered for {@link SAVE_PATIENCE} is
-   * given up and fails.
+   * Sends an edit of a working copy as one made from the revision, and answers with what the
+   * backend answered: the revision it led to, and the issues the catalog then has. The backend
+   * refuses the edit when the catalog has changed since that revision. An edit that has gone
+   * unanswered for {@link SAVE_PATIENCE} is given up and fails.
    */
-  private async edit(
-    catalogId: number,
-    method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
-    part: string,
-    revision: number,
-    body?: unknown,
-  ): Promise<number> {
-    return (await this.answerTo(catalogId, method, part, revision, body)).revision;
-  }
-
-  /** Sends the removal of a part of a working copy, as an edit, and says what went with it. */
-  private async remove(catalogId: number, part: string, revision: number): Promise<Removed> {
-    const saved = await this.answerTo(catalogId, 'DELETE', part, revision);
-
-    // A backend that is one release behind answers without the rules it deleted.
-    return { revision: saved.revision, rulesDeleted: saved.rulesDeleted ?? [] };
-  }
-
-  private async answerTo(
+  private edit(
     catalogId: number,
     method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     part: string,
     revision: number,
     body?: unknown,
   ): Promise<Edited> {
-    const saved = await this.send<Edited>(
-      method,
-      `/api/catalogs/${catalogId}${part}`,
-      revision,
-      body,
-    );
-    this.keep(catalogId, saved.revision, saved.issues, saved.stale);
-
-    return saved;
+    return this.send<Edited>(method, `/api/catalogs/${catalogId}${part}`, revision, body);
   }
 
-  /**
-   * Takes a catalog's issues from an answer, unless a later answer has been heard already: one that
-   * was slow to arrive says what the issues were, not what they are.
-   */
-  private keep(
-    catalogId: number,
-    revision: number,
-    issues: Issue[] | undefined,
-    stale: boolean | undefined,
-  ): void {
-    const known = this.issues().get(catalogId);
-    if (!known || revision >= known.revision) {
-      // A backend that is one release behind answers without issues, and without whether the
-      // catalog is stale.
-      this.issues.update((all) =>
-        new Map(all).set(catalogId, { revision, issues: issues ?? NO_ISSUES, stale: !!stale }),
-      );
-    }
+  /** Sends the removal of a part of a working copy, as an edit, and says what went with it. */
+  private async remove(catalogId: number, part: string, revision: number): Promise<Removed> {
+    const saved = await this.edit(catalogId, 'DELETE', part, revision);
+
+    // A backend that is one release behind answers without the rules it deleted.
+    return { ...saved, rulesDeleted: saved.rulesDeleted ?? [] };
   }
 
   /** Sends a request about a working copy as one made from the revision, and gives up in time. */

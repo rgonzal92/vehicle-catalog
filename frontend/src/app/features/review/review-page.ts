@@ -269,7 +269,7 @@ export class ReviewPage {
   /** Whether the decision is on its way, so that a second click decides nothing more. */
   protected readonly decidingNow = signal(false);
 
-  protected readonly issues = computed(() => this.catalogs.issuesOf(this.id));
+  protected readonly issues = computed(() => this.catalog()?.issues ?? []);
   protected readonly errors = computed(
     () => this.issues().filter(({ severity }) => severity === 'ERROR').length,
   );

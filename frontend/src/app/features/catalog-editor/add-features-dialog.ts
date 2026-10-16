@@ -7,7 +7,7 @@ import { InputText } from 'primeng/inputtext';
 import { Message } from 'primeng/message';
 import { Select } from 'primeng/select';
 import { TableModule } from 'primeng/table';
-import { Catalog, CatalogEdit, Catalogs } from '../../core/catalogs';
+import { Catalog, Catalogs } from '../../core/catalogs';
 import { FixedLists } from '../../core/fixed-lists';
 import {
   FeatureKind,
@@ -17,8 +17,8 @@ import {
   Library,
   LibraryFeature,
 } from '../../core/library';
-import { reasonOf } from '../../shared/reason-of';
 import { counted } from './counted';
+import { Editing } from './editing';
 
 /** What the table shows before the first answer to a search has come. */
 const NOTHING_FOUND: FeaturePage = { items: [], total: 0 };
@@ -163,20 +163,12 @@ const NOTHING_FOUND: FeaturePage = { items: [], total: 0 };
 })
 export class AddFeaturesDialog {
   private readonly catalogs = inject(Catalogs);
+  private readonly editing = inject(Editing);
   private readonly library = inject(Library);
   protected readonly fixedLists = inject(FixedLists);
 
   /** The working copy the features are added to. */
   readonly catalog = input.required<Catalog>();
-
-  /**
-   * Sends an edit behind the saves on their way and reads the catalog again once it is saved. It
-   * fails with the backend's refusal when the edit is not saved.
-   */
-  readonly run = input.required<(edit: CatalogEdit) => Promise<void>>();
-
-  /** Whether the catalog can still be edited. The dialog closes when it no longer can. */
-  readonly editable = input.required<boolean>();
 
   /** Whether the dialog is open. */
   protected readonly visible = signal(false);
@@ -222,8 +214,9 @@ export class AddFeaturesDialog {
   private asked = 0;
 
   constructor() {
+    // Whatever stops the editor closes the dialog, such as a save of a cell still on its way.
     effect(() => {
-      if (!this.editable()) {
+      if (!this.editing.editable()) {
         this.visible.set(false);
       }
     });
@@ -281,7 +274,10 @@ export class AddFeaturesDialog {
     });
   }
 
-  /** Adds the ticked features as feature rows and closes, or stays open with the refusal. */
+  /**
+   * Adds the ticked features as feature rows and closes, or stays open with the refusal when the
+   * backend refuses them.
+   */
   protected async add(): Promise<void> {
     const featureIds = [...this.ticked()];
     if (featureIds.length === 0 || this.adding()) {
@@ -291,12 +287,14 @@ export class AddFeaturesDialog {
     this.refusal.set('');
     this.adding.set(true);
     try {
-      await this.run()((revision) =>
+      const outcome = await this.editing.restructure((revision) =>
         this.catalogs.addFeatures(this.catalog().snapshot.catalogId, revision, featureIds),
       );
-      this.visible.set(false);
-    } catch (error) {
-      this.refusal.set(reasonOf(error));
+      if (outcome.kind === 'refused') {
+        this.refusal.set(outcome.reason);
+      } else {
+        this.visible.set(false);
+      }
     } finally {
       this.adding.set(false);
     }

@@ -6,7 +6,6 @@ import { Dialog } from 'primeng/dialog';
 import { Message } from 'primeng/message';
 import { TableModule } from 'primeng/table';
 import {
-  CatalogEdit,
   Catalogs,
   CONFLICT_KIND_NAMES,
   ConflictKind,
@@ -15,7 +14,7 @@ import {
 } from '../../core/catalogs';
 import { CatalogChangesList } from '../../shared/catalog-changes';
 import { reasonOf } from '../../shared/reason-of';
-import { failureOf } from './save-queue';
+import { Editing } from './editing';
 
 /**
  * Where the owner of a stale working copy updates it from its lineage's current Approved. It shows
@@ -142,16 +141,11 @@ import { failureOf } from './save-queue';
 })
 export class UpdateDialog {
   private readonly catalogs = inject(Catalogs);
+  private readonly editing = inject(Editing);
   private readonly messages = inject(MessageService);
 
   /** The stale working copy. */
   readonly catalogId = input.required<number>();
-
-  /**
-   * Sends an edit behind the saves on their way and reads the catalog again once it is saved. It
-   * fails with the backend's refusal when the edit is not saved.
-   */
-  readonly run = input.required<(edit: CatalogEdit) => Promise<void>>();
 
   /** Whether the dialog is open. */
   protected readonly visible = signal(false);
@@ -208,9 +202,10 @@ export class UpdateDialog {
   }
 
   /**
-   * Updates the catalog as it was when the update was worked out, with the sides taken. When the
-   * backend refuses because the Approved version has moved on, the dialog stays open with the
-   * reason and offers to work the update out again.
+   * Updates the catalog as it was when the update was worked out, with the sides taken. It is sent
+   * only while editing is at the revision the update was worked out from. When the backend refuses
+   * because the Approved version has moved on, the dialog stays open with the reason and offers to
+   * work the update out again.
    */
   protected async update(update: UpdatePreview): Promise<void> {
     if (this.updating()) {
@@ -220,26 +215,28 @@ export class UpdateDialog {
     this.refusal.set('');
     this.updating.set(true);
     try {
-      await this.run()(() =>
-        this.catalogs.update(
-          this.catalogId(),
-          update.revision,
-          update.approved.catalogId,
-          Object.fromEntries(this.choices()),
-        ),
+      const outcome = await this.editing.restructure(
+        (revision) =>
+          this.catalogs.update(
+            this.catalogId(),
+            revision,
+            update.approved.catalogId,
+            Object.fromEntries(this.choices()),
+          ),
+        update.revision,
       );
+      if (outcome.kind === 'refused') {
+        this.refusal.set(outcome.reason);
+        return;
+      }
       this.visible.set(false);
-      this.messages.add({
-        severity: 'success',
-        summary: 'Catalog updated',
-        detail: `It now has Approved v${update.approved.versionNumber} as its base.`,
-      });
-    } catch (error) {
-      if (failureOf(error) === 'rejected') {
-        this.refusal.set(reasonOf(error));
-      } else {
-        // The editor has stopped or read the catalog again, and says so itself.
-        this.visible.set(false);
+      // When editing has stopped instead, the editor says why itself.
+      if (outcome.kind !== 'stopped') {
+        this.messages.add({
+          severity: 'success',
+          summary: 'Catalog updated',
+          detail: `It now has Approved v${update.approved.versionNumber} as its base.`,
+        });
       }
     } finally {
       this.updating.set(false);
