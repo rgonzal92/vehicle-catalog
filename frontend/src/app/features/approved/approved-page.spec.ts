@@ -184,9 +184,7 @@ describe('ApprovedPage', () => {
       '2 issues marked',
     );
 
-    element
-      .querySelector<HTMLElement>('button[aria-label^="Show the cell of this issue"]')!
-      .click();
+    element.querySelector<HTMLElement>('button[aria-label^="Show cell of this issue"]')!.click();
 
     expect(shown).toEqual([{ featureId: 7, trimId: 1, regionCode: 'NA' }]);
   });

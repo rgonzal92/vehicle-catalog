@@ -147,7 +147,7 @@ test('a broken rule of a working copy is an issue, which shows the rule', async 
     name: /Leather Seats is Standard on Touring in North America and requires Hybrid Powertrain/,
   });
   await expect(issue).toContainText('Catalog rule');
-  await issue.getByRole('button', { name: /^Show the rule of this issue/ }).click();
+  await issue.getByRole('button', { name: /^Show rule of this issue/ }).click();
 
   await expect(page.getByRole('tab', { name: 'Rules' })).toHaveAttribute('aria-selected', 'true');
   const shown = rules.locator('tr[data-shown-rule]');

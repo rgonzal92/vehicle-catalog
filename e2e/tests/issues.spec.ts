@@ -64,7 +64,7 @@ test('a cell that breaks a global rule is marked, listed, and shown from the lis
   const issue = page.getByRole('tabpanel', { name: 'Issues' }).getByRole('row', { name: says });
   await expect(issue).toContainText('Global rule');
   await expect(issue).toContainText('Tow Package, Sport in North America');
-  await issue.getByRole('button', { name: /^Show the cell of this issue/ }).click();
+  await issue.getByRole('button', { name: /^Show cell of this issue/ }).click();
   await expect(page.getByRole('tab', { name: 'Features' })).toHaveAttribute(
     'aria-selected',
     'true',

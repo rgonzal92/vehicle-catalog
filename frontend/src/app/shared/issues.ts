@@ -63,7 +63,7 @@ export class IssueCounts {
                   severity="secondary"
                   size="small"
                   [text]="true"
-                  [ariaLabel]="'Show the cell of this issue: ' + issue.message"
+                  [ariaLabel]="'Show cell of this issue: ' + issue.message"
                   (onClick)="showCell.emit(issue)"
                 />
               }
@@ -73,7 +73,7 @@ export class IssueCounts {
                   severity="secondary"
                   size="small"
                   [text]="true"
-                  [ariaLabel]="'Show the rule of this issue: ' + issue.message"
+                  [ariaLabel]="'Show rule of this issue: ' + issue.message"
                   (onClick)="showRule.emit(issue)"
                 />
               }
