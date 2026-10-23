@@ -77,7 +77,7 @@ test('an author opens an Approved catalog from the dashboard and reads its versi
   // The cell of each issue is marked in the matrix, and an issue shows its cell. A read-only
   // matrix brings the cell into view and leaves the focus where it is.
   await issues
-    .getByRole('button', { name: /^Show the cell of this issue/ })
+    .getByRole('button', { name: /^Show cell of this issue/ })
     .first()
     .click();
   await expect(matrix.locator('td[title^="Warning: "]').first()).toBeInViewport();

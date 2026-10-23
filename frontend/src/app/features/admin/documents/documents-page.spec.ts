@@ -217,9 +217,9 @@ describe('DocumentsPage', () => {
       'Ready 12 passages',
       'FailedThe model did not answer.',
     ]);
-    expect(button('Process the document again: Launch notes')).toBeUndefined();
+    expect(button('Process again: Launch notes')).toBeUndefined();
 
-    button('Process the document again: Brochure').click();
+    button('Process again: Brochure').click();
     await settle();
 
     backend

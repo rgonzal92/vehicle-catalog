@@ -172,7 +172,7 @@ export const LOOKS_AGAIN_EVERY = 3000;
                       severity="secondary"
                       size="small"
                       [text]="true"
-                      [ariaLabel]="'Process the document again: ' + document.title"
+                      [ariaLabel]="'Process again: ' + document.title"
                       [loading]="processing() === document.id"
                       (onClick)="processAgain(document)"
                     />

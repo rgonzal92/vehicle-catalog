@@ -1308,7 +1308,7 @@ describe('CatalogEditorPage', () => {
       tab(element, 'Issues').click();
       const show = await vi.waitFor(() => {
         const found = element.querySelectorAll<HTMLElement>(
-          'button[aria-label^="Show the rule of this issue"]',
+          'button[aria-label^="Show rule of this issue"]',
         );
         expect(found, 'only the issue of the rule of the catalog').toHaveLength(1);
         return found[0];
@@ -1353,7 +1353,7 @@ describe('CatalogEditorPage', () => {
       );
       const show = await vi.waitFor(() => {
         const found = element.querySelector<HTMLElement>(
-          'button[aria-label^="Show the cell of this issue"]',
+          'button[aria-label^="Show cell of this issue"]',
         );
         expect(found).not.toBeNull();
         return found!;
