@@ -27,7 +27,7 @@ services:
   # "visitor" as a sandbox account that is not one of them, and "norole" as a person without a
   # role, as does any other name.
   login:
-    image: ghcr.io/navikt/mock-oauth2-server:6.1.2
+    image: ghcr.io/navikt/mock-oauth2-server:6.1.3
     environment:
       JSON_CONFIG: |
         {
