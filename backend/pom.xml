@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>4.1.1</version>
+		<version>4.1.2</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>dev.rgonz</groupId>
@@ -28,8 +28,8 @@
 	</scm>
 	<properties>
 		<java.version>25</java.version>
-		<aws-sdk.version>2.56.0</aws-sdk.version>
-		<spring-ai.version>2.0.1</spring-ai.version>
+		<aws-sdk.version>2.57.3</aws-sdk.version>
+		<spring-ai.version>2.0.2</spring-ai.version>
 	</properties>
 	<dependencies>
 		<!-- The model is reached with Spring AI's client for OpenAI. The beans are made in the
