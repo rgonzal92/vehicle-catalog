@@ -1,13 +1,13 @@
 # The jar is the same on every kind of processor, so it is built on the kind that builds the image,
 # whichever kind the image is for.
-FROM --platform=$BUILDPLATFORM amazoncorretto:25.0.4-alpine AS build
+FROM --platform=$BUILDPLATFORM amazoncorretto:25.0.5-alpine AS build
 WORKDIR /workspace
 COPY .mvn .mvn
 COPY mvnw pom.xml ./
 COPY src src
 RUN ./mvnw -B -DskipTests package
 
-FROM amazoncorretto:25.0.4-alpine
+FROM amazoncorretto:25.0.5-alpine
 WORKDIR /app
 COPY --from=build /workspace/target/*.jar app.jar
 USER 10001:10001
