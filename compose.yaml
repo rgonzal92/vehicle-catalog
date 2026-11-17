@@ -230,7 +230,7 @@ services:
   # past that, keeps nothing on disk, and asks for a password. Here that is the database's, so
   # that there is one password to set. The API and the worker do not wait for it.
   cache:
-    image: redis:8.10.2-alpine
+    image: redis:8.10.3-alpine
     command:
       - redis-server
       - --maxmemory
