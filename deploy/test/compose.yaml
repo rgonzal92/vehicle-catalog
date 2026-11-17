@@ -4,7 +4,7 @@
 services:
   # Stands in for Let's Encrypt. It comes to port 80 of the name to check, as Let's Encrypt does.
   authority:
-    image: ghcr.io/letsencrypt/pebble:2.10.1
+    image: ghcr.io/letsencrypt/pebble:2.10.3
     environment:
       # Checks at once, where it would otherwise wait a while first.
       PEBBLE_VA_NOSLEEP: "1"
@@ -25,7 +25,7 @@ services:
   # Stands in for the CloudWatch agent: it takes the metrics and traces the backend sends, and
   # writes down each one it is sent.
   agent:
-    image: otel/opentelemetry-collector:0.163.1
+    image: otel/opentelemetry-collector:0.165.0
     volumes:
       - ./test/agent.yaml:/etc/otelcol/config.yaml:ro
 
